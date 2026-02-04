@@ -23,7 +23,7 @@ export default defineConfig({
     },
     
     // ✅ Optimize output
-    minify: 'terser',
+    minify: 'esbuild',
     sourcemap: false, // Disable source maps in production
   },
   
