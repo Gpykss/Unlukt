@@ -1,16 +1,32 @@
-# React + Vite
+# unlukt
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Premium content monetization platform for creators.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Creator subscriptions (80/20 revenue split)
+- Payment integration (Bank Transfer NGN + USDT TRC20)
+- 5% referral program (4 months)
+- SFW/NSFW content tagging
+- Age verification (18+)
+- Clean feed with blur
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- React + Vite
+- Firebase (Auth, Firestore, Storage)
+- Korapay (Bank payments)
+- Cloudinary (Media storage)
+- Tailwind CSS
 
-## Expanding the ESLint configuration
+## Setup
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+npm install
+cp .env.example .env  # Add your API keys
+npm run dev
+```
+
+## Environment Variables
+
+See `.env.example` for required keys.
