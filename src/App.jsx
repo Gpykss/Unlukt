@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { Analytics } from '@vercel/analytics/react';
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute'; // ← NEW
@@ -99,6 +100,7 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <AppContent />
+        <Analytics />
       </AuthProvider>
     </BrowserRouter>
   );
