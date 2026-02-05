@@ -1,10 +1,133 @@
-// src/pages/Auth/Register.jsx - UPDATED WITH LOCK LOGO
+// src/pages/Auth/Register.jsx - WITH ANIMATED FLOATING CARD
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Eye, EyeOff, Loader2, Mail, Lock, Phone, Check, X, LockKeyhole } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Mail, Lock, Phone, Check, X, LockKeyhole, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+
+// ✅ Animated Floating Creator Card Component
+function AnimatedCreatorCard() {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  
+  const creators = [
+    { emoji: '👩', name: 'Sarah M', role: 'Model', earnings: '$12.5K/mo', fans: '3.2K' },
+    { emoji: '🧔', name: 'Mike D', role: 'Fitness', earnings: '$8.9K/mo', fans: '2.1K' },
+    { emoji: '👱‍♀️', name: 'Emma L', role: 'Artist', earnings: '$15.2K/mo', fans: '4.8K' },
+  ];
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % creators.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="relative w-96">
+      <motion.div
+        key={currentIndex}
+        initial={{ opacity: 0, scale: 0.9, rotateY: -15 }}
+        animate={{ opacity: 1, scale: 1, rotateY: 0 }}
+        exit={{ opacity: 0, scale: 0.9, rotateY: 15 }}
+        transition={{ duration: 0.6 }}
+        className="bg-white rounded-3xl p-6 shadow-2xl border border-gray-100 relative overflow-hidden"
+      >
+        {/* ✅ Animated gradient background */}
+        <motion.div
+          animate={{
+            background: [
+              'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
+              'linear-gradient(135deg, #fff7ed 0%, #fed7aa 100%)',
+              'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
+            ]
+          }}
+          transition={{ duration: 3, repeat: Infinity }}
+          className="absolute inset-0 opacity-30"
+        />
+
+        {/* Content */}
+        <div className="relative z-10">
+          {/* Status Badge */}
+          <div className="flex justify-between items-center mb-4">
+            <div className="bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full flex items-center space-x-1">
+              <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+              <span>ONLINE</span>
+            </div>
+            <motion.div
+              animate={{ rotate: [0, 10, -10, 0] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            >
+              <Sparkles className="w-5 h-5 text-yellow-500" />
+            </motion.div>
+          </div>
+
+          {/* Avatar */}
+          <div className="aspect-[3/4] bg-gradient-to-br from-red-100 via-red-50 to-orange-100 rounded-2xl mb-4 flex items-center justify-center overflow-hidden relative">
+            <motion.span
+              animate={{ scale: [1, 1.05, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              className="text-9xl"
+            >
+              {creators[currentIndex].emoji}
+            </motion.span>
+          </div>
+
+          {/* Info */}
+          <div className="text-center mb-4">
+            <h3 className="text-xl font-bold text-gray-900 mb-1">{creators[currentIndex].name}</h3>
+            <p className="text-gray-500 text-sm mb-3">{creators[currentIndex].role}</p>
+            
+            {/* Stats */}
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="bg-gray-50 rounded-xl p-3">
+                <p className="text-xs text-gray-500 mb-1">Monthly Earnings</p>
+                <p className="text-lg font-bold text-green-600">{creators[currentIndex].earnings}</p>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-3">
+                <p className="text-xs text-gray-500 mb-1">Fans</p>
+                <p className="text-lg font-bold text-blue-600">{creators[currentIndex].fans}</p>
+              </div>
+            </div>
+
+            <button className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white py-3 rounded-xl font-semibold hover:from-red-600 hover:to-red-700 transition-all shadow-lg hover:shadow-xl hover:scale-105">
+              Join Now
+            </button>
+          </div>
+
+          {/* Progress dots */}
+          <div className="flex justify-center space-x-2">
+            {creators.map((_, idx) => (
+              <div
+                key={idx}
+                className={`h-1.5 rounded-full transition-all ${
+                  idx === currentIndex ? 'w-8 bg-red-500' : 'w-1.5 bg-gray-300'
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+      </motion.div>
+
+      {/* ✅ Floating elements */}
+      <motion.div
+        animate={{ y: [0, -10, 0], rotate: [0, 5, 0] }}
+        transition={{ duration: 3, repeat: Infinity }}
+        className="absolute -top-4 -right-4 bg-green-500 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg"
+      >
+        🔥 Top Earner
+      </motion.div>
+
+      <motion.div
+        animate={{ y: [0, 10, 0], rotate: [0, -5, 0] }}
+        transition={{ duration: 2.5, repeat: Infinity, delay: 0.5 }}
+        className="absolute -bottom-4 -left-4 bg-blue-500 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg"
+      >
+        ⚡ 80% Payout
+      </motion.div>
+    </div>
+  );
+}
 
 export default function Register() {
   const navigate = useNavigate();
@@ -152,9 +275,9 @@ export default function Register() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-red-50 via-orange-50 to-pink-50 flex">
+      {/* Left Side - Form */}
       <div className="flex-1 flex items-center justify-center p-4 sm:p-8">
         <div className="w-full max-w-md">
-          {/* ✅ UPDATED LOGO - Same as Login */}
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -390,41 +513,14 @@ export default function Register() {
         </div>
       </div>
 
-      {/* Right Side Preview */}
+      {/* ✅ Right Side - Animated Card (Hidden on mobile) */}
       <motion.div
         initial={{ opacity: 0, x: 50 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ delay: 0.3 }}
-        className="hidden lg:flex flex-1 items-center justify-center p-8"
+        className="hidden lg:flex flex-1 items-center justify-center p-8 bg-gradient-to-br from-red-100 to-orange-100"
       >
-        <div className="relative w-80">
-          <div className="bg-white rounded-3xl p-6 shadow-2xl border border-gray-100">
-            <div className="aspect-[3/4] bg-gradient-to-br from-red-100 via-red-50 to-orange-100 rounded-2xl mb-4 flex items-center justify-center overflow-hidden relative">
-              <span className="text-9xl">👩</span>
-              <div className="absolute top-4 left-4 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full">
-                ONLINE
-              </div>
-            </div>
-            <div className="text-center">
-              <h3 className="text-xl font-bold text-gray-900 mb-1">Olivia M</h3>
-              <p className="text-gray-500 text-sm mb-4">@olivia.m</p>
-              <div className="flex items-center justify-center gap-6 mb-4">
-                <div>
-                  <p className="text-lg font-bold text-gray-900">2.5K</p>
-                  <p className="text-xs text-gray-500">Followers</p>
-                </div>
-                <div className="w-px h-8 bg-gray-200"></div>
-                <div>
-                  <p className="text-lg font-bold text-gray-900">148</p>
-                  <p className="text-xs text-gray-500">Posts</p>
-                </div>
-              </div>
-              <button className="w-full bg-red-500 hover:bg-red-600 text-white py-2.5 rounded-xl font-semibold transition shadow-sm">
-                Subscribe
-              </button>
-            </div>
-          </div>
-        </div>
+        <AnimatedCreatorCard />
       </motion.div>
     </div>
   );

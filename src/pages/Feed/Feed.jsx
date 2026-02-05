@@ -1,10 +1,11 @@
-// src/pages/Feed/Feed.jsx - UPDATED with Trending Creator Posts
+// src/pages/Feed/Feed.jsx - WITH POST MODAL
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Loader2, Users, Sparkles } from 'lucide-react';
+import { Loader2, Users, Sparkles, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import PostCard from '../../components/feed/PostCard';
+import PostModal from '../../components/Modals/PostModal';
 import { getAllPosts } from '../../services/postService';
 import { getFollowingPosts } from '../../services/followService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -18,8 +19,13 @@ export default function Feed() {
   const { isCreator, profile } = useUserProfile();
   const [activeTab, setActiveTab] = useState('foryou');
   const [posts, setPosts] = useState([]);
+  const [topCreators, setTopCreators] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  
+  // ✅ POST MODAL STATE
+  const [selectedPost, setSelectedPost] = useState(null);
+  const [showPostModal, setShowPostModal] = useState(false);
 
   const tabs = [
     { id: 'foryou', label: 'For You', icon: Sparkles },
@@ -28,9 +34,9 @@ export default function Feed() {
 
   useEffect(() => {
     loadPosts();
+    loadTopCreators();
   }, [activeTab, currentUser]);
 
-  // Reload posts when component becomes visible again
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden) {
@@ -44,38 +50,51 @@ export default function Feed() {
     };
   }, [activeTab, currentUser]);
 
+  const loadTopCreators = async () => {
+    try {
+      const usersRef = collection(db, 'users');
+      const usersSnapshot = await getDocs(usersRef);
+
+      const creators = [];
+      usersSnapshot.forEach((doc) => {
+        const userData = doc.data();
+        if (userData.kycStatus === 'approved') {
+          creators.push({
+            id: doc.id,
+            ...userData,
+          });
+        }
+      });
+
+      creators.sort((a, b) => (b.followers || 0) - (a.followers || 0));
+      setTopCreators(creators);
+    } catch (error) {
+      console.error('Error loading top creators:', error);
+    }
+  };
+
   const getTrendingCreatorIds = async () => {
     try {
-      // Get all posts from the last 48 hours
       const fortyEightHoursAgo = new Date();
       fortyEightHoursAgo.setHours(fortyEightHoursAgo.getHours() - 48);
 
       const postsRef = collection(db, 'posts');
       const postsSnapshot = await getDocs(postsRef);
 
-      // Count posts per creator in last 48 hours
       const creatorPostCounts = {};
       
       postsSnapshot.forEach((doc) => {
         const post = doc.data();
         
-        // Handle different date formats
         let postDate = null;
         if (post.createdAt) {
-          // If it's a Firestore Timestamp
           if (typeof post.createdAt.toDate === 'function') {
             postDate = post.createdAt.toDate();
-          }
-          // If it's already a Date object
-          else if (post.createdAt instanceof Date) {
+          } else if (post.createdAt instanceof Date) {
             postDate = post.createdAt;
-          }
-          // If it's a timestamp number
-          else if (typeof post.createdAt === 'number') {
+          } else if (typeof post.createdAt === 'number') {
             postDate = new Date(post.createdAt);
-          }
-          // If it has seconds property (Firestore Timestamp object)
-          else if (post.createdAt.seconds) {
+          } else if (post.createdAt.seconds) {
             postDate = new Date(post.createdAt.seconds * 1000);
           }
         }
@@ -86,7 +105,6 @@ export default function Feed() {
         }
       });
 
-      // Get top 20 trending creators
       const trendingCreatorIds = Object.entries(creatorPostCounts)
         .sort(([, a], [, b]) => b - a)
         .slice(0, 20)
@@ -115,24 +133,19 @@ export default function Feed() {
         }
         fetchedPosts = await getFollowingPosts(currentUser.uid, 20);
       } else {
-        // For "For You" tab, get posts from trending creators
         const trendingCreatorIds = await getTrendingCreatorIds();
         
         if (trendingCreatorIds.length > 0) {
-          // Get all posts and filter by trending creators
-          const allPosts = await getAllPosts(100); // Get more posts to filter
+          const allPosts = await getAllPosts(100);
           fetchedPosts = allPosts.filter(post => 
             trendingCreatorIds.includes(post.userId)
-          ).slice(0, 20); // Limit to 20 posts
+          ).slice(0, 20);
         } else {
-          // Fallback to all posts if no trending creators
           fetchedPosts = await getAllPosts(20);
         }
       }
       
-      // Filter out archived posts from feed
       const visiblePosts = fetchedPosts.filter(post => !post.archived);
-      
       setPosts(visiblePosts);
     } catch (err) {
       console.error('Error loading posts:', err);
@@ -142,19 +155,75 @@ export default function Feed() {
     }
   };
 
-  const handlePostCreated = (newPost) => {
-    setPosts([newPost, ...posts]);
-  };
-
   const handlePostDeleted = (postId) => {
     setPosts(posts.filter(post => post.id !== postId));
   };
 
+  // ✅ HANDLE POST CLICK - OPEN MODAL
+  const handlePostClick = (post) => {
+    setSelectedPost(post);
+    setShowPostModal(true);
+  };
+
+  // ✅ CLOSE MODAL
+  const closePostModal = () => {
+    setShowPostModal(false);
+    setSelectedPost(null);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto px-4 py-6">
+      <div className="max-w-4xl mx-auto px-4 py-6 lg:px-6 lg:py-0">
+        
+        {/* Top Creators - Mobile Only */}
+        <div className="lg:hidden mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-gray-900 flex items-center space-x-2">
+              <Sparkles className="w-5 h-5 text-red-500" />
+              <span>Top Creators</span>
+            </h2>
+            <button
+              onClick={() => navigate('/discover')}
+              className="text-sm text-red-500 hover:text-red-600 font-medium flex items-center"
+            >
+              Discover
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+            {topCreators.slice(0, 12).map((creator) => (
+              <motion.div
+                key={creator.id}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                onClick={() => navigate(`/creator/${creator.username?.replace('@', '') || creator.id}`)}
+                className="bg-white rounded-xl p-3 border border-gray-200 hover:border-red-300 hover:shadow-md transition cursor-pointer"
+              >
+                <div className="w-full aspect-square mx-auto rounded-full bg-gradient-to-br from-red-100 to-pink-100 flex items-center justify-center text-2xl mb-2 overflow-hidden">
+                  {creator.profilePicture ? (
+                    <img 
+                      src={creator.profilePicture} 
+                      alt={creator.displayName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span>{creator.avatar || '👤'}</span>
+                  )}
+                </div>
+                <h3 className="font-semibold text-gray-900 text-xs text-center truncate">
+                  {creator.displayName || 'Anonymous'}
+                </h3>
+                <p className="text-xs text-gray-500 text-center">
+                  {creator.followers || 0} fans
+                </p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+
         {/* Tabs */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-2 mb-6 sticky top-0 z-10 shadow-sm">
+        <div className="bg-white rounded-2xl border border-gray-200 p-2 mb-6 sticky top-0 lg:top-0 z-10 shadow-sm lg:mt-4">
           <div className="flex items-center space-x-2">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -164,7 +233,7 @@ export default function Feed() {
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-semibold transition ${
                     activeTab === tab.id
-                      ? 'bg-rose-500 text-white'
+                      ? 'bg-red-500 text-white'
                       : 'text-gray-600 hover:bg-gray-50'
                   }`}
                 >
@@ -176,21 +245,19 @@ export default function Feed() {
           </div>
         </div>
 
-        {/* Tab Description */}
         {activeTab === 'foryou' && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-lg"
+            className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg"
           >
-            <p className="text-sm text-rose-700 flex items-center space-x-2">
+            <p className="text-sm text-red-700 flex items-center space-x-2">
               <Sparkles className="w-4 h-4" />
               <span>Posts from trending creators (most active in 48 hours)</span>
             </p>
           </motion.div>
         )}
 
-        {/* Error Message */}
         {error && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
@@ -201,15 +268,13 @@ export default function Feed() {
           </motion.div>
         )}
 
-        {/* Loading State */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-rose-500 animate-spin mb-4" />
+            <Loader2 className="w-8 h-8 text-red-500 animate-spin mb-4" />
             <p className="text-gray-600">Loading posts...</p>
           </div>
         ) : (
           <>
-            {/* Empty State */}
             {posts.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -233,7 +298,7 @@ export default function Feed() {
                 </p>
                 <button
                   onClick={() => navigate('/discover')}
-                  className="px-6 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-semibold transition"
+                  className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold transition"
                 >
                   Discover Creators
                 </button>
@@ -245,6 +310,7 @@ export default function Feed() {
                     key={post.id}
                     post={post}
                     onDelete={handlePostDeleted}
+                    onPostClick={handlePostClick}
                   />
                 ))}
               </div>
@@ -252,12 +318,11 @@ export default function Feed() {
           </>
         )}
 
-        {/* Load More */}
         {!loading && posts.length > 0 && posts.length >= 20 && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="mt-6 text-center"
+            className="mt-6 text-center pb-4"
           >
             <button
               onClick={loadPosts}
@@ -268,6 +333,22 @@ export default function Feed() {
           </motion.div>
         )}
       </div>
+
+      {/* ✅ POST MODAL */}
+      <PostModal
+        isOpen={showPostModal}
+        onClose={closePostModal}
+        post={selectedPost}
+        onPostUpdate={(updatedPost) => {
+          if (updatedPost === null) {
+            // Post was deleted
+            handlePostDeleted(selectedPost.id);
+          } else {
+            // Post was updated
+            setPosts(posts.map(p => p.id === updatedPost.id ? updatedPost : p));
+          }
+        }}
+      />
     </div>
   );
 }

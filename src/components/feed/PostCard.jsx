@@ -1,18 +1,14 @@
-// src/components/feed/PostCard.jsx
-// COMPLETE PostCard with NOTIFICATIONS + FIXED date handling + Pin & Archive
+// src/components/feed/PostCard.jsx - FIXED: Clickable + No Share + Real-time
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Heart, 
   MessageCircle, 
-  Share2, 
   MoreVertical,
   Trash2,
   Send,
   X,
-  Check,
-  Link as LinkIcon,
   Pin,
   Archive,
   RotateCcw
@@ -25,21 +21,18 @@ import {
   addComment, 
   getPostComments,
   deletePost,
-  sharePost,
   updatePost
 } from '../../services/postService';
 import { getUserProfile } from '../../services/firestoreService';
 import { getPostImage } from '../../utils/imageHelpers';
 
-export default function PostCard({ post, onDelete, showPinnedIndicator = false }) {
+export default function PostCard({ post, onDelete, showPinnedIndicator = false, onPostClick }) {
   const { currentUser } = useAuth();
   const { profile } = useUserProfile();
   const [isLiked, setIsLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(post.likes || 0);
   const [commentsCount, setCommentsCount] = useState(post.comments || 0);
-  const [sharesCount, setSharesCount] = useState(post.shares || 0);
   const [showComments, setShowComments] = useState(false);
-  const [showShareModal, setShowShareModal] = useState(false);
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
@@ -48,22 +41,18 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
   const [postCreator, setPostCreator] = useState(null);
   const [loadingCreator, setLoadingCreator] = useState(true);
 
-  // Get the image URL (handles both string URLs and Cloudinary objects)
   const imageUrl = getPostImage(post);
 
-  // Initialize comment count from post
   useEffect(() => {
     setCommentsCount(post.comments || 0);
   }, [post.comments]);
 
-  // Check if user has liked this post
   useEffect(() => {
     if (currentUser && post.likedBy) {
       setIsLiked(post.likedBy.includes(currentUser.uid));
     }
   }, [currentUser, post.likedBy]);
 
-  // Load post creator info
   useEffect(() => {
     loadCreatorInfo();
   }, [post.userId]);
@@ -79,8 +68,8 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
     }
   };
 
-  // ✅ UPDATED: Toggle like with notification support
-  const handleLike = async () => {
+  const handleLike = async (e) => {
+    e.stopPropagation(); // Prevent modal from opening
     if (!currentUser) {
       alert('Please login to like posts');
       return;
@@ -92,13 +81,7 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
         setIsLiked(false);
         setLikesCount(prev => prev - 1);
       } else {
-        // ✅ Pass post owner ID and current user profile for notifications
-        await likePost(
-          post.id, 
-          currentUser.uid, 
-          post.userId,  // Post owner ID for notification
-          profile       // Current user profile data for notification
-        );
+        await likePost(post.id, currentUser.uid, post.userId, profile);
         setIsLiked(true);
         setLikesCount(prev => prev + 1);
       }
@@ -108,7 +91,6 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
     }
   };
 
-  // Load comments
   const loadComments = async () => {
     try {
       setLoadingComments(true);
@@ -121,17 +103,18 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
     }
   };
 
-  // Toggle comments view
-  const handleToggleComments = () => {
+  const handleToggleComments = (e) => {
+    e.stopPropagation(); // Prevent modal from opening
     if (!showComments) {
       loadComments();
     }
     setShowComments(!showComments);
   };
 
-  // ✅ Add comment - Already has profile parameter for notifications
   const handleAddComment = async (e) => {
     e.preventDefault();
+    e.stopPropagation();
+    
     if (!currentUser) {
       alert('Please login to comment');
       return;
@@ -141,13 +124,9 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
     try {
       setPostingComment(true);
       const comment = await addComment(post.id, currentUser.uid, newComment, profile);
-      
-      // Add comment to local state with optimistic update
       setComments([comment, ...comments]);
       setCommentsCount(prev => (prev || 0) + 1);
       setNewComment('');
-      
-      console.log('✅ Comment added successfully');
     } catch (error) {
       console.error('Error adding comment:', error);
       alert('Failed to add comment: ' + error.message);
@@ -156,8 +135,8 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
     }
   };
 
-  // Delete post
-  const handleDelete = async () => {
+  const handleDelete = async (e) => {
+    e.stopPropagation();
     if (!window.confirm('Are you sure you want to delete this post?')) return;
 
     try {
@@ -169,16 +148,13 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
     }
   };
 
-  // ✅ Toggle pin
-  const handleTogglePin = async () => {
+  const handleTogglePin = async (e) => {
+    e.stopPropagation();
     try {
       const newPinnedState = !post.pinned;
       await updatePost(post.id, { pinned: newPinnedState });
-      
       alert(newPinnedState ? 'Post pinned to top of profile' : 'Post unpinned');
       setShowMenu(false);
-      
-      // Reload to re-sort posts
       window.location.reload();
     } catch (error) {
       console.error('Error toggling pin:', error);
@@ -186,8 +162,8 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
     }
   };
 
-  // ✅ Archive post
-  const handleArchive = async () => {
+  const handleArchive = async (e) => {
+    e.stopPropagation();
     if (!window.confirm('Archive this post? It will be hidden from your profile and feed.')) return;
 
     try {
@@ -195,7 +171,6 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
         archived: true,
         archivedAt: new Date()
       });
-      
       alert('Post archived successfully');
       setShowMenu(false);
       window.location.reload();
@@ -205,8 +180,8 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
     }
   };
 
-  // ✅ Unarchive post
-  const handleUnarchive = async () => {
+  const handleUnarchive = async (e) => {
+    e.stopPropagation();
     if (!window.confirm('Unarchive this post? It will be visible on your profile again.')) return;
 
     try {
@@ -214,7 +189,6 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
         archived: false,
         archivedAt: null
       });
-      
       alert('Post unarchived successfully');
       setShowMenu(false);
       window.location.reload();
@@ -224,96 +198,58 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
     }
   };
 
-  // Share functionality
-  const handleShare = async (platform) => {
-    try {
-      await sharePost(post.id);
-      
-      const shareUrl = `${window.location.origin}/post/${post.id}`;
-      const shareText = `Check out this post by ${postCreator?.displayName || 'a creator'}!`;
-      
-      if (platform === 'copy') {
-        await navigator.clipboard.writeText(shareUrl);
-        alert('Link copied to clipboard!');
-        setShowShareModal(false);
-      } else {
-        const text = encodeURIComponent(shareText);
-        const url = encodeURIComponent(shareUrl);
-        
-        const urls = {
-          twitter: `https://twitter.com/intent/tweet?text=${text}&url=${url}`,
-          facebook: `https://www.facebook.com/sharer/sharer.php?u=${url}`,
-          whatsapp: `https://wa.me/?text=${text}%20${url}`,
-        };
-        
-        window.open(urls[platform], '_blank', 'width=600,height=400');
-        setShowShareModal(false);
-      }
-    } catch (error) {
-      console.error('Error sharing post:', error);
-      alert('Failed to share post');
-    }
-  };
-
-  // IMPROVED formatDate function to handle all date formats
+  // ✅ REAL-TIME DATE FORMAT
   const formatDate = (timestamp) => {
     if (!timestamp) return 'Just now';
     
     try {
       let date;
       
-      // Handle serverTimestamp placeholder (before it's resolved)
       if (timestamp._methodName === 'serverTimestamp') {
         return 'Just now';
       }
       
-      // Handle Firestore Timestamp
       if (timestamp.toDate && typeof timestamp.toDate === 'function') {
         date = timestamp.toDate();
-      }
-      // Handle JavaScript Date object
-      else if (timestamp instanceof Date) {
+      } else if (timestamp instanceof Date) {
         date = timestamp;
-      }
-      // Handle timestamp with seconds property (Firestore Timestamp object)
-      else if (timestamp.seconds) {
+      } else if (timestamp.seconds) {
         date = new Date(timestamp.seconds * 1000);
-      }
-      // Handle Unix timestamp (number)
-      else if (typeof timestamp === 'number') {
+      } else if (typeof timestamp === 'number') {
         date = new Date(timestamp);
-      }
-      // Handle ISO string
-      else if (typeof timestamp === 'string') {
+      } else if (typeof timestamp === 'string') {
         date = new Date(timestamp);
-      }
-      // Unknown format
-      else {
-        console.warn('Unknown timestamp format:', timestamp);
+      } else {
         return 'Recently';
       }
       
-      // Check if date is valid
       if (isNaN(date.getTime())) {
-        console.warn('Invalid date:', timestamp);
         return 'Recently';
       }
       
       const now = new Date();
       const diff = now - date;
       
+      const seconds = Math.floor(diff / 1000);
       const minutes = Math.floor(diff / 60000);
       const hours = Math.floor(diff / 3600000);
       const days = Math.floor(diff / 86400000);
       
-      if (minutes < 1) return 'Just now';
+      if (seconds < 60) return 'Just now';
       if (minutes < 60) return `${minutes}m ago`;
       if (hours < 24) return `${hours}h ago`;
       if (days < 7) return `${days}d ago`;
       return date.toLocaleDateString();
     } catch (error) {
-      console.error('Error formatting date:', error, timestamp);
+      console.error('Error formatting date:', error);
       return 'Recently';
+    }
+  };
+
+  // ✅ HANDLE CARD CLICK
+  const handleCardClick = () => {
+    if (onPostClick) {
+      onPostClick(post);
     }
   };
 
@@ -321,9 +257,9 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white rounded-2xl border border-gray-200 overflow-hidden"
+      onClick={handleCardClick}
+      className="bg-white rounded-2xl border border-gray-200 overflow-hidden cursor-pointer hover:shadow-lg transition"
     >
-      {/* Post Header */}
       <div className="p-4 sm:p-6">
         <div className="flex items-start justify-between mb-4">
           <div 
@@ -335,36 +271,38 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
             }}
             className="flex items-center space-x-3 cursor-pointer hover:opacity-80 transition"
           >
-          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-semibold">
-            {loadingCreator ? (
-              '...'
-            ) : postCreator?.avatar ? (
-              <img src={postCreator.avatar} alt="" className="w-full h-full rounded-full object-cover" />
-            ) : (
-              postCreator?.displayName?.charAt(0).toUpperCase() || 'U'
-            )}
-          </div>
-          <div>
-            <p className="font-bold text-gray-900 hover:text-rose-500 transition">
-              {postCreator?.displayName || 'Loading...'}
-            </p>
-            <div className="flex items-center space-x-2">
-              <p className="text-sm text-gray-500">{formatDate(post.createdAt)}</p>
-              {showPinnedIndicator && post.pinned && (
-                <div className="flex items-center space-x-1 text-rose-500 text-xs font-medium">
-                  <Pin className="w-3 h-3 fill-rose-500" />
-                  <span>Pinned</span>
-                </div>
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-semibold">
+              {loadingCreator ? (
+                '...'
+              ) : postCreator?.avatar ? (
+                <img src={postCreator.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+              ) : (
+                postCreator?.displayName?.charAt(0).toUpperCase() || 'U'
               )}
             </div>
+            <div>
+              <p className="font-bold text-gray-900 hover:text-rose-500 transition">
+                {postCreator?.displayName || 'Loading...'}
+              </p>
+              <div className="flex items-center space-x-2">
+                <p className="text-sm text-gray-500">{formatDate(post.createdAt)}</p>
+                {showPinnedIndicator && post.pinned && (
+                  <div className="flex items-center space-x-1 text-rose-500 text-xs font-medium">
+                    <Pin className="w-3 h-3 fill-rose-500" />
+                    <span>Pinned</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
                   
-          {/* Menu */}
           {currentUser?.uid === post.userId && (
             <div className="relative">
               <button
-                onClick={() => setShowMenu(!showMenu)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowMenu(!showMenu);
+                }}
                 className="p-2 hover:bg-gray-100 rounded-lg transition"
               >
                 <MoreVertical className="w-5 h-5 text-gray-600" />
@@ -374,11 +312,13 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
                 <>
                   <div 
                     className="fixed inset-0 z-10" 
-                    onClick={() => setShowMenu(false)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowMenu(false);
+                    }}
                   />
                   <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-20">
                     {post.archived ? (
-                      // Archived post options
                       <>
                         <button
                           onClick={handleUnarchive}
@@ -397,7 +337,6 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
                         </button>
                       </>
                     ) : (
-                      // Active post options
                       <>
                         <button
                           onClick={handleTogglePin}
@@ -430,12 +369,10 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
           )}
         </div>
 
-        {/* Post Content */}
         {post.content && (
           <p className="text-gray-800 mb-4 whitespace-pre-wrap">{post.content}</p>
         )}
 
-        {/* Pinned Badge */}
         {showPinnedIndicator && post.pinned && (
           <div className="mb-4 inline-flex items-center space-x-2 px-3 py-1.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-600 text-sm font-medium">
             <Pin className="w-4 h-4" />
@@ -443,7 +380,6 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
           </div>
         )}
 
-        {/* Archived Badge */}
         {showPinnedIndicator && post.archived && (
           <div className="mb-4 inline-flex items-center space-x-2 px-3 py-1.5 bg-gray-100 border border-gray-200 rounded-lg text-gray-600 text-sm font-medium">
             <Archive className="w-4 h-4" />
@@ -451,7 +387,6 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
           </div>
         )}
 
-        {/* Post Images */}
         {imageUrl && (
           <div className="mb-4 rounded-lg overflow-hidden">
             <img 
@@ -466,10 +401,9 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
           </div>
         )}
 
-        {/* Action Buttons */}
+        {/* ✅ Action Buttons - NO SHARE */}
         <div className="flex items-center justify-between pt-4 border-t border-gray-200">
           <div className="flex items-center space-x-4 sm:space-x-6">
-            {/* Like */}
             <button
               onClick={handleLike}
               className={`flex items-center space-x-2 transition ${
@@ -480,7 +414,6 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
               <span className="font-medium">{likesCount}</span>
             </button>
 
-            {/* Comment */}
             <button
               onClick={handleToggleComments}
               className="flex items-center space-x-2 text-gray-600 hover:text-blue-500 transition"
@@ -488,22 +421,11 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
               <MessageCircle className="w-5 h-5" />
               <span className="font-medium">{commentsCount}</span>
             </button>
-
-            {/* Share */}
-            <button
-              onClick={() => setShowShareModal(true)}
-              className="flex items-center space-x-2 text-gray-600 hover:text-green-500 transition"
-            >
-              <Share2 className="w-5 h-5" />
-              <span className="font-medium">{sharesCount}</span>
-            </button>
           </div>
         </div>
 
-        {/* Comments Section */}
         {showComments && (
           <div className="mt-4 pt-4 border-t border-gray-200">
-            {/* Add Comment Form */}
             {currentUser && (
               <form onSubmit={handleAddComment} className="mb-4">
                 <div className="flex items-center space-x-3">
@@ -522,6 +444,7 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
                       placeholder="Add a comment..."
                       className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500"
                       disabled={postingComment}
+                      onClick={(e) => e.stopPropagation()}
                     />
                     <button
                       type="submit"
@@ -535,7 +458,6 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
               </form>
             )}
 
-            {/* Comments List */}
             {loadingComments ? (
               <div className="text-center py-4">
                 <div className="w-6 h-6 border-2 border-rose-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
@@ -561,59 +483,6 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false }
           </div>
         )}
       </div>
-
-      {/* Share Modal */}
-      {showShareModal && (
-        <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
-          onClick={() => setShowShareModal(false)}
-        >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-gray-900">Share Post</h3>
-              <button
-                onClick={() => setShowShareModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <button
-                onClick={() => handleShare('twitter')}
-                className="px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition"
-              >
-                Twitter
-              </button>
-              <button
-                onClick={() => handleShare('facebook')}
-                className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition"
-              >
-                Facebook
-              </button>
-              <button
-                onClick={() => handleShare('whatsapp')}
-                className="px-4 py-3 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium transition"
-              >
-                WhatsApp
-              </button>
-              <button
-                onClick={() => handleShare('copy')}
-                className="px-4 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition flex items-center justify-center space-x-2"
-              >
-                <LinkIcon className="w-4 h-4" />
-                <span>Copy Link</span>
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
     </motion.div>
   );
 }
