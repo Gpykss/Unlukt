@@ -17,7 +17,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 import { getUserProfile, getUserByUsername } from '../../services/firestoreService';
 import { getUserPosts } from '../../services/postService';
 import { hasActiveSubscription, getOrCreateConversation } from '../../services/messageService';

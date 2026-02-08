@@ -8,7 +8,7 @@ import PostCard from '../../components/feed/PostCard';
 import PostModal from '../../components/Modals/PostModal';
 import { getAllPosts } from '../../services/postService';
 import { getFollowingPosts } from '../../services/followService';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';

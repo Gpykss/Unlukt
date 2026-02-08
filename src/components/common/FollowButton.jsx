@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { UserPlus, UserCheck, Loader2 } from 'lucide-react';
 import { followUser, unfollowUser, isFollowing, getFollowerCount } from '../../services/followService';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 
 export default function FollowButton({ 
   userId, 

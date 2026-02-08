@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useUserProfile } from '../../hooks/useUserProfile';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 import { createPost } from '../../services/postService';
 import { uploadMedia } from '../../services/cloudinaryService';
 

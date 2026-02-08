@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { MessageSquare } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 import { subscribeToUnreadMessageCount } from '../../services/messageService';
 
 export default function MessageBell({ showLabel = false }) {
