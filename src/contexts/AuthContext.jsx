@@ -1,6 +1,6 @@
-// src/contexts/AuthContext.jsx
+// src/contexts/AuthContext.jsx - FIXED: Added useAuth export
 
-import { createContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import { 
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -16,7 +16,16 @@ import { auth } from '../config/firebase';
 import { createUserProfile, getUserProfile } from '../services/firestoreService';
 import { updateUserOnlineStatus } from '../services/messageService';
 
-export const AuthContext = createContext({});
+const AuthContext = createContext({});
+
+// ✅ ADD THIS EXPORT - THIS WAS MISSING!
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
+};
 
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
