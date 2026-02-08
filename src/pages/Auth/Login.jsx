@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff, Loader2, Mail, Lock, LockKeyhole, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../hooks/useAuth'; // ✅ FIXED: Changed from contexts to hooks
+import { useAuth } from '../../hooks/useAuth';
 import { auth } from '../../config/firebase';
 import { sendPasswordResetEmail } from 'firebase/auth';
 
