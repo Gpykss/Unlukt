@@ -173,13 +173,13 @@ export default function Feed() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto px-4 py-6 lg:px-6 lg:py-0">
+      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-6 lg:px-6">
         
         {/* Top Creators - Mobile Only */}
-        <div className="lg:hidden mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-gray-900 flex items-center space-x-2">
-              <Sparkles className="w-5 h-5 text-red-500" />
+        <div className="lg:hidden mb-4 sm:mb-6">
+          <div className="flex items-center justify-between mb-3 sm:mb-4">
+            <h2 className="text-base sm:text-lg font-bold text-gray-900 flex items-center space-x-2">
+              <Sparkles className="w-4 sm:w-5 h-4 sm:h-5 text-red-500" />
               <span>Top Creators</span>
             </h2>
             <button
@@ -191,7 +191,7 @@ export default function Feed() {
             </button>
           </div>
 
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3">
             {topCreators.slice(0, 12).map((creator) => (
               <motion.div
                 key={creator.id}
@@ -223,7 +223,7 @@ export default function Feed() {
         </div>
 
         {/* Tabs */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-2 mb-6 sticky top-0 lg:top-0 z-10 shadow-sm lg:mt-4">
+        <div className="bg-white rounded-xl sm:rounded-2xl border border-gray-200 p-1.5 sm:p-2 mb-4 sm:mb-6 sticky top-0 z-10 shadow-sm">
           <div className="flex items-center space-x-2">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -304,7 +304,7 @@ export default function Feed() {
                 </button>
               </motion.div>
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 {posts.map((post) => (
                   <PostCard
                     key={post.id}

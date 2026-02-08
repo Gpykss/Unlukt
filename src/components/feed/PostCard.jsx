@@ -1,4 +1,4 @@
-// src/components/feed/PostCard.jsx - FIXED: Clickable + No Share + Real-time
+// src/components/feed/PostCard.jsx - FIXED: Comment input won't trigger modal
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
@@ -8,7 +8,6 @@ import {
   MoreVertical,
   Trash2,
   Send,
-  X,
   Pin,
   Archive,
   RotateCcw
@@ -69,7 +68,7 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false, 
   };
 
   const handleLike = async (e) => {
-    e.stopPropagation(); // Prevent modal from opening
+    e.stopPropagation();
     if (!currentUser) {
       alert('Please login to like posts');
       return;
@@ -104,16 +103,17 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false, 
   };
 
   const handleToggleComments = (e) => {
-    e.stopPropagation(); // Prevent modal from opening
+    e.stopPropagation();
     if (!showComments) {
       loadComments();
     }
     setShowComments(!showComments);
   };
 
+  // ✅ FIX: Prevent modal opening when typing/clicking in comment section
   const handleAddComment = async (e) => {
     e.preventDefault();
-    e.stopPropagation();
+    e.stopPropagation(); // Stop modal from opening
     
     if (!currentUser) {
       alert('Please login to comment');
@@ -198,7 +198,6 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false, 
     }
   };
 
-  // ✅ REAL-TIME DATE FORMAT
   const formatDate = (timestamp) => {
     if (!timestamp) return 'Just now';
     
@@ -246,7 +245,6 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false, 
     }
   };
 
-  // ✅ HANDLE CARD CLICK
   const handleCardClick = () => {
     if (onPostClick) {
       onPostClick(post);
@@ -401,7 +399,6 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false, 
           </div>
         )}
 
-        {/* ✅ Action Buttons - NO SHARE */}
         <div className="flex items-center justify-between pt-4 border-t border-gray-200">
           <div className="flex items-center space-x-4 sm:space-x-6">
             <button
@@ -424,8 +421,12 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false, 
           </div>
         </div>
 
+        {/* ✅ COMMENT SECTION - STOPS PROPAGATION */}
         {showComments && (
-          <div className="mt-4 pt-4 border-t border-gray-200">
+          <div 
+            className="mt-4 pt-4 border-t border-gray-200"
+            onClick={(e) => e.stopPropagation()} // Stop entire section from bubbling
+          >
             {currentUser && (
               <form onSubmit={handleAddComment} className="mb-4">
                 <div className="flex items-center space-x-3">
@@ -440,14 +441,19 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false, 
                     <input
                       type="text"
                       value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        setNewComment(e.target.value);
+                      }}
+                      onFocus={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
                       placeholder="Add a comment..."
                       className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500"
                       disabled={postingComment}
-                      onClick={(e) => e.stopPropagation()}
                     />
                     <button
                       type="submit"
+                      onClick={(e) => e.stopPropagation()}
                       disabled={!newComment.trim() || postingComment}
                       className="p-2 bg-rose-500 hover:bg-rose-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
                     >

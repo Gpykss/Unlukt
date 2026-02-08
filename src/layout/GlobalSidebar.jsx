@@ -1,4 +1,4 @@
-// src/layout/GlobalSidebar.jsx - FIXED: CLICKABLE PROFILE + LOGOUT
+// src/layout/GlobalSidebar.jsx - LOGOUT VISIBLE ABOVE BOTTOM NAV
 
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
@@ -53,7 +53,6 @@ export default function GlobalSidebar({ isOpen, onClose }) {
     if (onClose) onClose();
   };
 
-  // ✅ HANDLE PROFILE CLICK
   const handleProfileClick = () => {
     if (username) {
       navigate(`/creator/${username.replace('@', '')}`);
@@ -65,7 +64,7 @@ export default function GlobalSidebar({ isOpen, onClose }) {
 
   return (
     <>
-      {/* Mobile Backdrop Overlay */}
+      {/* Mobile Backdrop */}
       {isOpen && (
         <div 
           className="lg:hidden fixed inset-0 bg-black/50 z-40"
@@ -73,11 +72,11 @@ export default function GlobalSidebar({ isOpen, onClose }) {
         />
       )}
 
-      {/* Sidebar - NO TOP SPACING */}
+      {/* Sidebar */}
       <aside 
         className={`
           fixed left-0 top-0 h-screen w-64 bg-white border-r border-gray-200 z-50 
-          transition-transform duration-300 ease-in-out
+          transition-transform duration-300 ease-in-out flex flex-col
           lg:translate-x-0
           ${isOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
@@ -92,10 +91,10 @@ export default function GlobalSidebar({ isOpen, onClose }) {
           </button>
         </div>
 
-        {/* ✅ CLICKABLE Profile Section */}
+        {/* Profile Section */}
         <div 
           onClick={handleProfileClick}
-          className="p-6 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition"
+          className="p-6 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition flex-shrink-0"
         >
           <div className="flex items-center space-x-3">
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-semibold overflow-hidden">
@@ -130,10 +129,9 @@ export default function GlobalSidebar({ isOpen, onClose }) {
           </div>
         </div>
 
-        {/* Scrollable Content Area */}
-        <div className="flex flex-col h-[calc(100vh-200px)] overflow-y-auto">
-          {/* Navigation Menu */}
-          <nav className="flex-1 p-4">
+        {/* ✅ Scrollable Menu Area - STOPS BEFORE LOGOUT */}
+        <div className="flex-1 overflow-y-auto pb-4">
+          <nav className="p-4">
             <div className="space-y-1">
               {menuItems.map((item) => {
                 const Icon = item.icon;
@@ -198,8 +196,8 @@ export default function GlobalSidebar({ isOpen, onClose }) {
           </nav>
         </div>
 
-        {/* ✅ LOGOUT BUTTON - FIXED AT BOTTOM */}
-        <div className="p-4 border-t border-gray-200 bg-white">
+        {/* ✅ LOGOUT BUTTON - FIXED AT BOTTOM, ABOVE MOBILE NAV */}
+        <div className="p-4 border-t border-gray-200 bg-white flex-shrink-0 lg:mb-0 mb-20">
           <button
             onClick={handleLogout}
             className="w-full flex items-center space-x-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-lg font-medium transition"

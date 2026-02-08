@@ -246,10 +246,10 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.9 }}
           onClick={(e) => e.stopPropagation()}
-          className="bg-white rounded-2xl overflow-hidden max-w-6xl w-full h-[90vh] flex flex-col md:flex-row"
+          className="bg-white rounded-2xl overflow-hidden max-w-6xl w-full max-h-[90vh] flex flex-col md:flex-row"
         >
           {/* Left - Image */}
-          <div className="flex-1 bg-black flex items-center justify-center relative">
+          <div className="flex-1 bg-black flex items-center justify-center relative min-h-[300px] md:min-h-0">
             <div className="w-full h-full flex items-center justify-center p-4">
               {imageUrl ? (
                 <img 
@@ -271,7 +271,7 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
           </div>
 
           {/* Right - Details */}
-          <div className="w-full md:w-96 flex flex-col bg-white">
+          <div className="w-full md:w-96 lg:w-[450px] flex flex-col bg-white max-h-[50vh] md:max-h-full">
             {/* Creator Info */}
             <div className="p-4 border-b border-gray-200 flex items-center justify-between">
               <div 
@@ -426,29 +426,32 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                 <p className="text-sm text-gray-500">{commentsCount} comments</p>
               </div>
 
-              {currentUser && (
-                <form onSubmit={handleCommentSubmit} className="flex items-center space-x-2">
-                  <input
-                    type="text"
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                    placeholder="Add a comment..."
-                    disabled={postingComment}
-                    className="flex-1 bg-gray-50 border border-gray-200 rounded-full px-4 py-2 text-sm focus:outline-none focus:border-rose-500"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!comment.trim() || postingComment}
-                    className={`p-2 rounded-full transition ${
-                      comment.trim() && !postingComment
-                        ? 'bg-rose-500 hover:bg-rose-600 text-white'
-                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                    }`}
-                  >
-                    <Send className="w-5 h-5" />
-                  </button>
-                </form>
-              )}
+             
+                <div className="p-3 sm:p-4 border-t border-gray-200 bg-white sticky bottom-0">
+                {currentUser && (
+                    <form onSubmit={handleCommentSubmit} className="flex items-center space-x-2 sm:space-x-3">
+                    <input
+                        type="text"
+                        value={comment}
+                        onChange={(e) => setComment(e.target.value)}
+                        placeholder="Add a comment..."
+                        disabled={postingComment}
+                        className="flex-1 bg-gray-50 border border-gray-200 rounded-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm focus:outline-none focus:border-rose-500"
+                    />
+                    <button
+                        type="submit"
+                        disabled={!comment.trim() || postingComment}
+                        className={`p-2 sm:p-2.5 rounded-full transition flex-shrink-0 ${
+                        comment.trim() && !postingComment
+                            ? 'bg-rose-500 hover:bg-rose-600 text-white'
+                            : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        }`}
+                    >
+                        <Send className="w-4 h-4 sm:w-5 sm:h-5" />
+                    </button>
+                    </form>
+                )}
+                </div>
             </div>
           </div>
         </motion.div>

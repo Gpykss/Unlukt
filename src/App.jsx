@@ -1,4 +1,4 @@
-// src/App.jsx - NO PADDING ON DESKTOP
+// src/App.jsx - NO BOTTOM PADDING ON MESSAGES PAGE
 
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
@@ -45,14 +45,17 @@ function AppContent() {
   // Pages that show discover sidebar on desktop
   const showDiscoverSidebar = location.pathname === '/feed';
 
+  // ✅ Messages page needs special handling (no bottom padding)
+  const isMessagesPage = location.pathname === '/messages';
+
   return (
     <div className="app min-h-screen bg-gray-50">
-      {/* ✅ Mobile Navbar - Top (MOBILE ONLY) */}
+      {/* Mobile Navbar - Top (MOBILE ONLY) */}
       {showNav && (
         <MobileNavbar onMenuClick={() => setSidebarOpen(true)} />
       )}
 
-      {/* ✅ Desktop Sidebar - Left */}
+      {/* Desktop Sidebar - Left */}
       {showNav && (
         <GlobalSidebar 
           isOpen={sidebarOpen} 
@@ -60,11 +63,12 @@ function AppContent() {
         />
       )}
 
-      {/* ✅ Main Content Area - NO PADDING ON DESKTOP */}
+      {/* ✅ Main Content - SPECIAL HANDLING FOR MESSAGES */}
       <div className={`
-        ${showNav ? 'pt-14 pb-20 lg:pt-0 lg:pb-0' : ''}
+        ${showNav ? (isMessagesPage ? 'pt-14 lg:pt-0' : 'pt-14 pb-20 lg:pt-0 lg:pb-0') : ''}
         ${showNav ? 'lg:ml-64' : ''}
         ${showNav && showDiscoverSidebar ? 'xl:mr-80' : ''}
+        ${isMessagesPage ? 'h-screen' : ''}
       `}>
         <Routes>
           {/* Public Routes */}
@@ -102,10 +106,10 @@ function AppContent() {
         </Routes>
       </div>
 
-      {/* ✅ Desktop Discover Sidebar - Right */}
+      {/* Desktop Discover Sidebar - Right */}
       {showNav && showDiscoverSidebar && <DiscoverSidebar />}
 
-      {/* ✅ Mobile Bottom Navigation (MOBILE ONLY) */}
+      {/* Mobile Bottom Navigation (MOBILE ONLY) */}
       {showNav && <MobileBottomNav />}
     </div>
   );
