@@ -1,4 +1,4 @@
-import { useAuth } from './hooks/useAuth';
+import { useAuth } from './useAuth';
 
 export const useUserProfile = () => {
   const { currentUser, userProfile, fetchUserProfile } = useAuth();
