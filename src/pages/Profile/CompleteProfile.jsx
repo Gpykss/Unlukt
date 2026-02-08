@@ -15,7 +15,7 @@ import {
   MoreVertical
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import { getUserProfile, getUserByUsername } from '../../services/firestoreService';
 import { getUserPosts } from '../../services/postService';
 import FollowButton from '../../components/common/FollowButton';

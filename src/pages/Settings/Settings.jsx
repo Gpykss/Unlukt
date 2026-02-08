@@ -19,7 +19,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { 
   sendEmailVerification,
@@ -1122,6 +1122,7 @@ function TwoFactorModal({ onClose }) {
     </div>
   );
 }
+
 
 // Toggle Setting Component
 function ToggleSetting({ label, description, value, onChange }) {

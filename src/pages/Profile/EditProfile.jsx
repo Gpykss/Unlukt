@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { User, AtSign, FileText, Mail, Phone, Loader2, CheckCircle, Camera, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import { updateUserProfile, checkUsernameAvailability } from '../../services/firestoreService';
 
 export default function EditProfile() {

@@ -1,6 +1,6 @@
 // src/components/AdminRoute.jsx
 import { Navigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { Loader2, ShieldAlert } from 'lucide-react';
 

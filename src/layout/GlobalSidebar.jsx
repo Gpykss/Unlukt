@@ -16,7 +16,7 @@ import {
   X
 } from 'lucide-react';
 import { useUserProfile } from '../hooks/useUserProfile';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import NotificationBell from '../components/common/NotificationBell';
 import MessageBell from '../components/common/MessageBell';
 
