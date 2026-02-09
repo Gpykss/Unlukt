@@ -307,30 +307,33 @@ const handleMessage = async () => {
           {/* Profile Info */}
           <div className="px-4 sm:px-6 pb-4 sm:pb-6">
             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between -mt-12 sm:-mt-16 mb-4 sm:mb-6">
+              console.log('Avatar value:', creator.avatar);
+console.log('Avatar type:', typeof creator.avatar);
+console.log('Starts with http:', creator.avatar?.startsWith('http'));
               {/* Avatar */}
               <div className="flex items-end space-x-4 sm:space-x-6">
-                <div className="relative">
-                  <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 border-4 border-white flex items-center justify-center text-4xl sm:text-5xl md:text-6xl shadow-lg overflow-hidden">
-                    {creator.avatar && creator.avatar.startsWith('http') ? (
-                      <img 
-                        src={creator.avatar} 
-                        alt={creator.name} 
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          e.target.style.display = 'none';
-                          e.target.parentElement.innerHTML = '👤';
-                        }}
-                      />
-                    ) : (
-                      creator.avatar || '👤'
-                    )}
-                  </div>
-                  {creator.verified && (
-                    <div className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2 bg-blue-500 text-white p-1 sm:p-1.5 rounded-full border-2 border-white">
-                      <Star className="w-3 h-3 sm:w-4 sm:h-4 fill-white" />
-                    </div>
+               <div className="relative">
+                <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 border-4 border-white flex items-center justify-center text-4xl sm:text-5xl md:text-6xl shadow-lg overflow-hidden">
+                  {creator.avatar && (creator.avatar.startsWith('http://') || creator.avatar.startsWith('https://')) ? (
+                    <img 
+                      src={creator.avatar} 
+                      alt={creator.name} 
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        e.target.parentElement.innerHTML = '<span class="text-4xl sm:text-5xl md:text-6xl">👤</span>';
+                      }}
+                    />
+                  ) : (
+                    <span>{creator.avatar || '👤'}</span>
                   )}
                 </div>
+                {creator.verified && (
+                  <div className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2 bg-blue-500 text-white p-1 sm:p-1.5 rounded-full border-2 border-white">
+                    <Star className="w-3 h-3 sm:w-4 sm:h-4 fill-white" />
+                  </div>
+                )}
+              </div>
               </div>
 
               {/* Action Buttons */}

@@ -216,27 +216,7 @@ export default function Register() {
     }
   };
 
-  const handleGoogleSignup = async () => {
-  setError('');
-  setIsLoading(true);
-  
-  try {
-    const result = await signInWithGoogle();
-    const userProfileData = await fetchUserProfile(result.user.uid);
-    
-    if (!userProfileData?.profileCompleted) {
-      navigate('/complete-profile');
-    } else {
-      navigate('/feed');
-    }
-  } catch (err) {
-    console.error('Google signup error:', err);
-    setError(err.message || 'Failed to sign up with Google. Please try again.');
-    setIsLoading(false);
-  }
-};
-
-const handleTwitterSignup = async () => {
+ const handleTwitterSignup = async () => {
   setError('');
   setIsLoading(true);
   
@@ -244,6 +224,7 @@ const handleTwitterSignup = async () => {
     const result = await signInWithTwitter();
     const userProfileData = await fetchUserProfile(result.user.uid);
     
+    // ✅ Check if profile is completed
     if (!userProfileData?.profileCompleted) {
       navigate('/complete-profile');
     } else {
@@ -252,6 +233,27 @@ const handleTwitterSignup = async () => {
   } catch (err) {
     console.error('Twitter signup error:', err);
     setError(err.message || 'Failed to sign up with Twitter. Please try again.');
+    setIsLoading(false);
+  }
+};
+
+const handleGoogleSignup = async () => {
+  setError('');
+  setIsLoading(true);
+  
+  try {
+    const result = await signInWithGoogle();
+    const userProfileData = await fetchUserProfile(result.user.uid);
+    
+    // ✅ Check if profile is completed
+    if (!userProfileData?.profileCompleted) {
+      navigate('/complete-profile');
+    } else {
+      navigate('/feed');
+    }
+  } catch (err) {
+    console.error('Google signup error:', err);
+    setError(err.message || 'Failed to sign up with Google. Please try again.');
     setIsLoading(false);
   }
 };

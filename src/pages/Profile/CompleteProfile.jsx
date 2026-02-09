@@ -1,482 +1,477 @@
-// src/pages/CreatorProfile/CreatorProfile.jsx
+// src/pages/Profile/CompleteProfile.jsx - FIXED AVATAR HANDLING
 
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { 
-  Heart, 
-  MessageCircle, 
-  Settings,
-  ArrowLeft,
-  Lock,
-  Star,
-  MapPin,
-  Calendar,
-  Link as LinkIcon,
-  MoreVertical
-} from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
+import { Loader2, Check, X, User, MapPin, FileText, Sparkles, Camera, LockKeyhole } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
-import { getUserProfile, getUserByUsername } from '../../services/firestoreService';
-import { getUserPosts } from '../../services/postService';
-import FollowButton from '../../components/common/FollowButton';
-import ContentViewModal from '../../components/common/ContentViewModal';
-import { Archive } from 'lucide-react';
+import { updateUserProfile, getUserByUsername } from '../../services/firestoreService';
 
-export default function CreatorProfile() {
+const avatarEmojis = ['👤', '😊', '🎨', '🎭', '🎪', '🎬', '🎮', '🎯', '🎲', '🎸', '🎹', '🎤', '🎧', '🎼', '🎵', '💎', '👑', '🔥', '⚡', '✨', '🌟', '💫', '🌈', '🦄', '🐉', '🦋', '🌸', '🌺', '🌻', '🌷'];
+
+export default function CompleteProfile() {
   const navigate = useNavigate();
-  const { username } = useParams();
-  const { currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState('posts');
-  const [archivedPosts, setArchivedPosts] = useState([]);
-  const [selectedPost, setSelectedPost] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [creator, setCreator] = useState(null);
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [isSubscribed, setIsSubscribed] = useState(false);
+  const { currentUser, fetchUserProfile, userProfile } = useAuth();
+  const [currentStep, setCurrentStep] = useState(1);
+  
+  // ✅ Initialize avatar - convert URL to emoji if needed
+  const getInitialAvatar = () => {
+    const currentAvatar = userProfile?.avatar || '👤';
+    // If it's a URL (starts with http), use default emoji instead
+    if (typeof currentAvatar === 'string' && currentAvatar.startsWith('http')) {
+      return '👤';
+    }
+    return currentAvatar;
+  };
 
-  // Check if viewing own profile
-  const isOwnProfile = currentUser && creator && currentUser.uid === creator.uid;
+  const [formData, setFormData] = useState({
+    username: '',
+    bio: '',
+    location: '',
+    avatar: getInitialAvatar()
+  });
+  
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [usernameAvailable, setUsernameAvailable] = useState(null);
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false);
 
-  useEffect(() => {
-    loadCreatorData();
-  }, [username]);
+  const checkUsernameAvailability = async (username) => {
+    if (!username || username.length < 3) {
+      setUsernameAvailable(null);
+      return;
+    }
 
-  const loadCreatorData = async () => {
     try {
-      setLoading(true);
-      
-      // ✅ Fetch the creator data based on username from URL params
-      let foundCreator;
-      
-      if (username) {
-        // If viewing another user's profile via username
-        foundCreator = await getUserByUsername(username);
-      } else if (currentUser) {
-        // If viewing own profile (no username in URL)
-        foundCreator = await getUserProfile(currentUser.uid);
-      }
-      
-      if (foundCreator) {
-        setCreator({
-          uid: foundCreator.uid || foundCreator.id,
-          username: foundCreator.username,
-          name: foundCreator.displayName || foundCreator.name,
-          avatar: foundCreator.avatar || foundCreator.photoURL || '👤',
-          banner: foundCreator.banner || '🎨',
-          bio: foundCreator.bio || 'No bio yet',
-          location: foundCreator.location || 'Location',
-          joined: foundCreator.createdAt ? new Date(foundCreator.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'Recently',
-          website: foundCreator.website || '',
-          verified: foundCreator.verified || false,
-          followers: foundCreator.followersCount || 0,
-          following: foundCreator.followingCount || 0,
-          postsCount: 0, // Will be updated after loading posts
-          subscriptionPrice: foundCreator.subscriptionPrice || 9.99
-        });
-        
-        // Load creator's posts
-        console.log('📝 Loading posts for user:', foundCreator.uid || foundCreator.id);
-        const userPosts = await getUserPosts(foundCreator.uid || foundCreator.id);
-        console.log(`✅ Loaded ${userPosts.length} posts`);
-        
-        // ✅ Separate archived and active posts
-        const activePosts = userPosts.filter(post => !post.archived);
-        const archived = userPosts.filter(post => post.archived);
-        
-        setPosts(activePosts);
-        setArchivedPosts(archived);
-        
-        // Update post count (only active posts)
-        setCreator(prev => ({
-          ...prev,
-          postsCount: activePosts.length
-        }));
-      } else {
-        console.error('❌ Creator not found');
-        setCreator(null);
-      }
-      
+      const existingUser = await getUserByUsername(username);
+      setUsernameAvailable(!existingUser);
     } catch (error) {
-      console.error('Error loading creator:', error);
-      setCreator(null);
-    } finally {
-      setLoading(false);
+      console.error('Error checking username:', error);
     }
   };
 
-  // ✅ Handle follower count updates from FollowButton
-  const handleFollowChange = async () => {
-    // Reload the creator data to get fresh follower count
+  const handleUsernameChange = (e) => {
+    let value = e.target.value
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '')
+      .slice(0, 20);
+
+    setFormData({ ...formData, username: value });
+    checkUsernameAvailability(value);
+  };
+
+  const handleNext = () => {
+    if (currentStep === 1 && (!formData.username || !usernameAvailable)) {
+      setError('Please choose an available username');
+      return;
+    }
+    setError('');
+    setCurrentStep(currentStep + 1);
+  };
+
+  const handleBack = () => {
+    setCurrentStep(currentStep - 1);
+    setError('');
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+
+    if (!formData.username) {
+      setError('Username is required');
+      setIsLoading(false);
+      return;
+    }
+
+    if (formData.username.length < 3) {
+      setError('Username must be at least 3 characters');
+      setIsLoading(false);
+      return;
+    }
+
+    if (!usernameAvailable) {
+      setError('Username is already taken');
+      setIsLoading(false);
+      return;
+    }
+
     try {
-      let foundCreator;
+      await updateUserProfile(currentUser.uid, {
+        username: formData.username,
+        bio: formData.bio || '',
+        location: formData.location || '',
+        avatar: formData.avatar,
+        profileCompleted: true
+      });
+
+      await fetchUserProfile(currentUser.uid);
       
-      if (username) {
-        foundCreator = await getUserByUsername(username);
-      } else if (currentUser) {
-        foundCreator = await getUserProfile(currentUser.uid);
-      }
-      
-      if (foundCreator) {
-        setCreator(prev => ({
-          ...prev,
-          followers: foundCreator.followersCount || foundCreator.followers || 0,
-          following: foundCreator.followingCount || foundCreator.following || 0
-        }));
-      }
-    } catch (error) {
-      console.error('Error updating follower count:', error);
+      // Success animation delay
+      await new Promise(resolve => setTimeout(resolve, 800));
+      navigate('/feed');
+    } catch (err) {
+      console.error('Error completing profile:', err);
+      setError('Failed to complete profile. Please try again.');
+      setIsLoading(false);
     }
   };
 
-  const handleMessage = () => {
-    navigate('/messages');
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-rose-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading profile...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!creator) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Creator Not Found</h2>
-          <p className="text-gray-600 mb-6">This creator doesn't exist or has been removed.</p>
-          <button
-            onClick={() => navigate('/feed')}
-            className="px-6 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-semibold transition"
-          >
-            Back to Feed
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const handlePostUpdate = (updatedPost) => {
-    if (updatedPost === null) {
-      // Post was deleted - remove it from the list
-      setPosts(prevPosts => prevPosts.filter(p => p.id !== selectedPost?.id));
-      setSelectedPost(null);
-      setIsModalOpen(false);
-    } else {
-      // Post was updated - update it in the list
-      setPosts(prevPosts => 
-        prevPosts.map(p => p.id === updatedPost.id ? updatedPost : p)
-      );
-      setSelectedPost(updatedPost);
-    }
-  };
+  const progress = (currentStep / 3) * 100;
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20 lg:pb-8">
-      {/* Mobile Header */}
-      <div className="lg:hidden bg-white border-b border-gray-200 sticky top-0 z-20">
-        <div className="flex items-center justify-between px-4 py-3">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-2 hover:bg-gray-100 rounded-lg transition"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </button>
-          <h1 className="text-lg font-bold text-gray-900">@{creator.username}</h1>
-          <button className="p-2 hover:bg-gray-100 rounded-lg transition">
-            <MoreVertical className="w-5 h-5 text-gray-600" />
-          </button>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-red-50 via-orange-50 to-pink-50 flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Animated Background Elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <motion.div
+          animate={{
+            scale: [1, 1.2, 1],
+            rotate: [0, 90, 0],
+          }}
+          transition={{ duration: 20, repeat: Infinity }}
+          className="absolute -top-20 -right-20 w-64 h-64 bg-red-200 rounded-full opacity-20 blur-3xl"
+        />
+        <motion.div
+          animate={{
+            scale: [1.2, 1, 1.2],
+            rotate: [90, 0, 90],
+          }}
+          transition={{ duration: 15, repeat: Infinity }}
+          className="absolute -bottom-20 -left-20 w-80 h-80 bg-orange-200 rounded-full opacity-20 blur-3xl"
+        />
       </div>
 
-      {/* Desktop Back Button */}
-      <div className="hidden lg:block bg-white border-b border-gray-200">
-        <div className="max-w-6xl mx-auto px-6 py-4">
-          <button
-            onClick={() => navigate('/feed')}
-            className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            <span className="font-medium">Back to Feed</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Profile Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-6xl mx-auto">
-          {/* Banner */}
-          <div className="relative h-48 sm:h-56 md:h-64 bg-gradient-to-br from-rose-200 via-pink-200 to-purple-200 flex items-center justify-center">
-            <span className="text-6xl sm:text-7xl md:text-9xl">{creator.banner}</span>
+      <div className="w-full max-w-2xl relative z-10">
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -30 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center mb-8"
+        >
+          <div className="flex items-center justify-center mb-4">
+            <motion.div
+              animate={{ rotate: [0, 360] }}
+              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            >
+              <Sparkles className="w-12 h-12 text-red-500" />
+            </motion.div>
           </div>
+          <h1 className="text-4xl font-black text-gray-900 mb-2 flex items-center justify-center gap-2">
+            Welcome to{' '}
+            <span className="flex items-center">
+              Unl<LockKeyhole className="w-8 h-8 text-red-600 mx-1" />kt
+            </span>
+          </h1>
+          <p className="text-gray-600">Let's set up your profile in 3 easy steps</p>
+        </motion.div>
 
-          {/* Profile Info */}
-          <div className="px-4 sm:px-6 pb-4 sm:pb-6">
-            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between -mt-12 sm:-mt-16 mb-4 sm:mb-6">
-              {/* Avatar */}
-              <div className="flex items-end space-x-4 sm:space-x-6">
-                <div className="relative">
-                  <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 border-4 border-white flex items-center justify-center text-4xl sm:text-5xl md:text-6xl shadow-lg">
-                    {creator.avatar}
+        {/* Progress Bar */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-2 text-sm font-medium text-gray-600">
+            <span>Step {currentStep} of 3</span>
+            <span>{Math.round(progress)}%</span>
+          </div>
+          <div className="h-3 bg-white/50 rounded-full overflow-hidden backdrop-blur-sm">
+            <motion.div
+              className="h-full bg-gradient-to-r from-red-500 via-orange-500 to-pink-500"
+              initial={{ width: 0 }}
+              animate={{ width: `${progress}%` }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
+            />
+          </div>
+        </div>
+
+        {/* Main Card */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-2xl p-8 border border-white/50"
+        >
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-4 bg-red-50 border border-red-200 text-red-600 rounded-xl text-sm flex items-center gap-2"
+            >
+              <X className="w-5 h-5" />
+              {error}
+            </motion.div>
+          )}
+
+          <AnimatePresence mode="wait">
+            {/* Step 1: Username */}
+            {currentStep === 1 && (
+              <motion.div
+                key="step1"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-6"
+              >
+                <div className="text-center mb-8">
+                  <div className="w-20 h-20 bg-gradient-to-br from-red-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+                    <User className="w-10 h-10 text-white" />
                   </div>
-                  {creator.verified && (
-                    <div className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2 bg-blue-500 text-white p-1 sm:p-1.5 rounded-full border-2 border-white">
-                      <Star className="w-3 h-3 sm:w-4 sm:h-4 fill-white" />
-                    </div>
-                  )}
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2">Choose Your Username</h2>
+                  <p className="text-gray-600 text-sm">This is how others will find you</p>
                 </div>
-              </div>
 
-              {/* Action Buttons */}
-              <div className="flex items-center space-x-2 sm:space-x-3 mt-4 sm:mt-0">
-                {!isOwnProfile && (
-                  <>
-                    <button 
-                      onClick={handleMessage}
-                      className="p-2 sm:p-3 rounded-full border-2 border-gray-200 hover:bg-gray-50 transition"
-                    >
-                      <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
-                    </button>
-                    
-                    {/* Follow Button with callback */}
-                    <FollowButton 
-                      userId={creator.uid}
-                      username={creator.username}
-                      size="md"
-                      onFollowChange={handleFollowChange}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-3">
+                    Username *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-5 top-1/2 transform -translate-y-1/2 text-gray-400 text-lg font-semibold">@</span>
+                    <input
+                      type="text"
+                      value={formData.username}
+                      onChange={handleUsernameChange}
+                      placeholder="yourname"
+                      autoFocus
+                      className="w-full pl-10 pr-12 py-4 bg-gray-50 border-2 border-gray-200 rounded-2xl text-gray-900 text-lg placeholder-gray-400 focus:outline-none focus:border-red-500 focus:bg-white transition-all"
                     />
-                    
-                    {/* Subscribe Button */}
-                    <button
-                      onClick={() => setIsSubscribed(!isSubscribed)}
-                      className={`px-4 sm:px-6 md:px-8 py-2 sm:py-2.5 md:py-3 rounded-full font-bold text-sm sm:text-base transition shadow-lg ${
-                        isSubscribed
-                          ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                          : 'bg-gradient-to-r from-rose-500 to-pink-600 text-white hover:from-rose-600 hover:to-pink-700'
+                    {formData.username && (
+                      <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
+                        {usernameAvailable === null ? (
+                          <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+                        ) : usernameAvailable ? (
+                          <Check className="w-6 h-6 text-green-500" />
+                        ) : (
+                          <X className="w-6 h-6 text-red-500" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {formData.username && (
+                    <motion.p
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className={`text-sm mt-2 font-medium flex items-center gap-2 ${
+                        usernameAvailable === null ? 'text-gray-500' :
+                        usernameAvailable ? 'text-green-600' : 'text-red-600'
                       }`}
                     >
-                      <span className="hidden sm:inline">
-                        {isSubscribed ? 'Subscribed' : `Subscribe • $${creator.subscriptionPrice}/mo`}
-                      </span>
-                      <span className="sm:hidden">
-                        {isSubscribed ? 'Subscribed' : 'Subscribe'}
-                      </span>
-                    </button>
-                  </>
-                )}
-                {isOwnProfile && (
-                  <>
-                    <button 
-                      onClick={() => navigate('/settings')}
-                      className="p-2 sm:p-3 rounded-full border-2 border-gray-200 hover:bg-gray-50 transition"
-                    >
-                      <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={() => navigate('/settings')}
-                      className="px-6 sm:px-8 py-2 sm:py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full font-bold text-sm sm:text-base transition"
-                    >
-                      Edit Profile
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Creator Name & Username */}
-            <div className="mb-3 sm:mb-4">
-              <div className="flex items-center space-x-2 mb-1">
-                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{creator.name}</h1>
-                {creator.verified && (
-                  <div className="bg-blue-500 text-white p-1 rounded-full">
-                    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                )}
-              </div>
-              <p className="text-gray-600 text-base sm:text-lg">@{creator.username}</p>
-            </div>
-
-            {/* Stats */}
-            <div className="flex items-center flex-wrap gap-4 sm:gap-6 md:gap-8 mb-4 sm:mb-6">
-              <div>
-                <span className="text-xl sm:text-2xl font-bold text-gray-900">{creator.postsCount}</span>
-                <span className="text-gray-600 ml-2 text-sm sm:text-base">Posts</span>
-              </div>
-              <div>
-                <span className="text-xl sm:text-2xl font-bold text-gray-900">{creator.followers}</span>
-                <span className="text-gray-600 ml-2 text-sm sm:text-base">Followers</span>
-              </div>
-              <div>
-                <span className="text-xl sm:text-2xl font-bold text-gray-900">{creator.following}</span>
-                <span className="text-gray-600 ml-2 text-sm sm:text-base">Following</span>
-              </div>
-            </div>
-
-            {/* Bio */}
-            <div className="mb-3 sm:mb-4">
-              <p className="text-sm sm:text-base text-gray-700 leading-relaxed">{creator.bio}</p>
-            </div>
-
-            {/* Additional Info */}
-            <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs sm:text-sm text-gray-600">
-              <div className="flex items-center space-x-1 sm:space-x-2">
-                <MapPin className="w-3 h-3 sm:w-4 sm:h-4" />
-                <span>{creator.location}</span>
-              </div>
-              <div className="flex items-center space-x-1 sm:space-x-2">
-                <Calendar className="w-3 h-3 sm:w-4 sm:h-4" />
-                <span>Joined {creator.joined}</span>
-              </div>
-              {creator.website && (
-                <div className="flex items-center space-x-1 sm:space-x-2">
-                  <LinkIcon className="w-3 h-3 sm:w-4 sm:h-4" />
-                  <a href={`https://${creator.website}`} target="_blank" rel="noopener noreferrer" className="text-rose-500 hover:text-rose-600 font-medium">
-                    {creator.website}
-                  </a>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Content Tabs */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 lg:top-0 z-10">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="flex space-x-4 sm:space-x-8 overflow-x-auto scrollbar-hide">
-            <button
-              onClick={() => setActiveTab('posts')}
-              className={`py-3 sm:py-4 font-semibold border-b-2 transition whitespace-nowrap text-sm sm:text-base ${
-                activeTab === 'posts'
-                  ? 'border-rose-500 text-rose-500'
-                  : 'border-transparent text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Posts
-            </button>
-            <button
-              onClick={() => setActiveTab('media')}
-              className={`py-3 sm:py-4 font-semibold border-b-2 transition whitespace-nowrap text-sm sm:text-base ${
-                activeTab === 'media'
-                  ? 'border-rose-500 text-rose-500'
-                  : 'border-transparent text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Media
-            </button>
-            <button
-              onClick={() => setActiveTab('likes')}
-              className={`py-3 sm:py-4 font-semibold border-b-2 transition whitespace-nowrap text-sm sm:text-base ${
-                activeTab === 'likes'
-                  ? 'border-rose-500 text-rose-500'
-                  : 'border-transparent text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Likes
-            </button>
-            {/* ✅ ADD ARCHIVE TAB - Only visible on own profile */}
-            {isOwnProfile && (
-              <button
-                onClick={() => setActiveTab('archive')}
-                className={`py-3 sm:py-4 font-semibold border-b-2 transition whitespace-nowrap text-sm sm:text-base ${
-                  activeTab === 'archive'
-                    ? 'border-rose-500 text-rose-500'
-                    : 'border-transparent text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                Archive {archivedPosts.length > 0 && `(${archivedPosts.length})`}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Content Grid */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        {posts.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500 text-lg">No posts yet</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-3 md:gap-4">
-            {posts.map((post, index) => (
-              <motion.div
-                key={post.id}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: index * 0.05 }}
-                onClick={() => {
-                  if (!post.isLocked || isOwnProfile) {
-                    setSelectedPost(post);
-                    setIsModalOpen(true);
-                  }
-                }}
-                className="relative group cursor-pointer"
-              >
-                <div className="aspect-square bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg sm:rounded-xl overflow-hidden">
-                  {post.images && post.images.length > 0 ? (
-                    <img 
-                      src={post.images[0]} 
-                      alt="Post" 
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-4xl sm:text-5xl md:text-6xl">
-                      📸
-                    </div>
+                      {usernameAvailable === null ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Checking availability...
+                        </>
+                      ) : usernameAvailable ? (
+                        <>
+                          <Check className="w-4 h-4" />
+                          Username available!
+                        </>
+                      ) : (
+                        <>
+                          <X className="w-4 h-4" />
+                          Username taken
+                        </>
+                      )}
+                    </motion.p>
                   )}
 
-                  {/* Locked Overlay */}
-                  {post.isLocked && !isOwnProfile && (
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
-                      <Lock className="w-8 h-8 sm:w-12 sm:h-12 text-white" />
-                    </div>
-                  )}
-
-                  {/* Hover Overlay with Stats */}
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center space-x-4 sm:space-x-6">
-                    <div className="flex items-center space-x-1 sm:space-x-2 text-white">
-                      <Heart className="w-5 h-5 sm:w-6 sm:h-6 fill-white" />
-                      <span className="font-bold text-sm sm:text-base">{post.likes || 0}</span>
-                    </div>
-                    <div className="flex items-center space-x-1 sm:space-x-2 text-white">
-                      <MessageCircle className="w-5 h-5 sm:w-6 sm:h-6 fill-white" />
-                      <span className="font-bold text-sm sm:text-base">{post.comments || 0}</span>
-                    </div>
+                  <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                    <p className="text-xs text-blue-800">
+                      <strong>Tips:</strong> Use 3-20 characters. Only letters, numbers, and underscores allowed.
+                    </p>
                   </div>
                 </div>
               </motion.div>
-            ))}
-          </div>
-        )}
+            )}
 
-        {/* Load More */}
-        {posts.length >= 20 && (
-          <div className="text-center mt-8">
-            <button className="bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 px-6 sm:px-8 py-2.5 sm:py-3 rounded-lg font-semibold text-sm sm:text-base transition">
-              Load More
-            </button>
+            {/* Step 2: Avatar - FIXED */}
+            {currentStep === 2 && (
+              <motion.div
+                key="step2"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-6"
+              >
+                <div className="text-center mb-8">
+                  <div className="w-20 h-20 bg-gradient-to-br from-orange-500 to-red-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+                    <Camera className="w-10 h-10 text-white" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2">Choose Your Avatar</h2>
+                  <p className="text-gray-600 text-sm">Pick an emoji that represents you</p>
+                </div>
+
+                {/* ✅ FIXED: Avatar Display */}
+                <div className="text-center">
+                  <div className="w-32 h-32 bg-gradient-to-br from-red-100 to-pink-100 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl border-4 border-white">
+                    <span className="text-6xl select-none">{formData.avatar}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAvatarPicker(!showAvatarPicker)}
+                    className="px-6 py-3 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white rounded-full font-semibold transition-all shadow-lg"
+                  >
+                    {showAvatarPicker ? 'Close Picker' : 'Change Avatar'}
+                  </button>
+                </div>
+
+                <AnimatePresence>
+                  {showAvatarPicker && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="grid grid-cols-6 gap-3 p-4 bg-gray-50 rounded-2xl max-h-64 overflow-y-auto"
+                    >
+                      {avatarEmojis.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => {
+                            setFormData({ ...formData, avatar: emoji });
+                            setShowAvatarPicker(false);
+                          }}
+                          className={`aspect-square rounded-xl text-3xl hover:scale-110 transition-transform ${
+                            formData.avatar === emoji ? 'bg-red-100 ring-2 ring-red-500' : 'bg-white hover:bg-gray-100'
+                          }`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            )}
+
+            {/* Step 3: Bio & Location */}
+            {currentStep === 3 && (
+              <motion.div
+                key="step3"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-6"
+              >
+                <div className="text-center mb-8">
+                  <div className="w-20 h-20 bg-gradient-to-br from-pink-500 to-red-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+                    <FileText className="w-10 h-10 text-white" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2">Tell Us About You</h2>
+                  <p className="text-gray-600 text-sm">Optional but helps people know you better</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    Bio <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <textarea
+                    value={formData.bio}
+                    onChange={(e) => setFormData({ ...formData, bio: e.target.value.slice(0, 150) })}
+                    placeholder="Tell us about yourself..."
+                    rows={4}
+                    maxLength={150}
+                    className="w-full px-5 py-4 bg-gray-50 border-2 border-gray-200 rounded-2xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-500 focus:bg-white transition-all resize-none"
+                  />
+                  <p className="text-xs text-gray-500 mt-2">{formData.bio.length}/150 characters</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <MapPin className="w-4 h-4" />
+                    Location <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.location}
+                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                    placeholder="City, Country"
+                    className="w-full px-5 py-4 bg-gray-50 border-2 border-gray-200 rounded-2xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-500 focus:bg-white transition-all"
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Navigation Buttons */}
+          <div className="flex gap-4 mt-8">
+            {currentStep > 1 && (
+              <button
+                type="button"
+                onClick={handleBack}
+                disabled={isLoading}
+                className="flex-1 px-6 py-4 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-2xl font-semibold transition-all disabled:opacity-50"
+              >
+                Back
+              </button>
+            )}
+            
+            {currentStep < 3 ? (
+              <button
+                type="button"
+                onClick={handleNext}
+                disabled={currentStep === 1 && (!formData.username || !usernameAvailable)}
+                className="flex-1 px-6 py-4 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white rounded-2xl font-semibold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={isLoading}
+                className="flex-1 px-6 py-4 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white rounded-2xl font-semibold transition-all shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Creating Profile...
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-5 h-5" />
+                    Complete Setup
+                  </>
+                )}
+              </button>
+            )}
           </div>
-        )}
+
+          {/* Profile Preview */}
+          {currentStep === 3 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-8 p-6 bg-gradient-to-br from-gray-50 to-white rounded-2xl border-2 border-gray-100"
+            >
+              <p className="text-xs font-semibold text-gray-500 mb-4 uppercase tracking-wide">Preview</p>
+              <div className="flex items-start gap-4">
+                <div className="w-16 h-16 bg-gradient-to-br from-red-100 to-pink-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <span className="text-3xl">{formData.avatar}</span>
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-gray-900 text-lg">@{formData.username}</h3>
+                  {formData.bio && <p className="text-gray-600 text-sm mt-1">{formData.bio}</p>}
+                  {formData.location && (
+                    <p className="text-gray-500 text-sm mt-2 flex items-center gap-1">
+                      <MapPin className="w-3 h-3" />
+                      {formData.location}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </motion.div>
+
+        {/* Footer */}
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5 }}
+          className="text-center mt-6 text-sm text-gray-600"
+        >
+          You can always change this later in settings
+        </motion.p>
       </div>
-
-      {/* Content View Modal */}
-      <ContentViewModal 
-        isOpen={isModalOpen} 
-        onClose={() => {
-          setIsModalOpen(false);
-          setSelectedPost(null);
-        }} 
-        post={selectedPost}
-        onPostUpdate={handlePostUpdate}
-      />
     </div>
   );
 }
