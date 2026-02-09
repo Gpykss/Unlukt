@@ -307,9 +307,6 @@ const handleMessage = async () => {
           {/* Profile Info */}
           <div className="px-4 sm:px-6 pb-4 sm:pb-6">
             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between -mt-12 sm:-mt-16 mb-4 sm:mb-6">
-              console.log('Avatar value:', creator.avatar);
-console.log('Avatar type:', typeof creator.avatar);
-console.log('Starts with http:', creator.avatar?.startsWith('http'));
               {/* Avatar */}
               <div className="flex items-end space-x-4 sm:space-x-6">
                <div className="relative">
