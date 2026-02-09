@@ -156,24 +156,25 @@ export default function Login() {
   };
 
   const handleTwitterLogin = async () => {
-    setError('');
-    setIsLoading(true);
+  setError('');
+  setIsLoading(true);
+  
+  try {
+    const result = await signInWithTwitter();
+    const userProfileData = await fetchUserProfile(result.user.uid);
     
-    try {
-      const result = await signInWithTwitter();
-      const userProfileData = await fetchUserProfile(result.user.uid);
-      
-      if (!userProfileData?.profileCompleted) {
-        navigate('/complete-profile');
-      } else {
-        navigate('/feed');
-      }
-    } catch (err) {
-      console.error('Twitter login error:', err);
-      setError(err.message || 'Failed to login with Twitter. Please try again.');
-      setIsLoading(false);
+    // ✅ Always redirect Twitter users to complete profile if not completed
+    if (!userProfileData?.profileCompleted || !userProfileData?.username) {
+      navigate('/complete-profile');
+    } else {
+      navigate('/feed');
     }
-  };
+  } catch (err) {
+    console.error('Twitter login error:', err);
+    setError(err.message || 'Failed to login with Twitter. Please try again.');
+    setIsLoading(false);
+  }
+};
 
   const handleFacebookLogin = async () => {
     setError('');

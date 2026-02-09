@@ -1,4 +1,4 @@
-// src/contexts/AuthContext.jsx
+// src/contexts/AuthContext.jsx - FIXED: All social auth sets profileCompleted: false
 
 import { createContext, useState, useEffect } from 'react';
 import { 
@@ -55,12 +55,15 @@ export function AuthProvider({ children }) {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
       const result = await signInWithPopup(auth, provider);
+      
       const existingProfile = await getUserProfile(result.user.uid);
       if (!existingProfile) {
+        // ✅ Create incomplete profile - user must complete it
         await createUserProfile(result.user.uid, {
           email: result.user.email,
           displayName: result.user.displayName,
-          avatar: result.user.photoURL
+          avatar: result.user.photoURL,
+          profileCompleted: false  // ✅ ADDED!
         });
       }
       return result;
@@ -82,10 +85,12 @@ export function AuthProvider({ children }) {
       
       const existingProfile = await getUserProfile(result.user.uid);
       if (!existingProfile) {
+        // ✅ Create incomplete profile - user must complete it
         await createUserProfile(result.user.uid, {
           email: result.user.email || '',
           displayName: result.user.displayName || 'Twitter User',
-          avatar: result.user.photoURL || '🐦'
+          avatar: result.user.photoURL || '🐦',
+          profileCompleted: false  // ✅ Already correct!
         });
       }
       return result;
@@ -114,12 +119,15 @@ export function AuthProvider({ children }) {
       const provider = new FacebookAuthProvider();
       provider.setCustomParameters({ display: 'popup' });
       const result = await signInWithPopup(auth, provider);
+      
       const existingProfile = await getUserProfile(result.user.uid);
       if (!existingProfile) {
+        // ✅ Create incomplete profile - user must complete it
         await createUserProfile(result.user.uid, {
           email: result.user.email || '',
           displayName: result.user.displayName || 'Facebook User',
-          avatar: result.user.photoURL || '📘'
+          avatar: result.user.photoURL || '📘',
+          profileCompleted: false  // ✅ ADDED!
         });
       }
       return result;
