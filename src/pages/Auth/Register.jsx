@@ -123,9 +123,8 @@ function AnimatedCreatorCard() {
 
 export default function Register() {
   const navigate = useNavigate();
-  const { signup, signInWithGoogle,signInWithTwitter, 
-    signInWithFacebook } = useAuth();
-  
+  const { signup, signInWithGoogle, signInWithTwitter, 
+  signInWithFacebook, fetchUserProfile } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -218,26 +217,38 @@ export default function Register() {
   };
 
   const handleGoogleSignup = async () => {
-    setError('');
-    setIsLoading(true);
-    
-    try {
-      await signInWithGoogle();
-      navigate('/feed');
-    } catch (err) {
-      console.error('Google signup error:', err);
-      setError('Failed to sign up with Google. Please try again.');
-      setIsLoading(false);
-    }
-  };
-
-  const handleTwitterSignup = async () => {
   setError('');
   setIsLoading(true);
   
   try {
-    await signInWithTwitter();
-    navigate('/feed');
+    const result = await signInWithGoogle();
+    const userProfileData = await fetchUserProfile(result.user.uid);
+    
+    if (!userProfileData?.profileCompleted) {
+      navigate('/complete-profile');
+    } else {
+      navigate('/feed');
+    }
+  } catch (err) {
+    console.error('Google signup error:', err);
+    setError(err.message || 'Failed to sign up with Google. Please try again.');
+    setIsLoading(false);
+  }
+};
+
+const handleTwitterSignup = async () => {
+  setError('');
+  setIsLoading(true);
+  
+  try {
+    const result = await signInWithTwitter();
+    const userProfileData = await fetchUserProfile(result.user.uid);
+    
+    if (!userProfileData?.profileCompleted) {
+      navigate('/complete-profile');
+    } else {
+      navigate('/feed');
+    }
   } catch (err) {
     console.error('Twitter signup error:', err);
     setError(err.message || 'Failed to sign up with Twitter. Please try again.');
