@@ -1,4 +1,4 @@
-// src/services/firestoreService.js - Complete with KYC Functions
+// src/services/firestoreService.js - UPDATED createUserProfile
 
 import { 
   collection,
@@ -17,6 +17,82 @@ import { db } from '../config/firebase';
 // =====================================================
 // USER PROFILE FUNCTIONS
 // =====================================================
+
+/**
+ * Create new user profile with automatic username generation
+ * @param {string} userId - User ID
+ * @param {Object} profileData - Profile data
+ * @returns {Promise<void>}
+ */
+export const createUserProfile = async (userId, profileData) => {
+  try {
+    if (!userId || typeof userId !== 'string') {
+      throw new Error('Invalid userId');
+    }
+
+    const cleanUserId = userId.trim();
+    
+    if (!cleanUserId) {
+      throw new Error('Empty userId');
+    }
+
+    // ✅ GENERATE USERNAME if not provided
+    let username = profileData.username;
+    
+    if (!username) {
+      // Try to create username from displayName
+      if (profileData.displayName) {
+        // Create clean username from display name
+        username = profileData.displayName
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '') // Remove special characters
+          .slice(0, 15); // Limit length
+        
+        // Check if username already exists
+        const usernameExists = await getUserByUsername(username);
+        if (usernameExists) {
+          // Add random number if taken
+          username = `${username}${Math.floor(Math.random() * 1000)}`;
+        }
+      } else {
+        // Fallback: use first 8 characters of UID
+        username = cleanUserId.substring(0, 8);
+      }
+    }
+
+    const userRef = doc(db, 'users', cleanUserId);
+    
+    const userData = {
+      uid: cleanUserId,
+      username: username, // ✅ Ensure username is always set
+      displayName: profileData.displayName || '',
+      email: profileData.email || '',
+      avatar: profileData.avatar || '👤',
+      bio: profileData.bio || '',
+      location: profileData.location || '',
+      website: profileData.website || '',
+      banner: profileData.banner || '🎨',
+      profileCompleted: profileData.profileCompleted !== undefined ? profileData.profileCompleted : false,
+      kycStatus: profileData.kycStatus || 'none',
+      role: profileData.role || 'user',
+      subscriptionPrice: profileData.subscriptionPrice || 9.99,
+      followers: 0,
+      followersCount: 0,
+      following: 0,
+      followingCount: 0,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      isOnline: false,
+      lastSeen: serverTimestamp()
+    };
+
+    await setDoc(userRef, userData);
+    console.log('✅ Profile created:', cleanUserId, 'with username:', username);
+  } catch (error) {
+    console.error('❌ Error creating profile:', error);
+    throw error;
+  }
+};
 
 /**
  * Get user profile by userId
@@ -42,6 +118,7 @@ export const getUserProfile = async (userId) => {
     if (userDoc.exists()) {
       return {
         id: userDoc.id,
+        uid: userDoc.id, // ✅ Add uid field
         ...userDoc.data()
       };
     } else {
@@ -73,7 +150,6 @@ export const getUserByUsername = async (username) => {
       return null;
     }
 
-    // Try exact match first
     const q = query(
       collection(db, 'users'),
       where('username', '==', cleanUsername)
@@ -85,23 +161,9 @@ export const getUserByUsername = async (username) => {
       const userDoc = snapshot.docs[0];
       return {
         id: userDoc.id,
+        uid: userDoc.id, // ✅ Add uid field
         ...userDoc.data()
       };
-    }
-
-    // If not found, try getting all users and match manually (fallback for users without proper username field)
-    const allUsersSnapshot = await getDocs(collection(db, 'users'));
-    
-    for (const doc of allUsersSnapshot.docs) {
-      const userData = doc.data();
-      const userUsername = (userData.username || userData.displayName || '').toLowerCase();
-      
-      if (userUsername === cleanUsername || userUsername === `@${cleanUsername}`) {
-        return {
-          id: doc.id,
-          ...userData
-        };
-      }
     }
 
     console.warn('⚠️ User not found with username:', cleanUsername);
@@ -145,124 +207,6 @@ export const updateUserProfile = async (userId, profileData) => {
 };
 
 /**
- * Create new user profile
- * @param {string} userId - User ID
- * @param {Object} profileData - Profile data
- * @returns {Promise<void>}
- */
-export const createUserProfile = async (userId, profileData) => {
-  try {
-    if (!userId || typeof userId !== 'string') {
-      throw new Error('Invalid userId');
-    }
-
-    const cleanUserId = userId.trim();
-    
-    if (!cleanUserId) {
-      throw new Error('Empty userId');
-    }
-
-    const userRef = doc(db, 'users', cleanUserId);
-    
-    await setDoc(userRef, {
-      ...profileData,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-
-    console.log('✅ Profile created:', cleanUserId);
-  } catch (error) {
-    console.error('❌ Error creating profile:', error);
-    throw error;
-  }
-};
-
-// =====================================================
-// KYC MANAGEMENT FUNCTIONS
-// =====================================================
-
-/**
- * Get pending KYC applications
- * @returns {Promise<Array>}
- */
-export const getPendingKYCApplications = async () => {
-  try {
-    // Simple query - NO orderBy to avoid index requirement
-    const q = query(
-      collection(db, 'users'),
-      where('kycStatus', '==', 'pending')
-    );
-
-    const snapshot = await getDocs(q);
-    
-    const applications = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-
-    // Sort in JavaScript instead of Firestore
-    applications.sort((a, b) => {
-      const dateA = a.kycSubmittedAt?.toDate?.() || new Date(0);
-      const dateB = b.kycSubmittedAt?.toDate?.() || new Date(0);
-      return dateB - dateA; // Newest first
-    });
-
-    console.log(`✅ Fetched ${applications.length} pending KYC applications`);
-
-    return applications;
-  } catch (error) {
-    console.error('❌ Error getting pending KYC applications:', error);
-    return [];
-  }
-};
-
-/**
- * Get all KYC submissions (with optional status filter)
- * @param {string} status - Filter by status ('pending', 'approved', 'rejected', or null for all)
- * @returns {Promise<Array>}
- */
-export const getKYCSubmissions = async (status = null) => {
-  try {
-    let q;
-    
-    if (status) {
-      // Simple query - NO orderBy
-      q = query(
-        collection(db, 'users'),
-        where('kycStatus', '==', status)
-      );
-    } else {
-      // Get all users who have submitted KYC
-      q = query(
-        collection(db, 'users'),
-        where('kycSubmittedAt', '!=', null)
-      );
-    }
-
-    const snapshot = await getDocs(q);
-    
-    const submissions = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-
-    // Sort in JavaScript instead of Firestore
-    submissions.sort((a, b) => {
-      const dateA = a.kycSubmittedAt?.toDate?.() || new Date(0);
-      const dateB = b.kycSubmittedAt?.toDate?.() || new Date(0);
-      return dateB - dateA; // Newest first
-    });
-
-    console.log(`✅ Fetched ${submissions.length} KYC submissions`);
-
-    return submissions;
-  } catch (error) {
-    console.error('❌ Error getting KYC submissions:', error);
-    return [];
-  }
-};
-
-/**
  * Check if username is available
  * @param {string} username - Username to check
  * @returns {Promise<boolean>} - True if available, false if taken
@@ -281,7 +225,6 @@ export const checkUsernameAvailability = async (username) => {
       return false;
     }
 
-    // Check minimum length (e.g., 3 characters)
     if (cleanUsername.length < 3) {
       return false;
     }
@@ -293,7 +236,6 @@ export const checkUsernameAvailability = async (username) => {
 
     const snapshot = await getDocs(q);
     
-    // If snapshot is empty, username is available
     const isAvailable = snapshot.empty;
     
     console.log(`✅ Username "${cleanUsername}" is ${isAvailable ? 'available' : 'taken'}`);
@@ -305,11 +247,77 @@ export const checkUsernameAvailability = async (username) => {
   }
 };
 
-/**
- * Get KYC details for a specific user
- * @param {string} userId - User ID
- * @returns {Promise<Object|null>}
- */
+// =====================================================
+// KYC MANAGEMENT FUNCTIONS (keep all existing code)
+// =====================================================
+
+export const getPendingKYCApplications = async () => {
+  try {
+    const q = query(
+      collection(db, 'users'),
+      where('kycStatus', '==', 'pending')
+    );
+
+    const snapshot = await getDocs(q);
+    
+    const applications = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    applications.sort((a, b) => {
+      const dateA = a.kycSubmittedAt?.toDate?.() || new Date(0);
+      const dateB = b.kycSubmittedAt?.toDate?.() || new Date(0);
+      return dateB - dateA;
+    });
+
+    console.log(`✅ Fetched ${applications.length} pending KYC applications`);
+
+    return applications;
+  } catch (error) {
+    console.error('❌ Error getting pending KYC applications:', error);
+    return [];
+  }
+};
+
+export const getKYCSubmissions = async (status = null) => {
+  try {
+    let q;
+    
+    if (status) {
+      q = query(
+        collection(db, 'users'),
+        where('kycStatus', '==', status)
+      );
+    } else {
+      q = query(
+        collection(db, 'users'),
+        where('kycSubmittedAt', '!=', null)
+      );
+    }
+
+    const snapshot = await getDocs(q);
+    
+    const submissions = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    submissions.sort((a, b) => {
+      const dateA = a.kycSubmittedAt?.toDate?.() || new Date(0);
+      const dateB = b.kycSubmittedAt?.toDate?.() || new Date(0);
+      return dateB - dateA;
+    });
+
+    console.log(`✅ Fetched ${submissions.length} KYC submissions`);
+
+    return submissions;
+  } catch (error) {
+    console.error('❌ Error getting KYC submissions:', error);
+    return [];
+  }
+};
+
 export const getKYCDetails = async (userId) => {
   try {
     if (!userId || typeof userId !== 'string') {
@@ -343,11 +351,6 @@ export const getKYCDetails = async (userId) => {
   }
 };
 
-/**
- * Approve KYC submission
- * @param {string} userId - User ID
- * @returns {Promise<void>}
- */
 export const approveKYC = async (userId) => {
   try {
     if (!userId || typeof userId !== 'string') {
@@ -359,8 +362,8 @@ export const approveKYC = async (userId) => {
     await updateDoc(userRef, {
       kycStatus: 'approved',
       kycReviewedAt: serverTimestamp(),
-      kycRejectionReason: '', // Clear any previous rejection reason
-      role: 'creator', // Upgrade user to creator role
+      kycRejectionReason: '',
+      role: 'creator',
       updatedAt: serverTimestamp()
     });
 
@@ -371,12 +374,6 @@ export const approveKYC = async (userId) => {
   }
 };
 
-/**
- * Reject KYC submission
- * @param {string} userId - User ID
- * @param {string} reason - Rejection reason
- * @returns {Promise<void>}
- */
 export const rejectKYC = async (userId, reason) => {
   try {
     if (!userId || typeof userId !== 'string') {
@@ -403,12 +400,6 @@ export const rejectKYC = async (userId, reason) => {
   }
 };
 
-/**
- * Submit KYC documents (called by user)
- * @param {string} userId - User ID
- * @param {Object} kycData - KYC data (fullName, dateOfBirth, address, etc.)
- * @returns {Promise<void>}
- */
 export const submitKYC = async (userId, kycData) => {
   try {
     if (!userId || typeof userId !== 'string') {
@@ -437,12 +428,6 @@ export const submitKYC = async (userId, kycData) => {
   }
 };
 
-/**
- * Submit KYC application (alias for submitKYC)
- * @param {string} userId - User ID
- * @param {Object} kycData - KYC application data
- * @returns {Promise<void>}
- */
 export const submitKYCApplication = async (userId, kycData) => {
   try {
     if (!userId || typeof userId !== 'string') {
@@ -471,10 +456,6 @@ export const submitKYCApplication = async (userId, kycData) => {
   }
 };
 
-/**
- * Get KYC statistics
- * @returns {Promise<Object>}
- */
 export const getKYCStats = async () => {
   try {
     const allSubmissions = await getKYCSubmissions();

@@ -80,21 +80,28 @@ export default function CreatorProfile() {
       
       if (foundCreator) {
         setCreator({
-          uid: foundCreator.uid || foundCreator.id,
-          username: foundCreator.username,
-          name: foundCreator.displayName || foundCreator.name,
-          avatar: foundCreator.avatar || foundCreator.photoURL || '👤',
-          banner: foundCreator.banner || '🎨',
-          bio: foundCreator.bio || 'No bio yet',
-          location: foundCreator.location || 'Location',
-          joined: foundCreator.createdAt ? new Date(foundCreator.createdAt.seconds * 1000).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'Recently',
-          website: foundCreator.website || '',
-          verified: foundCreator.kycStatus === 'approved' || false,
-          followers: foundCreator.followersCount || foundCreator.followers || 0,
-          following: foundCreator.followingCount || foundCreator.following || 0,
-          postsCount: 0,
-          subscriptionPrice: foundCreator.subscriptionPrice || 9.99
-        });
+        uid: foundCreator.uid || foundCreator.id,
+        username: foundCreator.username || 'user',
+        name: foundCreator.displayName || foundCreator.name || 'User',
+        avatar: foundCreator.avatar || foundCreator.photoURL || '👤',
+        banner: foundCreator.banner || '🎨',
+        bio: foundCreator.bio || 'No bio yet',
+        location: foundCreator.location || 'Location',
+        // ✅ FIXED: Proper timestamp handling
+        joined: foundCreator.createdAt ? (
+          foundCreator.createdAt.toDate ? 
+            foundCreator.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) :
+          foundCreator.createdAt.seconds ?
+            new Date(foundCreator.createdAt.seconds * 1000).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) :
+            'Recently'
+        ) : 'Recently',
+        website: foundCreator.website || '',
+        verified: foundCreator.kycStatus === 'approved' || false,
+        followers: foundCreator.followersCount || 0,
+        following: foundCreator.followingCount || 0,
+        postsCount: 0,
+        subscriptionPrice: foundCreator.subscriptionPrice || 9.99
+      });
         
         // Load creator's posts
         console.log('📝 Loading posts for user:', foundCreator.uid || foundCreator.id);
