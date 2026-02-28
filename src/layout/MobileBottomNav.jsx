@@ -1,7 +1,7 @@
 // src/layout/MobileBottomNav.jsx - FIXED: ONE LINE + RESPONSIVE + CENTERED
 
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, MessageCircle, Plus, Wallet, User } from 'lucide-react';
+import { Home, MessageCircle, Plus, Wallet, User,Users  } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useUnreadMessages } from '../hooks/useUnreadMessages';

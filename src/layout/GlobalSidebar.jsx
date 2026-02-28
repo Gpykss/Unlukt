@@ -13,6 +13,7 @@ import {
   Plus,
   Crown,
   Shield,
+  Users,
   X
 } from 'lucide-react';
 import { useUserProfile } from '../hooks/useUserProfile';
@@ -27,14 +28,15 @@ export default function GlobalSidebar({ isOpen, onClose }) {
   const { logout } = useAuth();
 
   const menuItems = [
-    { id: 'home', label: 'Home', icon: Home, path: '/feed' },
-    { id: 'search', label: 'Search', icon: Search, path: '/search' },
-    { id: 'discover', label: 'Discover', icon: Compass, path: '/discover' },
-    { id: 'profile', label: 'Profile', icon: User, path: `/creator/${username || 'your-profile'}` },
-    { id: 'dashboard', label: 'Dashboard', icon: BarChart3, path: '/dashboard' },
-    { id: 'wallet', label: 'Wallet', icon: Wallet, path: '/wallet', highlight: true },
-    { id: 'settings', label: 'Settings', icon: Settings, path: '/settings' }
-  ];
+  { id: 'home', label: 'Home', icon: Home, path: '/feed' },
+  { id: 'communities', icon: Users, label: 'Communities', path: '/communities' }, // ✅ added id
+  { id: 'profile', label: 'Profile', icon: User, path: `/creator/${username || 'your-profile'}` },
+  { id: 'search', label: 'Search', icon: Search, path: '/search' },
+  { id: 'dashboard', label: 'Dashboard', icon: BarChart3, path: '/dashboard' },
+  { id: 'wallet', label: 'Wallet', icon: Wallet, path: '/wallet', highlight: true },
+  { id: 'settings', label: 'Settings', icon: Settings, path: '/settings' }
+];
+
 
   const isActive = (path) => location.pathname === path;
 
@@ -139,7 +141,7 @@ export default function GlobalSidebar({ isOpen, onClose }) {
                 
                 return (
                   <button
-                    key={item.id}
+                    key={item.id || item.path}
                     onClick={() => handleNavigation(item.path)}
                     className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg font-medium transition ${
                       active

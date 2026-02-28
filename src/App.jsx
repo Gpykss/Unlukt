@@ -33,15 +33,21 @@ import CryptoPayments from './pages/Admin/CryptoPayments';
 import TermsAndConditions from './pages/Legal/TermsAndConditions';
 import PrivacyPolicy from './pages/Legal/PrivacyPolicy';
 import HelpCenter from './pages/Legal/HelpCenter';
+import Communities from './pages/Communities/Communities';
+import CommunityDetail from './pages/Communities/CommunityDetail';
+import CreateCommunity from './pages/Communities/CreateCommunity';
+import { ContentSettingsProvider } from './contexts/ContentSettingsContext';
+import Support from './pages/Support/Support';
+
 
 function AppContent() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  
+
   // Pages without any navigation
   const noNavPages = ['/', '/login', '/register', '/verify-email', '/complete-profile', '/legal/privacy', '/legal/terms', '/help'];
   const showNav = !noNavPages.includes(location.pathname);
-  
+
   // Pages that show discover sidebar on desktop
   const showDiscoverSidebar = location.pathname === '/feed';
 
@@ -57,9 +63,9 @@ function AppContent() {
 
       {/* Desktop Sidebar - Left */}
       {showNav && (
-        <GlobalSidebar 
-          isOpen={sidebarOpen} 
-          onClose={() => setSidebarOpen(false)} 
+        <GlobalSidebar
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
         />
       )}
 
@@ -75,19 +81,37 @@ function AppContent() {
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/verify-email" element={<ProtectedRoute requireVerification={false}><VerifyEmail /></ProtectedRoute>} />
-          
-          {/* Protected Routes */}
-          <Route path="/feed" element={<ProtectedRoute><Feed /></ProtectedRoute>} />
+
+          {/* Verify Email page should be accessible even if not verified */}
+          <Route
+            path="/verify-email"
+            element={
+              <ProtectedRoute requireVerification={false}>
+                <VerifyEmail />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ✅ Protected Routes */}
+          {/* IMPORTANT: Feed should require verification */}
+          <Route
+            path="/feed"
+            element={
+              <ProtectedRoute requireVerification={true}>
+                <Feed />
+              </ProtectedRoute>
+            }
+          />
+
           <Route path="/creator/:username" element={<ProtectedRoute><CreatorProfile /></ProtectedRoute>} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
-          
+
           {/* Admin Routes */}
           <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
           <Route path="/admin/kyc" element={<AdminRoute><KYCManagement /></AdminRoute>} />
           <Route path="/admin/crypto-payments" element={<AdminRoute><CryptoPayments /></AdminRoute>} />
-          
+
           {/* Other Protected Routes */}
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="/search" element={<ProtectedRoute><SearchPage /></ProtectedRoute>} />
@@ -95,14 +119,31 @@ function AppContent() {
           <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
           <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
           <Route path="/new-post" element={<ProtectedRoute><NewPost /></ProtectedRoute>} />
-          <Route path="/complete-profile" element={<ProtectedRoute requireVerification={false}><CompleteProfile /></ProtectedRoute>} />
+
+          {/* You already allowed profile completion without verification */}
+          <Route
+            path="/complete-profile"
+            element={
+              <ProtectedRoute requireVerification={false}>
+                <CompleteProfile />
+              </ProtectedRoute>
+            }
+          />
+
           <Route path="/edit-profile" element={<ProtectedRoute><EditProfile /></ProtectedRoute>} />
           <Route path="/become-creator" element={<ProtectedRoute><BecomeCreator /></ProtectedRoute>} />
-          
+
           {/* Legal Pages */}
           <Route path="/legal/terms" element={<TermsAndConditions />} />
           <Route path="/legal/privacy" element={<PrivacyPolicy />} />
           <Route path="/help" element={<HelpCenter />} />
+
+          {/* Community Routes */}
+          <Route path="/communities" element={<ProtectedRoute><Communities /></ProtectedRoute>} />
+          <Route path="/community/:communityId" element={<ProtectedRoute><CommunityDetail /></ProtectedRoute>} />
+          <Route path="/create-community" element={<ProtectedRoute><CreateCommunity /></ProtectedRoute>} />
+
+          <Route path="/support" element={<Support />} />
         </Routes>
       </div>
 
@@ -132,10 +173,13 @@ function App() {
 
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
-    </BrowserRouter>
+  <AuthProvider>
+    <ContentSettingsProvider>
+      <AppContent />
+    </ContentSettingsProvider>
+  </AuthProvider>
+</BrowserRouter>
+
   );
 }
 

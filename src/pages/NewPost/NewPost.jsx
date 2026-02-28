@@ -1,4 +1,4 @@
-// src/pages/NewPost/NewPost.jsx - WITH CLOUDINARY INTEGRATION
+// src/pages/NewPost/NewPost.jsx - WITH CLOUDINARY + REQUIRED SFW/NSFW
 
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
@@ -10,10 +10,10 @@ import {
   Globe,
   DollarSign,
   X,
-  Upload,
-  Smile,
   Crown,
-  Loader2
+  Loader2,
+  ShieldAlert,
+  ShieldCheck
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useUserProfile } from '../../hooks/useUserProfile';
@@ -25,15 +25,24 @@ export default function NewPost() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const { profile, isCreator } = useUserProfile();
+
   const [caption, setCaption] = useState('');
   const [price, setPrice] = useState('');
   const [visibility, setVisibility] = useState('subscribers');
+
   const [mediaType, setMediaType] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [preview, setPreview] = useState(null);
+
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+
   const [tags, setTags] = useState('');
+
+  // ✅ NEW: REQUIRED content rating
+  const [contentRating, setContentRating] = useState(''); // '' | 'sfw' | 'nsfw'
+  const [showRatingHelp, setShowRatingHelp] = useState(true);
+
   const fileInputRef = useRef(null);
 
   // Redirect non-creators
@@ -47,9 +56,9 @@ export default function NewPost() {
 
   const handleMediaTypeSelect = (type) => {
     setMediaType(type);
-    // Trigger file input
+
     if (fileInputRef.current) {
-      fileInputRef.current.accept = type === 'image' 
+      fileInputRef.current.accept = type === 'image'
         ? 'image/jpeg,image/png,image/gif,image/webp'
         : 'video/mp4,video/quicktime,video/x-msvideo';
       fileInputRef.current.click();
@@ -60,16 +69,14 @@ export default function NewPost() {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Validate file size (50MB max)
     const maxSize = 50 * 1024 * 1024; // 50MB
     if (file.size > maxSize) {
       alert('File is too large. Maximum size is 50MB.');
       return;
     }
 
-    // Validate file type
     const fileType = file.type.split('/')[0];
-    if ((mediaType === 'image' && fileType !== 'image') || 
+    if ((mediaType === 'image' && fileType !== 'image') ||
         (mediaType === 'video' && fileType !== 'video')) {
       alert('Invalid file type selected.');
       return;
@@ -77,7 +84,6 @@ export default function NewPost() {
 
     setSelectedFile(file);
 
-    // Create preview
     const reader = new FileReader();
     reader.onloadend = () => {
       setPreview(reader.result);
@@ -95,12 +101,24 @@ export default function NewPost() {
     }
   };
 
+  const canPost =
+    (caption.trim() || selectedFile) &&
+    !uploading &&
+    contentRating !== '' &&
+    (visibility !== 'paid' || (price && parseFloat(price) > 0));
+
   const handleSubmit = async () => {
     if (!isCreator) {
       alert('Only creators can post content');
       return;
     }
-    
+
+    // ✅ REQUIRE rating
+    if (!contentRating) {
+      alert('Please select SFW or NSFW before posting.');
+      return;
+    }
+
     if (!caption.trim() && !selectedFile) {
       alert('Please add a caption or media');
       return;
@@ -114,20 +132,20 @@ export default function NewPost() {
     try {
       setUploading(true);
       console.log('Creating post...');
-      
+
       let mediaUrls = [];
 
       // Upload media to Cloudinary if file is selected
       if (selectedFile) {
         console.log('📤 Uploading media to Cloudinary...');
         const uploadResult = await uploadMedia(
-          selectedFile, 
+          selectedFile,
           'posts',
           (progress) => {
             setUploadProgress(Math.round(progress));
           }
         );
-        
+
         mediaUrls.push({
           url: uploadResult.url,
           type: uploadResult.resourceType,
@@ -140,18 +158,18 @@ export default function NewPost() {
         console.log('✅ Media uploaded:', uploadResult.url);
       }
 
-      // Prepare post data
+      // ✅ Prepare post data (includes contentRating)
       const postData = {
         content: caption,
         images: mediaUrls,
         type: visibility === 'public' ? 'free' : visibility,
         price: visibility === 'paid' ? parseFloat(price) : 0,
-        tags: tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : []
+        tags: tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+        contentRating: contentRating // ✅ 'sfw' | 'nsfw'
       };
 
-      // Create post in Firestore
       const newPost = await createPost(currentUser.uid, postData);
-      
+
       console.log('✅ Post created:', newPost);
       alert('Post created successfully! 🎉');
       navigate('/feed');
@@ -229,15 +247,18 @@ export default function NewPost() {
               <ArrowLeft className="w-5 h-5" />
               <span className="font-semibold hidden sm:inline">Back</span>
             </button>
+
             <h1 className="text-lg sm:text-xl font-bold text-gray-900">Create Post</h1>
+
             <button
               onClick={handleSubmit}
-              disabled={(!caption.trim() && !selectedFile) || uploading}
+              disabled={!canPost}
               className={`px-4 sm:px-6 py-2 rounded-lg font-semibold text-sm transition ${
-                (caption.trim() || selectedFile) && !uploading
+                canPost
                   ? 'bg-rose-500 hover:bg-rose-600 text-white'
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
               }`}
+              title={!contentRating ? 'Select SFW or NSFW to continue' : ''}
             >
               {uploading ? 'Posting...' : 'Post'}
             </button>
@@ -259,6 +280,75 @@ export default function NewPost() {
           </div>
         </div>
 
+        {/* ✅ Content Rating (Required) */}
+        <div className="bg-white rounded-xl sm:rounded-2xl border border-gray-200 p-4 sm:p-6 mb-4 sm:mb-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Content Rating <span className="text-rose-600">*</span>
+              </label>
+              <p className="text-xs text-gray-500">
+                Required. Helps users filter what they want to see.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowRatingHelp(!showRatingHelp)}
+              className="text-xs font-semibold text-gray-600 hover:text-gray-900"
+            >
+              {showRatingHelp ? 'Hide help' : 'Show help'}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+            <button
+              type="button"
+              onClick={() => setContentRating('sfw')}
+              disabled={uploading}
+              className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 transition disabled:opacity-50 ${
+                contentRating === 'sfw'
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                  : 'border-gray-200 hover:border-gray-300 text-gray-700'
+              }`}
+            >
+              <ShieldCheck className="w-5 h-5" />
+              <span className="font-semibold text-sm">SFW</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setContentRating('nsfw')}
+              disabled={uploading}
+              className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 transition disabled:opacity-50 ${
+                contentRating === 'nsfw'
+                  ? 'border-rose-500 bg-rose-50 text-rose-700'
+                  : 'border-gray-200 hover:border-gray-300 text-gray-700'
+              }`}
+            >
+              <ShieldAlert className="w-5 h-5" />
+              <span className="font-semibold text-sm">NSFW</span>
+            </button>
+          </div>
+
+          {showRatingHelp && (
+            <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <p className="text-sm font-semibold text-gray-800 mb-2">Quick guide:</p>
+              <ul className="text-sm text-gray-700 space-y-1 list-disc pl-5">
+                <li><b>SFW</b>: normal lifestyle, fitness, selfies, fashion, memes, non-explicit content.</li>
+                <li><b>NSFW</b>: explicit nudity, porn-style content, sex acts, or strongly sexual material.</li>
+                <li>Please tag correctly — users can toggle NSFW visibility in their feed.</li>
+              </ul>
+
+              {!contentRating && (
+                <div className="mt-3 text-xs text-rose-600 font-semibold">
+                  Select SFW or NSFW to continue.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Upload Progress */}
         {uploading && (
           <motion.div
@@ -273,7 +363,7 @@ export default function NewPost() {
               </span>
             </div>
             <div className="w-full bg-blue-200 rounded-full h-2">
-              <div 
+              <div
                 className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                 style={{ width: `${uploadProgress}%` }}
               />
@@ -309,18 +399,19 @@ export default function NewPost() {
           ) : (
             <div className="relative">
               {mediaType === 'image' ? (
-                <img 
-                  src={preview} 
-                  alt="Preview" 
+                <img
+                  src={preview}
+                  alt="Preview"
                   className="w-full rounded-xl object-cover"
                 />
               ) : (
-                <video 
-                  src={preview} 
-                  controls 
+                <video
+                  src={preview}
+                  controls
                   className="w-full rounded-xl"
                 />
               )}
+
               <button
                 onClick={handleRemoveMedia}
                 disabled={uploading}
@@ -328,6 +419,7 @@ export default function NewPost() {
               >
                 <X className="w-5 h-5 text-white" />
               </button>
+
               <div className="absolute bottom-3 left-3 bg-black/50 text-white px-3 py-1 rounded-full text-xs">
                 {mediaType === 'image' ? '📸 Image' : '🎬 Video'} • {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
               </div>
@@ -372,6 +464,7 @@ export default function NewPost() {
                 <Globe className="w-5 h-5" />
                 <span className="font-semibold text-sm">Public</span>
               </button>
+
               <button
                 onClick={() => setVisibility('subscribers')}
                 disabled={uploading}
@@ -384,6 +477,7 @@ export default function NewPost() {
                 <Lock className="w-5 h-5" />
                 <span className="font-semibold text-sm">Subscribers</span>
               </button>
+
               <button
                 onClick={() => setVisibility('paid')}
                 disabled={uploading}
@@ -442,9 +536,9 @@ export default function NewPost() {
         {/* Submit Button (Mobile) */}
         <button
           onClick={handleSubmit}
-          disabled={(!caption.trim() && !selectedFile) || uploading}
+          disabled={!canPost}
           className={`w-full mt-6 py-3 sm:py-4 rounded-xl font-bold text-base sm:text-lg transition shadow-lg ${
-            (caption.trim() || selectedFile) && !uploading
+            canPost
               ? 'bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white'
               : 'bg-gray-200 text-gray-400 cursor-not-allowed'
           }`}
@@ -455,7 +549,7 @@ export default function NewPost() {
               <span>Creating Post... {uploadProgress}%</span>
             </span>
           ) : (
-            'Create Post'
+            contentRating ? 'Create Post' : 'Select SFW/NSFW to Post'
           )}
         </button>
       </div>

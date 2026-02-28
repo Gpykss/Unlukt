@@ -1,7 +1,7 @@
 // src/contexts/AuthContext.jsx - FIXED: All social auth sets profileCompleted: false
 
 import { createContext, useState, useEffect } from 'react';
-import { 
+import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
@@ -26,11 +26,20 @@ export function AuthProvider({ children }) {
   const signup = async (email, password, additionalData = {}) => {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      await createUserProfile(userCredential.user.uid, {
-        email: email,
-        ...additionalData
-      });
+
+      // ✅ Avoid profile duplication edge cases
+      const existingProfile = await getUserProfile(userCredential.user.uid);
+      if (!existingProfile) {
+        await createUserProfile(userCredential.user.uid, {
+          email,
+          profileCompleted: false,
+          ...additionalData
+        });
+      }
+
+      // ✅ Send verification email
       await sendEmailVerification(userCredential.user);
+
       return userCredential;
     } catch (error) {
       console.error('Signup error:', error);
@@ -55,15 +64,14 @@ export function AuthProvider({ children }) {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
       const result = await signInWithPopup(auth, provider);
-      
+
       const existingProfile = await getUserProfile(result.user.uid);
       if (!existingProfile) {
-        // ✅ Create incomplete profile - user must complete it
         await createUserProfile(result.user.uid, {
           email: result.user.email,
           displayName: result.user.displayName,
           avatar: result.user.photoURL,
-          profileCompleted: false  // ✅ ADDED!
+          profileCompleted: false
         });
       }
       return result;
@@ -80,17 +88,16 @@ export function AuthProvider({ children }) {
     try {
       const provider = new TwitterAuthProvider();
       const result = await signInWithPopup(auth, provider);
-      
+
       console.log('Twitter login successful:', result);
-      
+
       const existingProfile = await getUserProfile(result.user.uid);
       if (!existingProfile) {
-        // ✅ Create incomplete profile - user must complete it
         await createUserProfile(result.user.uid, {
           email: result.user.email || '',
           displayName: result.user.displayName || 'Twitter User',
           avatar: result.user.photoURL || '🐦',
-          profileCompleted: false  // ✅ Already correct!
+          profileCompleted: false
         });
       }
       return result;
@@ -98,7 +105,7 @@ export function AuthProvider({ children }) {
       console.error('Twitter sign in error:', error);
       console.error('Error code:', error.code);
       console.error('Error message:', error.message);
-      
+
       if (error.code === 'auth/popup-closed-by-user') {
         throw new Error('Twitter sign-in popup was closed. Please try again.');
       } else if (error.code === 'auth/account-exists-with-different-credential') {
@@ -119,15 +126,14 @@ export function AuthProvider({ children }) {
       const provider = new FacebookAuthProvider();
       provider.setCustomParameters({ display: 'popup' });
       const result = await signInWithPopup(auth, provider);
-      
+
       const existingProfile = await getUserProfile(result.user.uid);
       if (!existingProfile) {
-        // ✅ Create incomplete profile - user must complete it
         await createUserProfile(result.user.uid, {
           email: result.user.email || '',
           displayName: result.user.displayName || 'Facebook User',
           avatar: result.user.photoURL || '📘',
-          profileCompleted: false  // ✅ ADDED!
+          profileCompleted: false
         });
       }
       return result;
@@ -140,10 +146,11 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const resendVerificationEmail = () => {
-    if (currentUser) {
-      return sendEmailVerification(currentUser);
+  const resendVerificationEmail = async () => {
+    if (!currentUser) {
+      throw new Error('No authenticated user. Please log in again.');
     }
+    return sendEmailVerification(currentUser);
   };
 
   const fetchUserProfile = async (userId) => {
@@ -174,9 +181,11 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (currentUser && !loading) {
       updateUserOnlineStatus(currentUser.uid, true);
+
       const handleBeforeUnload = () => {
         updateUserOnlineStatus(currentUser.uid, false);
       };
+
       const handleVisibilityChange = () => {
         if (document.hidden) {
           updateUserOnlineStatus(currentUser.uid, false);
@@ -184,8 +193,10 @@ export function AuthProvider({ children }) {
           updateUserOnlineStatus(currentUser.uid, true);
         }
       };
+
       window.addEventListener('beforeunload', handleBeforeUnload);
       document.addEventListener('visibilitychange', handleVisibilityChange);
+
       return () => {
         window.removeEventListener('beforeunload', handleBeforeUnload);
         document.removeEventListener('visibilitychange', handleVisibilityChange);

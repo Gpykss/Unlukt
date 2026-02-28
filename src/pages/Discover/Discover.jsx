@@ -1,22 +1,28 @@
-// src/pages/Discover/Discover.jsx - FIXED: ALL CREATORS + STATS
+// src/pages/Discover/Discover.jsx - UPDATED: GLOBAL NSFW TOGGLE (SETTING ONLY)
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { 
+import {
   ArrowLeft,
   Sparkles,
   Users,
   Loader2,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 
+import { useContentSettings } from '../../hooks/useContentSettings';
+
 export default function Discover() {
   const navigate = useNavigate();
   const [allCreators, setAllCreators] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const { showNSFW, setShowNSFW } = useContentSettings();
 
   useEffect(() => {
     loadAllCreators();
@@ -44,7 +50,7 @@ export default function Discover() {
       // ✅ GET POST COUNT FOR EACH CREATOR
       const postsRef = collection(db, 'posts');
       const postsSnapshot = await getDocs(postsRef);
-      
+
       const postCounts = {};
       postsSnapshot.forEach((doc) => {
         const post = doc.data();
@@ -53,16 +59,12 @@ export default function Discover() {
         }
       });
 
-      // Add post counts to creators
-      creators.forEach(creator => {
+      creators.forEach((creator) => {
         creator.mediaCount = postCounts[creator.id] || 0;
       });
 
-      // Sort by followers (highest first)
       creators.sort((a, b) => (b.followers || 0) - (a.followers || 0));
-
       setAllCreators(creators);
-
     } catch (error) {
       console.error('Error loading creators:', error);
     } finally {
@@ -80,8 +82,8 @@ export default function Discover() {
       {/* Banner */}
       <div className="h-24 sm:h-32 bg-gradient-to-br from-rose-200 via-pink-200 to-purple-200 flex items-center justify-center relative">
         {creator.profilePicture ? (
-          <img 
-            src={creator.profilePicture} 
+          <img
+            src={creator.profilePicture}
             alt={creator.displayName}
             className="w-full h-full object-cover"
           />
@@ -95,8 +97,8 @@ export default function Discover() {
         {/* Avatar */}
         <div className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 border-4 border-white flex items-center justify-center text-3xl mb-4 shadow-lg overflow-hidden">
           {creator.profilePicture ? (
-            <img 
-              src={creator.profilePicture} 
+            <img
+              src={creator.profilePicture}
               alt={creator.displayName}
               className="w-full h-full object-cover"
             />
@@ -109,7 +111,9 @@ export default function Discover() {
         <div className="flex items-start justify-between mb-3">
           <div className="flex-1">
             <div className="flex items-center space-x-2 mb-1">
-              <h3 className="font-bold text-gray-900 text-lg truncate">{creator.displayName || 'Anonymous'}</h3>
+              <h3 className="font-bold text-gray-900 text-lg truncate">
+                {creator.displayName || 'Anonymous'}
+              </h3>
               {creator.kycStatus === 'approved' && (
                 <span className="text-blue-500 flex-shrink-0">✓</span>
               )}
@@ -123,7 +127,7 @@ export default function Discover() {
           <p className="text-sm text-gray-600 mb-4 line-clamp-2">{creator.bio}</p>
         )}
 
-        {/* ✅ STATS: FOLLOWERS + MEDIA COUNT */}
+        {/* ✅ STATS */}
         <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-100">
           <div className="text-center flex-1">
             <div className="flex items-center justify-center space-x-1 mb-1">
@@ -132,9 +136,9 @@ export default function Discover() {
             </div>
             <p className="text-xs text-gray-500">Followers</p>
           </div>
-          
+
           <div className="h-10 w-px bg-gray-200"></div>
-          
+
           <div className="text-center flex-1">
             <div className="flex items-center justify-center space-x-1 mb-1">
               <ImageIcon className="w-4 h-4 text-gray-500" />
@@ -144,7 +148,6 @@ export default function Discover() {
           </div>
         </div>
 
-        {/* Follow Button */}
         <button className="w-full bg-rose-500 hover:bg-rose-600 text-white py-3 rounded-xl font-semibold transition shadow-lg hover:shadow-xl">
           View Profile
         </button>
@@ -167,24 +170,55 @@ export default function Discover() {
     <div className="min-h-screen bg-gray-50 pb-20 lg:pb-8">
       {/* Mobile Back Button */}
       <div className="lg:hidden bg-white border-b border-gray-200 sticky top-0 z-20 px-4 py-3">
-        <button 
-          onClick={() => navigate('/feed')}
-          className="flex items-center space-x-2 text-gray-700"
-        >
-          <ArrowLeft className="w-5 h-5" />
-          <span className="font-semibold">Back</span>
-        </button>
+        <div className="flex items-center justify-between">
+          <button onClick={() => navigate('/feed')} className="flex items-center space-x-2 text-gray-700">
+            <ArrowLeft className="w-5 h-5" />
+            <span className="font-semibold">Back</span>
+          </button>
+
+          {/* ✅ GLOBAL NSFW TOGGLE */}
+          <button
+            type="button"
+            onClick={() => setShowNSFW((v) => !v)}
+            className={`px-3 py-2 rounded-lg border text-sm font-semibold flex items-center gap-2 ${
+              showNSFW
+                ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+            }`}
+            title={showNSFW ? 'NSFW is visible' : 'NSFW is hidden'}
+          >
+            {showNSFW ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            <span>{showNSFW ? 'NSFW: ON' : 'NSFW: OFF'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Desktop Back Button */}
       <div className="hidden lg:block max-w-7xl mx-auto px-6 pt-6">
-        <button 
-          onClick={() => navigate('/feed')}
-          className="flex items-center space-x-2 text-gray-700 hover:text-gray-900 mb-4"
-        >
-          <ArrowLeft className="w-5 h-5" />
-          <span className="font-semibold">Back to Feed</span>
-        </button>
+        <div className="flex items-center justify-between mb-4">
+          <button
+            onClick={() => navigate('/feed')}
+            className="flex items-center space-x-2 text-gray-700 hover:text-gray-900"
+          >
+            <ArrowLeft className="w-5 h-5" />
+            <span className="font-semibold">Back to Feed</span>
+          </button>
+
+          {/* ✅ GLOBAL NSFW TOGGLE */}
+          <button
+            type="button"
+            onClick={() => setShowNSFW((v) => !v)}
+            className={`px-4 py-2 rounded-lg border font-semibold flex items-center gap-2 ${
+              showNSFW
+                ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+            }`}
+            title={showNSFW ? 'NSFW is visible' : 'NSFW is hidden'}
+          >
+            {showNSFW ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            <span>{showNSFW ? 'Show NSFW: ON' : 'Show NSFW: OFF'}</span>
+          </button>
+        </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
@@ -199,14 +233,11 @@ export default function Discover() {
           </div>
         </div>
 
-        {/* ✅ ALL CREATORS GRID */}
+        {/* Grid */}
         {allCreators.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
             {allCreators.map((creator) => (
-              <CreatorCard 
-                key={creator.id} 
-                creator={creator} 
-              />
+              <CreatorCard key={creator.id} creator={creator} />
             ))}
           </div>
         ) : (

@@ -280,7 +280,7 @@ const handleGoogleSignup = async () => {
             </p>
           </div>
           <button
-            onClick={() => navigate('/complete-profile')}
+            onClick={() => navigate('/verify-email')}
             className="w-full bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-semibold transition shadow-sm mb-3"
           >
             Continue to Setup Profile

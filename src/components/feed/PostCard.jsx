@@ -1,74 +1,217 @@
-// src/components/feed/PostCard.jsx - FIXED: Comment input won't trigger modal
+// src/components/feed/PostCard.jsx - FULL: NSFW badge + blur/lock when NSFW off + PAID LOCK + unlock CTA + modal guard
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Heart, 
-  MessageCircle, 
+import {
+  Heart,
+  MessageCircle,
   MoreVertical,
   Trash2,
-  Send,
   Pin,
   Archive,
-  RotateCcw
+  RotateCcw,
+  EyeOff,
+  Eye,
+  Lock
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
 import { useAuth } from '../../hooks/useAuth';
 import { useUserProfile } from '../../hooks/useUserProfile';
-import { 
-  likePost, 
-  unlikePost, 
-  addComment, 
-  getPostComments,
-  deletePost,
-  updatePost
-} from '../../services/postService';
+import { useContentSettings } from '../../hooks/useContentSettings';
+
 import { getUserProfile } from '../../services/firestoreService';
+import {
+  likePost,
+  unlikePost,
+  deletePost,
+  updatePost,
+  canViewPost
+} from '../../services/postService';
+
 import { getPostImage } from '../../utils/imageHelpers';
 
-export default function PostCard({ post, onDelete, showPinnedIndicator = false, onPostClick }) {
+export default function PostCard({
+  post,
+  onDelete,
+  onPostClick,
+  showPinnedIndicator = false,
+  // ✅ behavior when NSFW is hidden:
+  // "hide" = remove from feed handled by parent filter
+  // "blur" = still render but blur + block click
+  nsfwRenderMode = 'blur',
+}) {
+  const navigate = useNavigate();
   const { currentUser } = useAuth();
   const { profile } = useUserProfile();
+  const { showNSFW, setShowNSFW } = useContentSettings();
+
+  const [creator, setCreator] = useState(null);
+
   const [isLiked, setIsLiked] = useState(false);
-  const [likesCount, setLikesCount] = useState(post.likes || 0);
-  const [commentsCount, setCommentsCount] = useState(post.comments || 0);
-  const [showComments, setShowComments] = useState(false);
-  const [comments, setComments] = useState([]);
-  const [newComment, setNewComment] = useState('');
-  const [loadingComments, setLoadingComments] = useState(false);
-  const [postingComment, setPostingComment] = useState(false);
+  const [likesCount, setLikesCount] = useState(0);
+  const [commentsCount, setCommentsCount] = useState(0);
+
   const [showMenu, setShowMenu] = useState(false);
-  const [postCreator, setPostCreator] = useState(null);
-  const [loadingCreator, setLoadingCreator] = useState(true);
 
-  const imageUrl = getPostImage(post);
+  // ✅ paid lock
+  const [canView, setCanView] = useState(true);
+
+  const imageUrl = useMemo(() => getPostImage(post), [post]);
+  const isOwnPost = currentUser?.uid && post?.userId && currentUser.uid === post.userId;
+
+  // rating
+  const contentRating = (post?.contentRating || 'sfw').toLowerCase();
+  const isNSFW = contentRating === 'nsfw';
+  const isBlockedByNSFW = isNSFW && !showNSFW;
+
+  // paid
+  const isPaid = (post?.type || 'free') !== 'free' && Number(post?.price || 0) > 0;
+  const isLocked = isPaid && !isOwnPost && !canView;
 
   useEffect(() => {
+    let mounted = true;
+
+    const loadCreator = async () => {
+      try {
+        if (!post?.userId) return;
+        const data = await getUserProfile(post.userId);
+        if (!mounted) return;
+        setCreator(data);
+      } catch (e) {
+        console.error('Error loading post creator:', e);
+      }
+    };
+
+    loadCreator();
+    return () => {
+      mounted = false;
+    };
+  }, [post?.userId]);
+
+  useEffect(() => {
+    if (!post) return;
+
+    setLikesCount(post.likes || 0);
     setCommentsCount(post.comments || 0);
-  }, [post.comments]);
 
-  useEffect(() => {
-    if (currentUser && post.likedBy) {
+    if (currentUser && Array.isArray(post.likedBy)) {
       setIsLiked(post.likedBy.includes(currentUser.uid));
+    } else {
+      setIsLiked(false);
     }
-  }, [currentUser, post.likedBy]);
+  }, [post, currentUser]);
 
+  // ✅ check access for paid posts
   useEffect(() => {
-    loadCreatorInfo();
-  }, [post.userId]);
+    let mounted = true;
 
-  const loadCreatorInfo = async () => {
+    const checkAccess = async () => {
+      try {
+        if (!post) return;
+
+        if (!isPaid) {
+          if (mounted) setCanView(true);
+          return;
+        }
+
+        const ok = await canViewPost(post, currentUser?.uid || null);
+        if (mounted) setCanView(!!ok);
+      } catch (e) {
+        console.error('Error checking post access:', e);
+        if (mounted) setCanView(false);
+      }
+    };
+
+    checkAccess();
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [post?.id, post?.type, post?.price, post?.userId, currentUser?.uid]);
+
+  const formatDate = (timestamp) => {
+    if (!timestamp) return 'Just now';
     try {
-      const creator = await getUserProfile(post.userId);
-      setPostCreator(creator);
-    } catch (error) {
-      console.error('Error loading creator:', error);
-    } finally {
-      setLoadingCreator(false);
+      let date;
+      if (timestamp.toDate) date = timestamp.toDate();
+      else if (timestamp instanceof Date) date = timestamp;
+      else if (timestamp.seconds) date = new Date(timestamp.seconds * 1000);
+      else return 'Recently';
+
+      const now = new Date();
+      const diff = now - date;
+      const minutes = Math.floor(diff / 60000);
+      const hours = Math.floor(diff / 3600000);
+      const days = Math.floor(diff / 86400000);
+
+      if (minutes < 1) return 'Just now';
+      if (minutes < 60) return `${minutes}m ago`;
+      if (hours < 24) return `${hours}h ago`;
+      if (days < 7) return `${days}d ago`;
+      return date.toLocaleDateString();
+    } catch {
+      return 'Recently';
     }
   };
 
+  const goToCreator = (e) => {
+    e?.stopPropagation();
+    const uname = creator?.username || post?.username;
+    if (uname) navigate(`/creator/${String(uname).replace('@', '')}`);
+    else if (post?.userId) navigate(`/creator/${post.userId}`);
+  };
+
+  const goToUnlock = (e) => {
+    e?.stopPropagation();
+    navigate('/wallet', {
+      state: {
+        action: 'unlock',
+        postId: post?.id,
+        creatorId: post?.userId,
+        price: Number(post?.price || 0),
+      }
+    });
+  };
+
+  const goToSubscribe = (e) => {
+    e?.stopPropagation();
+    navigate('/wallet', {
+      state: {
+        action: 'subscribe',
+        creatorId: post?.userId,
+        price: Number(post?.subscriptionPrice || 9.99),
+      }
+    });
+  };
+
+  const handleCardClick = () => {
+    if (isBlockedByNSFW) {
+      alert('NSFW is hidden. Turn on "Show NSFW" to view this content.');
+      return;
+    }
+
+    if (isLocked) {
+      goToUnlock();
+      return;
+    }
+
+    if (onPostClick) onPostClick(post);
+  };
+
   const handleLike = async (e) => {
-    e.stopPropagation();
+    e?.stopPropagation();
+
+    if (isBlockedByNSFW) {
+      alert('NSFW is hidden. Turn on "Show NSFW" to interact with this post.');
+      return;
+    }
+
+    if (isLocked) {
+      alert('This post is locked. Unlock to interact.');
+      return;
+    }
+
     if (!currentUser) {
       alert('Please login to like posts');
       return;
@@ -78,69 +221,25 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false, 
       if (isLiked) {
         await unlikePost(post.id, currentUser.uid);
         setIsLiked(false);
-        setLikesCount(prev => prev - 1);
+        setLikesCount((prev) => Math.max(0, prev - 1));
       } else {
         await likePost(post.id, currentUser.uid, post.userId, profile);
         setIsLiked(true);
-        setLikesCount(prev => prev + 1);
+        setLikesCount((prev) => prev + 1);
       }
     } catch (error) {
       console.error('Error toggling like:', error);
-      alert('Failed to like post');
-    }
-  };
-
-  const loadComments = async () => {
-    try {
-      setLoadingComments(true);
-      const fetchedComments = await getPostComments(post.id);
-      setComments(fetchedComments);
-    } catch (error) {
-      console.error('Error loading comments:', error);
-    } finally {
-      setLoadingComments(false);
-    }
-  };
-
-  const handleToggleComments = (e) => {
-    e.stopPropagation();
-    if (!showComments) {
-      loadComments();
-    }
-    setShowComments(!showComments);
-  };
-
-  // ✅ FIX: Prevent modal opening when typing/clicking in comment section
-  const handleAddComment = async (e) => {
-    e.preventDefault();
-    e.stopPropagation(); // Stop modal from opening
-    
-    if (!currentUser) {
-      alert('Please login to comment');
-      return;
-    }
-    if (!newComment.trim()) return;
-
-    try {
-      setPostingComment(true);
-      const comment = await addComment(post.id, currentUser.uid, newComment, profile);
-      setComments([comment, ...comments]);
-      setCommentsCount(prev => (prev || 0) + 1);
-      setNewComment('');
-    } catch (error) {
-      console.error('Error adding comment:', error);
-      alert('Failed to add comment: ' + error.message);
-    } finally {
-      setPostingComment(false);
     }
   };
 
   const handleDelete = async (e) => {
-    e.stopPropagation();
+    e?.stopPropagation();
     if (!window.confirm('Are you sure you want to delete this post?')) return;
 
     try {
       await deletePost(post.id);
+      alert('Post deleted successfully');
+      setShowMenu(false);
       if (onDelete) onDelete(post.id);
     } catch (error) {
       console.error('Error deleting post:', error);
@@ -149,11 +248,11 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false, 
   };
 
   const handleTogglePin = async (e) => {
-    e.stopPropagation();
+    e?.stopPropagation();
     try {
       const newPinnedState = !post.pinned;
       await updatePost(post.id, { pinned: newPinnedState });
-      alert(newPinnedState ? 'Post pinned to top of profile' : 'Post unpinned');
+      alert(newPinnedState ? 'Post pinned' : 'Post unpinned');
       setShowMenu(false);
       window.location.reload();
     } catch (error) {
@@ -163,17 +262,17 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false, 
   };
 
   const handleArchive = async (e) => {
-    e.stopPropagation();
-    if (!window.confirm('Archive this post? It will be hidden from your profile and feed.')) return;
+    e?.stopPropagation();
+    if (!window.confirm('Archive this post?')) return;
 
     try {
-      await updatePost(post.id, { 
+      await updatePost(post.id, {
         archived: true,
         archivedAt: new Date()
       });
-      alert('Post archived successfully');
+      alert('Post archived');
       setShowMenu(false);
-      window.location.reload();
+      if (onDelete) onDelete(post.id);
     } catch (error) {
       console.error('Error archiving post:', error);
       alert('Failed to archive post');
@@ -181,15 +280,15 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false, 
   };
 
   const handleUnarchive = async (e) => {
-    e.stopPropagation();
-    if (!window.confirm('Unarchive this post? It will be visible on your profile again.')) return;
+    e?.stopPropagation();
+    if (!window.confirm('Unarchive this post?')) return;
 
     try {
-      await updatePost(post.id, { 
+      await updatePost(post.id, {
         archived: false,
         archivedAt: null
       });
-      alert('Post unarchived successfully');
+      alert('Post unarchived');
       setShowMenu(false);
       window.location.reload();
     } catch (error) {
@@ -198,296 +297,290 @@ export default function PostCard({ post, onDelete, showPinnedIndicator = false, 
     }
   };
 
-  const formatDate = (timestamp) => {
-    if (!timestamp) return 'Just now';
-    
-    try {
-      let date;
-      
-      if (timestamp._methodName === 'serverTimestamp') {
-        return 'Just now';
-      }
-      
-      if (timestamp.toDate && typeof timestamp.toDate === 'function') {
-        date = timestamp.toDate();
-      } else if (timestamp instanceof Date) {
-        date = timestamp;
-      } else if (timestamp.seconds) {
-        date = new Date(timestamp.seconds * 1000);
-      } else if (typeof timestamp === 'number') {
-        date = new Date(timestamp);
-      } else if (typeof timestamp === 'string') {
-        date = new Date(timestamp);
-      } else {
-        return 'Recently';
-      }
-      
-      if (isNaN(date.getTime())) {
-        return 'Recently';
-      }
-      
-      const now = new Date();
-      const diff = now - date;
-      
-      const seconds = Math.floor(diff / 1000);
-      const minutes = Math.floor(diff / 60000);
-      const hours = Math.floor(diff / 3600000);
-      const days = Math.floor(diff / 86400000);
-      
-      if (seconds < 60) return 'Just now';
-      if (minutes < 60) return `${minutes}m ago`;
-      if (hours < 24) return `${hours}h ago`;
-      if (days < 7) return `${days}d ago`;
-      return date.toLocaleDateString();
-    } catch (error) {
-      console.error('Error formatting date:', error);
-      return 'Recently';
-    }
-  };
+  // If parent already filters NSFW out and you want PostCard to disappear too:
+  if (isBlockedByNSFW && nsfwRenderMode === 'hide') return null;
 
-  const handleCardClick = () => {
-    if (onPostClick) {
-      onPostClick(post);
-    }
-  };
+  const blurMedia = (isBlockedByNSFW && nsfwRenderMode === 'blur') || isLocked;
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      layout
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
+      className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition"
       onClick={handleCardClick}
-      className="bg-white rounded-2xl border border-gray-200 overflow-hidden cursor-pointer hover:shadow-lg transition"
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') handleCardClick();
+      }}
     >
-      <div className="p-4 sm:p-6">
-        <div className="flex items-start justify-between mb-4">
-          <div 
-            onClick={(e) => {
-              e.stopPropagation();
-              if (postCreator?.username) {
-                window.location.href = `/creator/${postCreator.username}`;
-              }
-            }}
-            className="flex items-center space-x-3 cursor-pointer hover:opacity-80 transition"
-          >
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-semibold">
-              {loadingCreator ? (
-                '...'
-              ) : postCreator?.avatar ? (
-                <img src={postCreator.avatar} alt="" className="w-full h-full rounded-full object-cover" />
-              ) : (
-                postCreator?.displayName?.charAt(0).toUpperCase() || 'U'
+      {/* Header */}
+      <div className="p-4 flex items-center justify-between">
+        <div
+          onClick={goToCreator}
+          className="flex items-center space-x-3 cursor-pointer hover:opacity-80 transition"
+        >
+          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-xl overflow-hidden">
+            {creator?.profilePicture || creator?.avatar ? (
+              <img
+                src={creator.profilePicture || creator.avatar}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <span>{creator?.displayName?.charAt(0)?.toUpperCase() || '👤'}</span>
+            )}
+          </div>
+
+          <div>
+            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+              <p className="font-bold text-gray-900">
+                {creator?.displayName || 'Creator'}
+              </p>
+
+              {creator?.kycStatus === 'approved' && (
+                <span className="text-blue-500">✓</span>
+              )}
+
+              {/* Rating badge */}
+              <span
+                className={`text-[11px] px-2 py-0.5 rounded-full border font-semibold ${
+                  isNSFW
+                    ? 'bg-rose-50 border-rose-200 text-rose-700'
+                    : 'bg-gray-50 border-gray-200 text-gray-700'
+                }`}
+                title={isNSFW ? 'NSFW content' : 'SFW content'}
+              >
+                {isNSFW ? 'NSFW' : 'SFW'}
+              </span>
+
+              {/* Paid badge */}
+              {isPaid && (
+                <span
+                  className={`text-[11px] px-2 py-0.5 rounded-full border font-semibold ${
+                    isLocked
+                      ? 'bg-yellow-50 border-yellow-200 text-yellow-800'
+                      : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                  }`}
+                  title={isLocked ? 'Locked paid post' : 'Paid post'}
+                >
+                  {isLocked ? `Locked • $${Number(post?.price || 0).toFixed(2)}` : `Paid • $${Number(post?.price || 0).toFixed(2)}`}
+                </span>
+              )}
+
+              {showPinnedIndicator && post?.pinned && (
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-yellow-50 border border-yellow-200 text-yellow-700 font-semibold">
+                  Pinned
+                </span>
               )}
             </div>
-            <div>
-              <p className="font-bold text-gray-900 hover:text-rose-500 transition">
-                {postCreator?.displayName || 'Loading...'}
-              </p>
-              <div className="flex items-center space-x-2">
-                <p className="text-sm text-gray-500">{formatDate(post.createdAt)}</p>
-                {showPinnedIndicator && post.pinned && (
-                  <div className="flex items-center space-x-1 text-rose-500 text-xs font-medium">
-                    <Pin className="w-3 h-3 fill-rose-500" />
-                    <span>Pinned</span>
-                  </div>
-                )}
-              </div>
-            </div>
+
+            <p className="text-sm text-gray-500">
+              @{creator?.username || post?.username || 'user'} • {formatDate(post?.createdAt)}
+            </p>
           </div>
-                  
-          {currentUser?.uid === post.userId && (
-            <div className="relative">
+        </div>
+
+        {/* Menu */}
+        {isOwnPost && (
+          <div className="relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowMenu((v) => !v);
+              }}
+              className="p-2 hover:bg-gray-100 rounded-lg transition"
+              aria-label="Post options"
+            >
+              <MoreVertical className="w-5 h-5 text-gray-600" />
+            </button>
+
+            {showMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowMenu(false);
+                  }}
+                />
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-20">
+                  {post?.archived ? (
+                    <>
+                      <button
+                        onClick={handleUnarchive}
+                        className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center space-x-2 text-gray-700"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                        <span>Unarchive</span>
+                      </button>
+                      <div className="border-t border-gray-200 my-1" />
+                      <button
+                        onClick={handleDelete}
+                        className="w-full px-4 py-2 text-left hover:bg-red-50 flex items-center space-x-2 text-red-600"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Delete</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={handleTogglePin}
+                        className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center space-x-2 text-gray-700"
+                      >
+                        <Pin className="w-4 h-4" />
+                        <span>{post?.pinned ? 'Unpin' : 'Pin'}</span>
+                      </button>
+                      <button
+                        onClick={handleArchive}
+                        className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center space-x-2 text-gray-700"
+                      >
+                        <Archive className="w-4 h-4" />
+                        <span>Archive</span>
+                      </button>
+                      <div className="border-t border-gray-200 my-1" />
+                      <button
+                        onClick={handleDelete}
+                        className="w-full px-4 py-2 text-left hover:bg-red-50 flex items-center space-x-2 text-red-600"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Delete</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Media */}
+      <div className="relative bg-black">
+        {imageUrl ? (
+          <img
+            src={imageUrl}
+            alt="Post"
+            className={`w-full max-h-[520px] object-cover ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-[380px] flex items-center justify-center text-7xl text-white">
+            📸
+          </div>
+        )}
+
+        {/* NSFW overlay */}
+        {isBlockedByNSFW && nsfwRenderMode === 'blur' && !isLocked && (
+          <div className="absolute inset-0 flex items-center justify-center p-6">
+            <div className="bg-white/95 rounded-2xl border border-gray-200 shadow-xl p-5 max-w-sm w-full text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <EyeOff className="w-5 h-5 text-gray-700" />
+                <p className="font-bold text-gray-900">NSFW Hidden</p>
+              </div>
+              <p className="text-sm text-gray-600 mb-4">
+                Turn on “Show NSFW” to view this content.
+              </p>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  setShowMenu(!showMenu);
+                  setShowNSFW(true);
                 }}
-                className="p-2 hover:bg-gray-100 rounded-lg transition"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold bg-rose-500 hover:bg-rose-600 text-white transition"
               >
-                <MoreVertical className="w-5 h-5 text-gray-600" />
+                <Eye className="w-4 h-4" />
+                Enable NSFW
               </button>
-              
-              {showMenu && (
-                <>
-                  <div 
-                    className="fixed inset-0 z-10" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowMenu(false);
-                    }}
-                  />
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-20">
-                    {post.archived ? (
-                      <>
-                        <button
-                          onClick={handleUnarchive}
-                          className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center space-x-2 text-gray-700"
-                        >
-                          <RotateCcw className="w-4 h-4" />
-                          <span>Unarchive Post</span>
-                        </button>
-                        <div className="border-t border-gray-200 my-1"></div>
-                        <button
-                          onClick={handleDelete}
-                          className="w-full px-4 py-2 text-left text-red-600 hover:bg-red-50 flex items-center space-x-2"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          <span>Delete Permanently</span>
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={handleTogglePin}
-                          className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center space-x-2 text-gray-700"
-                        >
-                          <Pin className="w-4 h-4" />
-                          <span>{post.pinned ? 'Unpin from Profile' : 'Pin to Profile'}</span>
-                        </button>
-                        <button
-                          onClick={handleArchive}
-                          className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center space-x-2 text-gray-700"
-                        >
-                          <Archive className="w-4 h-4" />
-                          <span>Archive Post</span>
-                        </button>
-                        <div className="border-t border-gray-200 my-1"></div>
-                        <button
-                          onClick={handleDelete}
-                          className="w-full px-4 py-2 text-left text-red-600 hover:bg-red-50 flex items-center space-x-2"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          <span>Delete Post</span>
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
             </div>
-          )}
-        </div>
-
-        {post.content && (
-          <p className="text-gray-800 mb-4 whitespace-pre-wrap">{post.content}</p>
-        )}
-
-        {showPinnedIndicator && post.pinned && (
-          <div className="mb-4 inline-flex items-center space-x-2 px-3 py-1.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-600 text-sm font-medium">
-            <Pin className="w-4 h-4" />
-            <span>Pinned Post</span>
           </div>
         )}
 
-        {showPinnedIndicator && post.archived && (
-          <div className="mb-4 inline-flex items-center space-x-2 px-3 py-1.5 bg-gray-100 border border-gray-200 rounded-lg text-gray-600 text-sm font-medium">
-            <Archive className="w-4 h-4" />
-            <span>Archived</span>
+        {/* Paid lock overlay */}
+        {isLocked && (
+          <div className="absolute inset-0 flex items-center justify-center p-6">
+            <div className="bg-white/95 rounded-2xl border border-gray-200 shadow-xl p-5 max-w-sm w-full text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <Lock className="w-5 h-5 text-gray-800" />
+                <p className="font-bold text-gray-900">Locked</p>
+              </div>
+
+              <p className="text-sm text-gray-600 mb-4">
+                Unlock to view this post.
+              </p>
+
+              <button
+                onClick={goToUnlock}
+                className="w-full px-4 py-2.5 rounded-xl font-semibold bg-rose-500 hover:bg-rose-600 text-white transition"
+              >
+                Unlock • ${Number(post?.price || 0).toFixed(2)}
+              </button>
+
+              <button
+                onClick={goToSubscribe}
+                className="w-full mt-2 px-4 py-2.5 rounded-xl font-semibold bg-gray-100 hover:bg-gray-200 text-gray-800 transition"
+              >
+                Subscribe to unlock all
+              </button>
+            </div>
           </div>
         )}
+      </div>
 
-        {imageUrl && (
-          <div className="mb-4 rounded-lg overflow-hidden">
-            <img 
-              src={imageUrl} 
-              alt="Post" 
-              className="w-full h-auto object-cover"
-              onError={(e) => {
-                console.error('Failed to load image:', imageUrl);
-                e.target.style.display = 'none';
-              }}
-            />
-          </div>
+      {/* Caption */}
+      <div className="px-4 pt-4">
+        {isLocked ? (
+          <p className="text-gray-500">Unlock to view caption</p>
+        ) : post?.content ? (
+          <p className={`text-gray-800 whitespace-pre-wrap ${isBlockedByNSFW ? 'opacity-60' : ''}`}>
+            {post.content}
+          </p>
+        ) : (
+          <p className="text-gray-500">No caption</p>
         )}
+      </div>
 
-        <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-          <div className="flex items-center space-x-4 sm:space-x-6">
+      {/* Actions */}
+      <div className="p-4 pt-3 border-t border-gray-100">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
             <button
               onClick={handleLike}
-              className={`flex items-center space-x-2 transition ${
-                isLiked ? 'text-rose-500' : 'text-gray-600 hover:text-rose-500'
-              }`}
+              className={`transition ${isLiked ? 'text-rose-500' : 'text-gray-600 hover:text-rose-500'}`}
+              aria-label="Like"
+              disabled={isBlockedByNSFW || isLocked}
+              title={isLocked ? 'Unlock to interact' : isBlockedByNSFW ? 'Enable NSFW to interact' : 'Like'}
             >
-              <Heart className={`w-5 h-5 ${isLiked ? 'fill-current' : ''}`} />
-              <span className="font-medium">{likesCount}</span>
+              <Heart className={`w-6 h-6 ${isLiked ? 'fill-rose-500' : ''}`} />
             </button>
 
             <button
-              onClick={handleToggleComments}
-              className="flex items-center space-x-2 text-gray-600 hover:text-blue-500 transition"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (isBlockedByNSFW) {
+                  alert('NSFW is hidden. Turn on "Show NSFW" to view this content.');
+                  return;
+                }
+                if (isLocked) {
+                  goToUnlock(e);
+                  return;
+                }
+                if (onPostClick) onPostClick(post);
+              }}
+              className="text-gray-600 hover:text-rose-500 transition"
+              aria-label="Comment"
+              title={isLocked ? 'Unlock to view' : isBlockedByNSFW ? 'Enable NSFW to view' : 'Open comments'}
             >
-              <MessageCircle className="w-5 h-5" />
-              <span className="font-medium">{commentsCount}</span>
+              <MessageCircle className="w-6 h-6" />
             </button>
           </div>
         </div>
 
-        {/* ✅ COMMENT SECTION - STOPS PROPAGATION */}
-        {showComments && (
-          <div 
-            className="mt-4 pt-4 border-t border-gray-200"
-            onClick={(e) => e.stopPropagation()} // Stop entire section from bubbling
-          >
-            {currentUser && (
-              <form onSubmit={handleAddComment} className="mb-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white text-sm font-semibold">
-                    {profile?.avatar ? (
-                      <img src={profile.avatar} alt="" className="w-full h-full rounded-full object-cover" />
-                    ) : (
-                      profile?.displayName?.charAt(0).toUpperCase() || 'U'
-                    )}
-                  </div>
-                  <div className="flex-1 flex items-center space-x-2">
-                    <input
-                      type="text"
-                      value={newComment}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        setNewComment(e.target.value);
-                      }}
-                      onFocus={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                      placeholder="Add a comment..."
-                      className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500"
-                      disabled={postingComment}
-                    />
-                    <button
-                      type="submit"
-                      onClick={(e) => e.stopPropagation()}
-                      disabled={!newComment.trim() || postingComment}
-                      className="p-2 bg-rose-500 hover:bg-rose-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
-                    >
-                      <Send className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-              </form>
-            )}
-
-            {loadingComments ? (
-              <div className="text-center py-4">
-                <div className="w-6 h-6 border-2 border-rose-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-              </div>
-            ) : comments.length === 0 ? (
-              <p className="text-center text-gray-500 py-4">No comments yet</p>
-            ) : (
-              <div className="space-y-3">
-                {comments.map((comment) => (
-                  <div key={comment.id} className="flex items-start space-x-3">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-sm font-semibold flex-shrink-0">
-                      {comment.userName?.charAt(0).toUpperCase() || 'U'}
-                    </div>
-                    <div className="flex-1 bg-gray-50 rounded-lg p-3">
-                      <p className="font-semibold text-sm text-gray-900">{comment.userName}</p>
-                      <p className="text-gray-700 text-sm mt-1">{comment.text}</p>
-                      <p className="text-xs text-gray-500 mt-1">{formatDate(comment.createdAt)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        <div className="mt-3">
+          <p className="font-bold text-gray-900">{likesCount} likes</p>
+          <p className="text-sm text-gray-500">{commentsCount} comments</p>
+        </div>
       </div>
     </motion.div>
   );

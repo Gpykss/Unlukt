@@ -52,6 +52,15 @@ export default function Login() {
 
     try {
       const userCredential = await login(formData.email, formData.password);
+
+      // ✅ If not verified, force user to verify before continuing
+      if (!userCredential.user.emailVerified) {
+        navigate('/verify-email');
+        setIsLoading(false);
+        return;
+      }
+
+
       
       if (formData.rememberMe) {
         localStorage.setItem('rememberMe', 'true');

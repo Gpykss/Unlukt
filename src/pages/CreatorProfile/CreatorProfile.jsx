@@ -1,10 +1,10 @@
-// src/pages/CreatorProfile/CreatorProfile.jsx - WITH MESSAGE FUNCTIONALITY
+// src/pages/CreatorProfile/CreatorProfile.jsx - UPDATED: NSFW GLOBAL FILTER + POST MODAL
 
-import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { 
-  Heart, 
-  MessageCircle, 
+import { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Heart,
+  MessageCircle,
   Settings,
   ArrowLeft,
   Lock,
@@ -14,20 +14,35 @@ import {
   Link as LinkIcon,
   MoreVertical,
   Archive,
-  Loader2
+  Loader2,
+  Camera,
+  Flag,
+  Ban,
+  X,
+  Eye,
+  EyeOff
 } from 'lucide-react';
+
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { getUserProfile, getUserByUsername } from '../../services/firestoreService';
+import { getUserProfile, getUserByUsername, updateUserProfile } from '../../services/firestoreService';
 import { getUserPosts } from '../../services/postService';
 import { hasActiveSubscription, getOrCreateConversation } from '../../services/messageService';
+import { blockUser, reportUser } from '../../services/userService';
+import { uploadMedia } from '../../services/cloudinaryService';
 import FollowButton from '../../components/common/FollowButton';
 import PostCard from '../../components/feed/PostCard';
+import PostModal from '../../components/Modals/PostModal';
+
+import { useContentSettings } from '../../hooks/useContentSettings';
 
 export default function CreatorProfile() {
   const navigate = useNavigate();
   const { username } = useParams();
   const { currentUser } = useAuth();
+
+  const { showNSFW, setShowNSFW } = useContentSettings();
+
   const [activeTab, setActiveTab] = useState('posts');
   const [archivedPosts, setArchivedPosts] = useState([]);
   const [creator, setCreator] = useState(null);
@@ -37,18 +52,28 @@ export default function CreatorProfile() {
   const [checkingSubscription, setCheckingSubscription] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
 
-  // Check if viewing own profile
+  // New states
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
+
+  // ✅ Post modal
+  const [selectedPost, setSelectedPost] = useState(null);
+  const [showPostModal, setShowPostModal] = useState(false);
+
   const isOwnProfile = currentUser && creator && currentUser.uid === creator.uid;
 
   useEffect(() => {
     loadCreatorData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username]);
 
-  // ✅ Check subscription status when creator loads
   useEffect(() => {
     if (creator && currentUser && !isOwnProfile) {
       checkSubscriptionStatus();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [creator, currentUser]);
 
   const checkSubscriptionStatus = async () => {
@@ -66,57 +91,49 @@ export default function CreatorProfile() {
   const loadCreatorData = async () => {
     try {
       setLoading(true);
-      
-      // Fetch the creator data based on username from URL params
       let foundCreator;
-      
+
       if (username) {
-        // If viewing another user's profile via username
         foundCreator = await getUserByUsername(username);
       } else if (currentUser) {
-        // If viewing own profile (no username in URL)
         foundCreator = await getUserProfile(currentUser.uid);
       }
-      
+
       if (foundCreator) {
+        const uid = foundCreator.uid || foundCreator.id;
+
         setCreator({
-        uid: foundCreator.uid || foundCreator.id,
-        username: foundCreator.username || 'user',
-        name: foundCreator.displayName || foundCreator.name || 'User',
-        avatar: foundCreator.avatar || foundCreator.photoURL || null, // null instead of emoji,
-        banner: foundCreator.banner || '🎨',
-        bio: foundCreator.bio || 'No bio yet',
-        location: foundCreator.location || 'Location',
-        // ✅ FIXED: Proper timestamp handling
-        joined: foundCreator.createdAt ? (
-          foundCreator.createdAt.toDate ? 
-            foundCreator.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) :
-          foundCreator.createdAt.seconds ?
-            new Date(foundCreator.createdAt.seconds * 1000).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) :
-            'Recently'
-        ) : 'Recently',
-        website: foundCreator.website || '',
-        verified: foundCreator.kycStatus === 'approved' || false,
-        followers: foundCreator.followersCount || 0,
-        following: foundCreator.followingCount || 0,
-        postsCount: 0,
-        subscriptionPrice: foundCreator.subscriptionPrice || 9.99
-      });
-        
-        // Load creator's posts
-        console.log('📝 Loading posts for user:', foundCreator.uid || foundCreator.id);
-        const userPosts = await getUserPosts(foundCreator.uid || foundCreator.id);
-        console.log(`✅ Loaded ${userPosts.length} posts`);
-        
-        // Separate archived and active posts
-        const activePosts = userPosts.filter(post => !post.archived);
-        const archived = userPosts.filter(post => post.archived);
-        
-        // Sort active posts: Pinned first, then by date
+          uid,
+          username: foundCreator.username || 'user',
+          name: foundCreator.displayName || foundCreator.name || 'User',
+          avatar: foundCreator.avatar || foundCreator.photoURL || null,
+          banner: foundCreator.banner || null,
+          bio: foundCreator.bio || 'No bio yet',
+          location: foundCreator.location || null,
+          joined: foundCreator.createdAt
+            ? foundCreator.createdAt.toDate
+              ? foundCreator.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+              : foundCreator.createdAt.seconds
+                ? new Date(foundCreator.createdAt.seconds * 1000).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                : 'Recently'
+            : 'Recently',
+          website: foundCreator.website || '',
+          verified: foundCreator.kycStatus === 'approved' || false,
+          followers: foundCreator.followersCount || foundCreator.followers || 0,
+          subscribers: foundCreator.subscribersCount || 0,
+          postsCount: 0,
+          subscriptionPrice: foundCreator.subscriptionPrice || 9.99
+        });
+
+        const userPosts = await getUserPosts(uid);
+        const activePosts = userPosts.filter((p) => !p.archived);
+        const archived = userPosts.filter((p) => p.archived);
+
+        // sort pinned -> newest
         activePosts.sort((a, b) => {
           if (a.pinned && !b.pinned) return -1;
           if (!a.pinned && b.pinned) return 1;
-          
+
           const getTime = (post) => {
             if (!post.createdAt) return 0;
             if (post.createdAt.toDate) return post.createdAt.toDate().getTime();
@@ -125,36 +142,16 @@ export default function CreatorProfile() {
             if (typeof post.createdAt === 'number') return post.createdAt;
             return 0;
           };
-          
+
           return getTime(b) - getTime(a);
         });
-        
-        // Sort archived posts by date
-        archived.sort((a, b) => {
-          const getTime = (post) => {
-            if (!post.createdAt) return 0;
-            if (post.createdAt.toDate) return post.createdAt.toDate().getTime();
-            if (post.createdAt.seconds) return post.createdAt.seconds * 1000;
-            if (post.createdAt instanceof Date) return post.createdAt.getTime();
-            if (typeof post.createdAt === 'number') return post.createdAt;
-            return 0;
-          };
-          
-          return getTime(b) - getTime(a);
-        });
-        
+
         setPosts(activePosts);
         setArchivedPosts(archived);
-        
-        setCreator(prev => ({
-          ...prev,
-          postsCount: activePosts.length
-        }));
+        setCreator((prev) => ({ ...prev, postsCount: activePosts.length }));
       } else {
-        console.error('❌ Creator not found');
         setCreator(null);
       }
-      
     } catch (error) {
       console.error('Error loading creator:', error);
       setCreator(null);
@@ -166,18 +163,14 @@ export default function CreatorProfile() {
   const handleFollowChange = async () => {
     try {
       let foundCreator;
-      
-      if (username) {
-        foundCreator = await getUserByUsername(username);
-      } else if (currentUser) {
-        foundCreator = await getUserProfile(currentUser.uid);
-      }
-      
+      if (username) foundCreator = await getUserByUsername(username);
+      else if (currentUser) foundCreator = await getUserProfile(currentUser.uid);
+
       if (foundCreator) {
-        setCreator(prev => ({
+        setCreator((prev) => ({
           ...prev,
           followers: foundCreator.followersCount || foundCreator.followers || 0,
-          following: foundCreator.followingCount || foundCreator.following || 0
+          subscribers: foundCreator.subscribersCount || 0
         }));
       }
     } catch (error) {
@@ -185,54 +178,161 @@ export default function CreatorProfile() {
     }
   };
 
-  // ✅ UPDATED MESSAGE HANDLER with detailed logging
-const handleMessage = async () => {
-  console.log('🔵 handleMessage called from Creator Profile');
-  console.log('Current user:', currentUser?.uid);
-  console.log('Creator:', creator?.uid, creator?.name);
-  
-  if (!currentUser) {
-    alert('Please login to send messages');
-    return;
-  }
-
-  try {
-    console.log('✅ Starting message flow...');
-    setSendingMessage(true);
-
-    console.log('🔥 SKIPPING subscription check - calling getOrCreateConversation directly');
-    // Skip the subscription check here - let canMessage handle all permissions
-    const conversation = await getOrCreateConversation(currentUser.uid, creator.uid);
-    console.log('✅ Conversation created/retrieved:', conversation);
-    
-    console.log('📍 Navigating to messages page...');
-    navigate(`/messages?with=${creator.uid}`);
-    
-  } catch (error) {
-    console.error('❌ Error in handleMessage:', error);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    
-    // Show user-friendly error
-    if (error.message.includes('subscription')) {
-      const shouldSubscribe = window.confirm(
-        `You need an active subscription to message ${creator.name}.\n\nSubscribe for $${creator.subscriptionPrice}/month to unlock messaging!`
-      );
-      if (shouldSubscribe) {
-        alert('Subscription feature coming soon!');
-      }
-    } else {
-      alert(error.message || 'Failed to start conversation');
+  const handleMessage = async () => {
+    if (!currentUser) {
+      alert('Please login to send messages');
+      return;
     }
-  } finally {
-    console.log('🏁 handleMessage finished');
-    setSendingMessage(false);
-  }
-};
-  const handlePostDeleted = (postId) => {
-    setPosts(posts.filter(post => post.id !== postId));
-    setArchivedPosts(archivedPosts.filter(post => post.id !== postId));
+
+    try {
+      setSendingMessage(true);
+      await getOrCreateConversation(currentUser.uid, creator.uid);
+      navigate(`/messages?with=${creator.uid}`);
+    } catch (error) {
+      console.error('Error in handleMessage:', error);
+      if (error.message?.includes('subscription')) {
+        const shouldSubscribe = window.confirm(
+          `You need an active subscription to message ${creator.name}.\n\nSubscribe for $${creator.subscriptionPrice}/month to unlock messaging!`
+        );
+        if (shouldSubscribe) handleSubscribe();
+      } else {
+        alert(error.message || 'Failed to start conversation');
+      }
+    } finally {
+      setSendingMessage(false);
+    }
   };
+
+  const handleSubscribe = () => {
+    navigate('/wallet', {
+      state: {
+        action: 'subscribe',
+        creatorId: creator.uid,
+        creatorName: creator.name,
+        price: creator.subscriptionPrice
+      }
+    });
+  };
+
+  const handleAvatarUpload = async (e) => {
+    if (!isOwnProfile || !e.target.files?.[0]) return;
+
+    const file = e.target.files[0];
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image must be less than 5MB');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file');
+      return;
+    }
+
+    try {
+      setUploadingAvatar(true);
+      const result = await uploadMedia(file, 'avatars', (progress) => {
+        console.log(`Upload progress: ${progress}%`);
+      });
+      await updateUserProfile(currentUser.uid, { avatar: result.url });
+      setCreator((prev) => ({ ...prev, avatar: result.url }));
+      alert('Profile picture updated successfully!');
+    } catch (error) {
+      console.error('Error uploading avatar:', error);
+      alert('Failed to upload profile picture. Please try again.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handleBannerUpload = async (e) => {
+    if (!isOwnProfile || !e.target.files?.[0]) return;
+
+    const file = e.target.files[0];
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Image must be less than 10MB');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file');
+      return;
+    }
+
+    try {
+      setUploadingBanner(true);
+      const result = await uploadMedia(file, 'banners', (progress) => {
+        console.log(`Upload progress: ${progress}%`);
+      });
+      await updateUserProfile(currentUser.uid, { banner: result.url });
+      setCreator((prev) => ({ ...prev, banner: result.url }));
+      alert('Banner updated successfully!');
+    } catch (error) {
+      console.error('Error uploading banner:', error);
+      alert('Failed to upload banner. Please try again.');
+    } finally {
+      setUploadingBanner(false);
+    }
+  };
+
+  const handleBlock = async () => {
+    const confirmed = window.confirm(`Block @${creator.username}? You won't see their posts or receive messages from them.`);
+    if (!confirmed) return;
+
+    try {
+      await blockUser(currentUser.uid, creator.uid);
+      alert(`@${creator.username} has been blocked`);
+      navigate('/feed');
+    } catch (error) {
+      console.error('Error blocking user:', error);
+      alert('Failed to block user');
+    }
+  };
+
+  const handleReport = async (reason) => {
+    try {
+      await reportUser(currentUser.uid, creator.uid, reason);
+      setShowReportModal(false);
+      alert('Report submitted. Our team will review it.');
+    } catch (error) {
+      console.error('Error reporting user:', error);
+      alert('Failed to submit report');
+    }
+  };
+
+  const handlePostDeleted = (postId) => {
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
+    setArchivedPosts((prev) => prev.filter((p) => p.id !== postId));
+  };
+
+  const closePostModal = () => {
+    setShowPostModal(false);
+    setSelectedPost(null);
+  };
+
+  const handlePostClick = (post) => {
+    const rating = (post?.contentRating || 'sfw').toLowerCase();
+    if (!showNSFW && rating === 'nsfw') {
+      alert('NSFW is hidden. Turn on "Show NSFW" to view this content.');
+      return;
+    }
+    setSelectedPost(post);
+    setShowPostModal(true);
+  };
+
+  const isArchiveTab = activeTab === 'archive';
+
+  // ✅ Apply global NSFW filter to posts + archived
+  const filteredActivePosts = useMemo(() => {
+    if (showNSFW) return posts;
+    return posts.filter((p) => ((p?.contentRating || 'sfw').toLowerCase() !== 'nsfw'));
+  }, [posts, showNSFW]);
+
+  const filteredArchivedPosts = useMemo(() => {
+    if (showNSFW) return archivedPosts;
+    return archivedPosts.filter((p) => ((p?.contentRating || 'sfw').toLowerCase() !== 'nsfw'));
+  }, [archivedPosts, showNSFW]);
+
+  const displayPosts = isArchiveTab ? filteredArchivedPosts : filteredActivePosts;
 
   if (loading) {
     return (
@@ -262,24 +362,51 @@ const handleMessage = async () => {
     );
   }
 
-  const isArchiveTab = activeTab === 'archive';
-  const displayPosts = isArchiveTab ? archivedPosts : posts;
-
   return (
     <div className="min-h-screen bg-gray-50 pb-20 lg:pb-8">
       {/* Mobile Header */}
       <div className="lg:hidden bg-white border-b border-gray-200 sticky top-0 z-20">
         <div className="flex items-center justify-between px-4 py-3">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-2 hover:bg-gray-100 rounded-lg transition"
-          >
+          <button onClick={() => navigate(-1)} className="p-2 hover:bg-gray-100 rounded-lg transition">
             <ArrowLeft className="w-5 h-5 text-gray-600" />
           </button>
+
           <h1 className="text-lg font-bold text-gray-900">@{creator.username}</h1>
-          <button className="p-2 hover:bg-gray-100 rounded-lg transition">
-            <MoreVertical className="w-5 h-5 text-gray-600" />
-          </button>
+
+          {!isOwnProfile ? (
+            <div className="relative">
+              <button
+                onClick={() => setShowMoreMenu(!showMoreMenu)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition"
+              >
+                <MoreVertical className="w-5 h-5 text-gray-600" />
+              </button>
+
+              {showMoreMenu && (
+                <div className="absolute right-0 top-full mt-2 bg-white rounded-lg shadow-xl border border-gray-200 py-2 w-48 z-30">
+                  <button
+                    onClick={() => {
+                      setShowReportModal(true);
+                      setShowMoreMenu(false);
+                    }}
+                    className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center space-x-2 text-gray-700"
+                  >
+                    <Flag className="w-4 h-4" />
+                    <span>Report</span>
+                  </button>
+                  <button
+                    onClick={handleBlock}
+                    className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center space-x-2 text-red-600"
+                  >
+                    <Ban className="w-4 h-4" />
+                    <span>Block</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="w-10" />
+          )}
         </div>
       </div>
 
@@ -300,45 +427,84 @@ const handleMessage = async () => {
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto">
           {/* Banner */}
-          <div className="relative h-48 sm:h-56 md:h-64 bg-gradient-to-br from-rose-200 via-pink-200 to-purple-200 flex items-center justify-center">
-            <span className="text-6xl sm:text-7xl md:text-9xl">{creator.banner}</span>
+          <div className="relative h-48 sm:h-56 md:h-64 bg-gradient-to-br from-rose-200 via-pink-200 to-purple-200 overflow-hidden group">
+            {creator.banner ? (
+              <img src={creator.banner} alt="Banner" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-6xl sm:text-7xl md:text-9xl">🎨</div>
+            )}
+
+            {isOwnProfile && (
+              <label className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition cursor-pointer">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleBannerUpload}
+                  className="hidden"
+                  disabled={uploadingBanner}
+                />
+                {uploadingBanner ? (
+                  <Loader2 className="w-8 h-8 text-white animate-spin" />
+                ) : (
+                  <div className="text-white text-center">
+                    <Camera className="w-8 h-8 mx-auto mb-2" />
+                    <p className="text-sm font-medium">Change Banner</p>
+                  </div>
+                )}
+              </label>
+            )}
           </div>
 
-          {/* Profile Info */}
           <div className="px-4 sm:px-6 pb-4 sm:pb-6">
             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between -mt-12 sm:-mt-16 mb-4 sm:mb-6">
               {/* Avatar */}
               <div className="flex items-end space-x-4 sm:space-x-6">
-               <div className="relative">
-                <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 border-4 border-white flex items-center justify-center text-4xl sm:text-5xl md:text-6xl shadow-lg overflow-hidden">
-                  {creator.avatar && (creator.avatar.startsWith('http://') || creator.avatar.startsWith('https://')) ? (
-                    <img 
-                      src={creator.avatar} 
-                      alt={creator.name} 
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                        e.target.parentElement.innerHTML = '<span class="text-4xl sm:text-5xl md:text-6xl">👤</span>';
-                      }}
-                    />
-                  ) : (
-                    <span>{creator.avatar || '👤'}</span>
+                <div className="relative group">
+                  <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 border-4 border-white flex items-center justify-center text-4xl sm:text-5xl md:text-6xl shadow-lg overflow-hidden">
+                    {creator.avatar ? <img src={creator.avatar} alt={creator.name} className="w-full h-full object-cover" /> : <span>👤</span>}
+                  </div>
+
+                  {isOwnProfile && (
+                    <label className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition rounded-full cursor-pointer">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleAvatarUpload}
+                        className="hidden"
+                        disabled={uploadingAvatar}
+                      />
+                      {uploadingAvatar ? <Loader2 className="w-6 h-6 text-white animate-spin" /> : <Camera className="w-6 h-6 text-white" />}
+                    </label>
+                  )}
+
+                  {creator.verified && (
+                    <div className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2 bg-blue-500 text-white p-1 sm:p-1.5 rounded-full border-2 border-white">
+                      <Star className="w-3 h-3 sm:w-4 sm:h-4 fill-white" />
+                    </div>
                   )}
                 </div>
-                {creator.verified && (
-                  <div className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2 bg-blue-500 text-white p-1 sm:p-1.5 rounded-full border-2 border-white">
-                    <Star className="w-3 h-3 sm:w-4 sm:h-4 fill-white" />
-                  </div>
-                )}
-              </div>
               </div>
 
               {/* Action Buttons */}
               <div className="flex items-center space-x-2 sm:space-x-3 mt-4 sm:mt-0">
-                {!isOwnProfile && (
+                {/* ✅ Global NSFW toggle */}
+                <button
+                  type="button"
+                  onClick={() => setShowNSFW((v) => !v)}
+                  className={`px-4 py-2 sm:py-2.5 rounded-full font-semibold text-sm transition border flex items-center gap-2 ${
+                    showNSFW
+                      ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                      : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                  }`}
+                  title={showNSFW ? 'NSFW is visible' : 'NSFW is hidden'}
+                >
+                  {showNSFW ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  <span className="hidden sm:inline">{showNSFW ? 'NSFW: ON' : 'NSFW: OFF'}</span>
+                </button>
+
+                {!isOwnProfile ? (
                   <>
-                    {/* ✅ UPDATED MESSAGE BUTTON with loading state and subscription check */}
-                    <button 
+                    <button
                       onClick={handleMessage}
                       disabled={sendingMessage}
                       className="p-2 sm:p-3 rounded-full border-2 border-gray-200 hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed relative"
@@ -349,23 +515,15 @@ const handleMessage = async () => {
                       ) : (
                         <>
                           <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
-                          {!isSubscribed && (
-                            <Lock className="w-2.5 h-2.5 absolute -top-1 -right-1 text-rose-500 bg-white rounded-full" />
-                          )}
+                          {!isSubscribed && <Lock className="w-2.5 h-2.5 absolute -top-1 -right-1 text-rose-500 bg-white rounded-full" />}
                         </>
                       )}
                     </button>
-                    
-                    <FollowButton 
-                      userId={creator.uid}
-                      username={creator.username}
-                      size="md"
-                      onFollowChange={handleFollowChange}
-                    />
-                    
-                    {/* Subscribe Button */}
+
+                    <FollowButton userId={creator.uid} username={creator.username} size="md" onFollowChange={handleFollowChange} />
+
                     <button
-                      onClick={() => setIsSubscribed(!isSubscribed)}
+                      onClick={handleSubscribe}
                       className={`px-4 sm:px-6 md:px-8 py-2 sm:py-2.5 md:py-3 rounded-full font-bold text-sm sm:text-base transition shadow-lg ${
                         isSubscribed
                           ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -375,18 +533,12 @@ const handleMessage = async () => {
                       <span className="hidden sm:inline">
                         {isSubscribed ? 'Subscribed' : `Subscribe • $${creator.subscriptionPrice}/mo`}
                       </span>
-                      <span className="sm:hidden">
-                        {isSubscribed ? 'Subscribed' : 'Subscribe'}
-                      </span>
+                      <span className="sm:hidden">{isSubscribed ? 'Subscribed' : 'Subscribe'}</span>
                     </button>
                   </>
-                )}
-                {isOwnProfile && (
+                ) : (
                   <>
-                    <button 
-                      onClick={() => navigate('/settings')}
-                      className="p-2 sm:p-3 rounded-full border-2 border-gray-200 hover:bg-gray-50 transition"
-                    >
+                    <button onClick={() => navigate('/settings')} className="p-2 sm:p-3 rounded-full border-2 border-gray-200 hover:bg-gray-50 transition">
                       <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
                     </button>
                     <button
@@ -400,14 +552,17 @@ const handleMessage = async () => {
               </div>
             </div>
 
-            {/* Creator Name & Username */}
             <div className="mb-3 sm:mb-4">
               <div className="flex items-center space-x-2 mb-1">
                 <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{creator.name}</h1>
                 {creator.verified && (
                   <div className="bg-blue-500 text-white p-1 rounded-full">
                     <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      <path
+                        fillRule="evenodd"
+                        d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                   </div>
                 )}
@@ -426,22 +581,23 @@ const handleMessage = async () => {
                 <span className="text-gray-600 ml-2 text-sm sm:text-base">Followers</span>
               </div>
               <div>
-                <span className="text-xl sm:text-2xl font-bold text-gray-900">{creator.following}</span>
-                <span className="text-gray-600 ml-2 text-sm sm:text-base">Following</span>
+                <span className="text-xl sm:text-2xl font-bold text-gray-900">{creator.subscribers}</span>
+                <span className="text-gray-600 ml-2 text-sm sm:text-base">Subscribers</span>
               </div>
             </div>
 
-            {/* Bio */}
             <div className="mb-3 sm:mb-4">
               <p className="text-sm sm:text-base text-gray-700 leading-relaxed">{creator.bio}</p>
             </div>
 
             {/* Additional Info */}
             <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs sm:text-sm text-gray-600">
-              <div className="flex items-center space-x-1 sm:space-x-2">
-                <MapPin className="w-3 h-3 sm:w-4 sm:h-4" />
-                <span>{creator.location}</span>
-              </div>
+              {creator.location && (
+                <div className="flex items-center space-x-1 sm:space-x-2">
+                  <MapPin className="w-3 h-3 sm:w-4 sm:h-4" />
+                  <span>{creator.location}</span>
+                </div>
+              )}
               <div className="flex items-center space-x-1 sm:space-x-2">
                 <Calendar className="w-3 h-3 sm:w-4 sm:h-4" />
                 <span>Joined {creator.joined}</span>
@@ -449,18 +605,32 @@ const handleMessage = async () => {
               {creator.website && (
                 <div className="flex items-center space-x-1 sm:space-x-2">
                   <LinkIcon className="w-3 h-3 sm:w-4 sm:h-4" />
-                  <a href={`https://${creator.website}`} target="_blank" rel="noopener noreferrer" className="text-rose-500 hover:text-rose-600 font-medium">
+                  <a
+                    href={`https://${creator.website}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-rose-500 hover:text-rose-600 font-medium"
+                  >
                     {creator.website}
                   </a>
                 </div>
               )}
             </div>
+
+            {!showNSFW && (
+              <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                <p className="text-sm text-gray-700 flex items-center space-x-2">
+                  <EyeOff className="w-4 h-4" />
+                  <span>NSFW content is hidden on this profile.</span>
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Content Tabs */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 lg:top-0 z-10">
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4 sm:px-6">
           <div className="flex space-x-4 sm:space-x-8 overflow-x-auto scrollbar-hide">
             <button
@@ -502,7 +672,9 @@ const handleMessage = async () => {
             ) : (
               <>
                 <MessageCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500 text-lg">No posts yet</p>
+                <p className="text-gray-500 text-lg">
+                  {showNSFW ? 'No posts yet' : 'No visible posts (NSFW might be hidden)'}
+                </p>
               </>
             )}
           </div>
@@ -513,20 +685,81 @@ const handleMessage = async () => {
                 key={post.id}
                 post={post}
                 onDelete={handlePostDeleted}
-                showPinnedIndicator={true}  
+                showPinnedIndicator={true}
+                onPostClick={handlePostClick}
               />
             ))}
           </div>
         )}
+      </div>
 
-        {displayPosts.length >= 20 && (
-          <div className="text-center mt-8">
-            <button className="bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 px-6 sm:px-8 py-2.5 sm:py-3 rounded-lg font-semibold text-sm sm:text-base transition">
-              Load More
-            </button>
+      {/* ✅ POST MODAL */}
+      <PostModal
+        isOpen={showPostModal}
+        onClose={closePostModal}
+        post={selectedPost}
+        onPostUpdate={(updatedPost) => {
+          if (!selectedPost) return;
+
+          if (updatedPost === null) {
+            handlePostDeleted(selectedPost.id);
+            closePostModal();
+          } else {
+            // update in both lists
+            setPosts((prev) => prev.map((p) => (p.id === updatedPost.id ? updatedPost : p)));
+            setArchivedPosts((prev) => prev.map((p) => (p.id === updatedPost.id ? updatedPost : p)));
+            setSelectedPost(updatedPost);
+          }
+        }}
+      />
+
+      {/* Report Modal */}
+      <AnimatePresence>
+        {showReportModal && (
+          <div
+            className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+            onClick={() => setShowReportModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-gray-900">Report @{creator.username}</h3>
+                <button onClick={() => setShowReportModal(false)} className="p-2 hover:bg-gray-100 rounded-lg transition">
+                  <X className="w-5 h-5 text-gray-600" />
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {[
+                  'Spam or misleading',
+                  'Inappropriate content',
+                  'Harassment or bullying',
+                  'Impersonation',
+                  'Scam or fraud',
+                  'Other'
+                ].map((reason) => (
+                  <button
+                    key={reason}
+                    onClick={() => handleReport(reason)}
+                    className="w-full text-left px-4 py-3 hover:bg-gray-50 rounded-lg transition border border-gray-200"
+                  >
+                    {reason}
+                  </button>
+                ))}
+              </div>
+
+              <p className="text-xs text-gray-500 mt-4">
+                Reports are anonymous. Our team will review this report and take appropriate action.
+              </p>
+            </motion.div>
           </div>
         )}
-      </div>
+      </AnimatePresence>
     </div>
   );
 }

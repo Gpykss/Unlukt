@@ -1,3 +1,5 @@
+// src/pages/Settings/Settings.jsx - WITH BACK BUTTON AND LOCATION
+
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -16,7 +18,9 @@ import {
   Check,
   X,
   AlertTriangle,
-  Loader2
+  Loader2,
+  ArrowLeft,
+  MapPin
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -36,29 +40,27 @@ import {
   where, 
   getDocs,
   deleteDoc,
-  setDoc,
-  serverTimestamp,
   getDoc
 } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { updateUserProfile } from '../../services/firestoreService';
 
 export default function Settings() {
   const navigate = useNavigate();
   const { currentUser, logout } = useAuth();
   const { profile, displayName, username, isVerified } = useUserProfile();
   
-  // Modal states
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showBlockedUsers, setShowBlockedUsers] = useState(false);
   const [showActiveSessions, setShowActiveSessions] = useState(false);
+  const [showEditLocation, setShowEditLocation] = useState(false);
   
-  // Settings states
   const [blockedUsers, setBlockedUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeSessions, setActiveSessions] = useState([]);
+  const [location, setLocation] = useState(profile?.location || '');
   
-  // Toast notification
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
   
   const showToast = (message, type = 'success') => {
@@ -66,11 +68,16 @@ export default function Settings() {
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
   };
 
-  // Load blocked users
   useEffect(() => {
     loadBlockedUsers();
     loadActiveSessions();
   }, [currentUser]);
+
+  useEffect(() => {
+    if (profile?.location) {
+      setLocation(profile.location);
+    }
+  }, [profile]);
 
   const loadBlockedUsers = async () => {
     if (!currentUser) return;
@@ -152,6 +159,23 @@ export default function Settings() {
     }
   };
 
+  // ✅ NEW: Update location
+  const handleUpdateLocation = async () => {
+    if (!currentUser) return;
+    
+    setLoading(true);
+    try {
+      await updateUserProfile(currentUser.uid, { location });
+      showToast('Location updated successfully!', 'success');
+      setShowEditLocation(false);
+    } catch (error) {
+      console.error('Error updating location:', error);
+      showToast('Failed to update location', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDeleteAccount = async () => {
     if (!currentUser) return;
     
@@ -209,13 +233,6 @@ export default function Settings() {
     }
   };
 
-  const handleToggleDarkMode = async () => {
-    const newMode = !darkMode;
-    setDarkMode(newMode);
-    await saveUserSettings({ darkMode: newMode });
-    document.documentElement.classList.toggle('dark', newMode);
-  };
-
   const handleDownloadData = async () => {
     setLoading(true);
     try {
@@ -227,6 +244,7 @@ export default function Settings() {
           avatar: profile?.avatar,
           bio: profile?.bio,
           phoneNumber: profile?.phoneNumber,
+          location: profile?.location,
           emailVerified: currentUser?.emailVerified,
           createdAt: currentUser?.metadata?.creationTime,
           lastSignIn: currentUser?.metadata?.lastSignInTime
@@ -284,6 +302,13 @@ export default function Settings() {
           description: profile?.phoneNumber || 'Not set',
           icon: Phone,
           action: () => navigate('/edit-profile')
+        },
+        {
+          id: 'location',
+          label: 'Location',
+          description: location || 'Not set',
+          icon: MapPin,
+          action: () => setShowEditLocation(true)
         }
       ]
     },
@@ -341,14 +366,21 @@ export default function Settings() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto py-8 px-4">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-          <p className="text-gray-600 mt-2">Manage your account settings and preferences</p>
+    <div className="min-h-screen bg-gray-50 pb-20 lg:pb-8">
+      {/* ✅ BACK BUTTON */}
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-20">
+        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center space-x-4">
+          <button
+            onClick={() => navigate('/feed')}
+            className="p-2 hover:bg-gray-100 rounded-lg transition"
+          >
+            <ArrowLeft className="w-5 h-5 text-gray-600" />
+          </button>
+          <h1 className="text-xl font-bold text-gray-900">Settings</h1>
         </div>
+      </div>
 
+      <div className="max-w-4xl mx-auto py-8 px-4">
         {/* Profile Card */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -356,12 +388,12 @@ export default function Settings() {
           className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6"
         >
           <div className="flex items-center space-x-4">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-bold text-2xl">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-bold text-2xl overflow-hidden">
               {profile?.avatar ? (
                 <img 
                   src={profile.avatar} 
                   alt={displayName} 
-                  className="w-full h-full rounded-full object-cover" 
+                  className="w-full h-full object-cover" 
                 />
               ) : (
                 displayName.charAt(0).toUpperCase()
@@ -428,24 +460,7 @@ export default function Settings() {
                         {item.badge}
                       </span>
                     )}
-                    {item.toggle ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          item.onToggle();
-                        }}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                          item.toggleValue ? 'bg-rose-500' : 'bg-gray-300'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                            item.toggleValue ? 'translate-x-6' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
-                    ) : item.action ? (
+                    {item.action ? (
                       <div className="flex items-center">
                         {item.loading ? (
                           <Loader2 className="w-5 h-5 text-rose-500 animate-spin flex-shrink-0" />
@@ -499,6 +514,45 @@ export default function Settings() {
 
       {/* MODALS */}
       
+      {/* ✅ Edit Location Modal */}
+      <AnimatePresence>
+        {showEditLocation && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setShowEditLocation(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-xl font-bold text-gray-900 mb-4">Update Location</h3>
+              <input
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="City, Country"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500 mb-4"
+              />
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => setShowEditLocation(false)}
+                  className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateLocation}
+                  disabled={loading}
+                  className="flex-1 px-4 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition disabled:opacity-50"
+                >
+                  {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Save'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Change Password Modal */}
       <AnimatePresence>
         {showChangePassword && (
@@ -566,11 +620,7 @@ export default function Settings() {
                   disabled={loading}
                   className="flex-1 px-4 py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium transition disabled:opacity-50 flex items-center justify-center"
                 >
-                  {loading ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    'Delete Account'
-                  )}
+                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Delete Account'}
                 </button>
               </div>
             </motion.div>
@@ -590,11 +640,7 @@ export default function Settings() {
             <div className={`px-6 py-4 rounded-lg shadow-lg flex items-center space-x-3 ${
               toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'
             } text-white`}>
-              {toast.type === 'success' ? (
-                <Check className="w-5 h-5" />
-              ) : (
-                <X className="w-5 h-5" />
-              )}
+              {toast.type === 'success' ? <Check className="w-5 h-5" /> : <X className="w-5 h-5" />}
               <p className="font-medium">{toast.message}</p>
             </div>
           </motion.div>
@@ -604,10 +650,184 @@ export default function Settings() {
   );
 }
 
+// Helper Modal Components
+function ChangePasswordModal({ onClose, currentUser, showToast }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    
+    if (newPassword !== confirmPassword) {
+      showToast('New passwords do not match!', 'error');
+      return;
+    }
+    
+    if (newPassword.length < 6) {
+      showToast('Password must be at least 6 characters!', 'error');
+      return;
+    }
 
+    setLoading(true);
+    try {
+      const credential = EmailAuthProvider.credential(currentUser.email, currentPassword);
+      await reauthenticateWithCredential(currentUser, credential);
+      await updatePassword(currentUser, newPassword);
+      
+      showToast('Password changed successfully!', 'success');
+      onClose();
+    } catch (error) {
+      console.error('Error changing password:', error);
+      if (error.code === 'auth/wrong-password') {
+        showToast('Current password is incorrect!', 'error');
+      } else {
+        showToast('Failed to change password', 'error');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
-// Active Sessions Modal
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-xl font-bold text-gray-900 mb-6">Change Password</h3>
+        <form onSubmit={handleChangePassword} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Current Password</label>
+            <div className="relative">
+              <input
+                type={showCurrentPassword ? 'text' : 'password'}
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                required
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2"
+              >
+                {showCurrentPassword ? <EyeOff className="w-5 h-5 text-gray-400" /> : <Eye className="w-5 h-5 text-gray-400" />}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">New Password</label>
+            <div className="relative">
+              <input
+                type={showNewPassword ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassword(!showNewPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2"
+              >
+                {showNewPassword ? <EyeOff className="w-5 h-5 text-gray-400" /> : <Eye className="w-5 h-5 text-gray-400" />}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Confirm New Password</label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
+            />
+          </div>
+
+          <div className="flex space-x-3 mt-6">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition disabled:opacity-50 flex items-center justify-center"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Change Password'}
+            </button>
+          </div>
+        </form>
+      </motion.div>
+    </div>
+  );
+}
+
+function BlockedUsersModal({ onClose, blockedUsers, onUnblock }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[80vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-xl font-bold text-gray-900 mb-6">Blocked Users</h3>
+        
+        {blockedUsers.length === 0 ? (
+          <div className="text-center py-8">
+            <Ban className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+            <p className="text-gray-500">No blocked users</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {blockedUsers.map((user) => (
+              <div key={user.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-lg">
+                    {user.avatar}
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">{user.name}</p>
+                    {user.username && <p className="text-sm text-gray-500">@{user.username}</p>}
+                  </div>
+                </div>
+                <button
+                  onClick={() => onUnblock(user.id)}
+                  className="px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-sm rounded-lg font-medium transition"
+                >
+                  Unblock
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <button
+          onClick={onClose}
+          className="w-full mt-6 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition"
+        >
+          Close
+        </button>
+      </motion.div>
+    </div>
+  );
+}
+
 function ActiveSessionsModal({ onClose, sessions }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
@@ -653,498 +873,6 @@ function ActiveSessionsModal({ onClose, sessions }) {
           Close
         </button>
       </motion.div>
-    </div>
-  );
-}
-function ChangePasswordModal({ onClose, currentUser, showToast }) {
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-
-  const handleChangePassword = async (e) => {
-    e.preventDefault();
-    
-    if (newPassword !== confirmPassword) {
-      showToast('New passwords do not match!', 'error');
-      return;
-    }
-    
-    if (newPassword.length < 6) {
-      showToast('Password must be at least 6 characters!', 'error');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const credential = EmailAuthProvider.credential(
-        currentUser.email,
-        currentPassword
-      );
-      await reauthenticateWithCredential(currentUser, credential);
-      await updatePassword(currentUser, newPassword);
-      
-      showToast('Password changed successfully!', 'success');
-      onClose();
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-    } catch (error) {
-      console.error('Error changing password:', error);
-      if (error.code === 'auth/wrong-password') {
-        showToast('Current password is incorrect!', 'error');
-      } else {
-        showToast('Failed to change password', 'error');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-xl font-bold text-gray-900 mb-6">Change Password</h3>
-        <form onSubmit={handleChangePassword} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Current Password
-            </label>
-            <div className="relative">
-              <input
-                type={showCurrentPassword ? 'text' : 'password'}
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                required
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
-              />
-              <button
-                type="button"
-                onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
-              >
-                {showCurrentPassword ? (
-                  <EyeOff className="w-5 h-5 text-gray-400" />
-                ) : (
-                  <Eye className="w-5 h-5 text-gray-400" />
-                )}
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              New Password
-            </label>
-            <div className="relative">
-              <input
-                type={showNewPassword ? 'text' : 'password'}
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                required
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
-              />
-              <button
-                type="button"
-                onClick={() => setShowNewPassword(!showNewPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
-              >
-                {showNewPassword ? (
-                  <EyeOff className="w-5 h-5 text-gray-400" />
-                ) : (
-                  <Eye className="w-5 h-5 text-gray-400" />
-                )}
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Confirm New Password
-            </label>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
-            />
-          </div>
-
-          <div className="flex space-x-3 mt-6">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition disabled:opacity-50 flex items-center justify-center"
-            >
-              {loading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                'Change Password'
-              )}
-            </button>
-          </div>
-        </form>
-      </motion.div>
-    </div>
-  );
-}
-
-// Privacy Settings Modal
-function PrivacySettingsModal({ onClose, settings, onSave }) {
-  const [localSettings, setLocalSettings] = useState(settings);
-
-  useEffect(() => {
-    setLocalSettings(settings);
-  }, [settings]);
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[80vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-xl font-bold text-gray-900 mb-6">Privacy Settings</h3>
-        
-        <div className="space-y-4">
-          <ToggleSetting
-            label="Show Email on Profile"
-            description="Allow others to see your email address"
-            value={localSettings.showEmail}
-            onChange={(val) => setLocalSettings({ ...localSettings, showEmail: val })}
-          />
-          
-          <ToggleSetting
-            label="Show Phone Number"
-            description="Allow others to see your phone number"
-            value={localSettings.showPhone}
-            onChange={(val) => setLocalSettings({ ...localSettings, showPhone: val })}
-          />
-          
-          <ToggleSetting
-            label="Allow Direct Messages"
-            description="Let people message you directly"
-            value={localSettings.allowMessages}
-            onChange={(val) => setLocalSettings({ ...localSettings, allowMessages: val })}
-          />
-          
-          <ToggleSetting
-            label="Show Online Status"
-            description="Let others see when you're online"
-            value={localSettings.showOnlineStatus}
-            onChange={(val) => setLocalSettings({ ...localSettings, showOnlineStatus: val })}
-          />
-        </div>
-
-        <div className="flex space-x-3 mt-6">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onSave(localSettings)}
-            className="flex-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition"
-          >
-            Save Changes
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-// Visibility Settings Modal
-function VisibilitySettingsModal({ onClose, settings, onSave }) {
-  const [localSettings, setLocalSettings] = useState(settings);
-
-  useEffect(() => {
-    setLocalSettings(settings);
-  }, [settings]);
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-xl font-bold text-gray-900 mb-6">Profile Visibility</h3>
-        
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Who can see your profile?
-            </label>
-            <select
-              value={localSettings.profileVisibility}
-              onChange={(e) => setLocalSettings({ ...localSettings, profileVisibility: e.target.value })}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
-            >
-              <option value="public">Everyone</option>
-              <option value="followers">Followers Only</option>
-              <option value="private">Private</option>
-            </select>
-          </div>
-          
-          <ToggleSetting
-            label="Show Subscriber Count"
-            description="Display how many subscribers you have"
-            value={localSettings.showSubscribers}
-            onChange={(val) => setLocalSettings({ ...localSettings, showSubscribers: val })}
-          />
-          
-          <ToggleSetting
-            label="Show Follower Count"
-            description="Display how many followers you have"
-            value={localSettings.showFollowers}
-            onChange={(val) => setLocalSettings({ ...localSettings, showFollowers: val })}
-          />
-          
-          <ToggleSetting
-            label="Show Statistics"
-            description="Display your profile statistics"
-            value={localSettings.showStats}
-            onChange={(val) => setLocalSettings({ ...localSettings, showStats: val })}
-          />
-        </div>
-
-        <div className="flex space-x-3 mt-6">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onSave(localSettings)}
-            className="flex-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition"
-          >
-            Save Changes
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-// Notification Settings Modal
-function NotificationSettingsModal({ onClose, settings, onSave }) {
-  const [localSettings, setLocalSettings] = useState(settings);
-
-  useEffect(() => {
-    setLocalSettings(settings);
-  }, [settings]);
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[80vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-xl font-bold text-gray-900 mb-6">Notification Preferences</h3>
-        
-        <div className="space-y-4">
-          <ToggleSetting
-            label="Email Notifications"
-            description="Receive notifications via email"
-            value={localSettings.emailNotifications}
-            onChange={(val) => setLocalSettings({ ...localSettings, emailNotifications: val })}
-          />
-          
-          <ToggleSetting
-            label="Push Notifications"
-            description="Receive push notifications in browser"
-            value={localSettings.pushNotifications}
-            onChange={(val) => setLocalSettings({ ...localSettings, pushNotifications: val })}
-          />
-          
-          <div className="border-t border-gray-200 pt-4 mt-4">
-            <p className="text-sm font-medium text-gray-700 mb-3">Notify me about:</p>
-            
-            <ToggleSetting
-              label="New Followers"
-              description="When someone follows you"
-              value={localSettings.newFollowers}
-              onChange={(val) => setLocalSettings({ ...localSettings, newFollowers: val })}
-            />
-            
-            <ToggleSetting
-              label="New Messages"
-              description="When you receive a message"
-              value={localSettings.newMessages}
-              onChange={(val) => setLocalSettings({ ...localSettings, newMessages: val })}
-            />
-            
-            <ToggleSetting
-              label="Subscriptions"
-              description="Updates about your subscriptions"
-              value={localSettings.subscriptions}
-              onChange={(val) => setLocalSettings({ ...localSettings, subscriptions: val })}
-            />
-            
-            <ToggleSetting
-              label="Marketing Emails"
-              description="Receive promotional emails"
-              value={localSettings.marketing}
-              onChange={(val) => setLocalSettings({ ...localSettings, marketing: val })}
-            />
-          </div>
-        </div>
-
-        <div className="flex space-x-3 mt-6">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onSave(localSettings)}
-            className="flex-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition"
-          >
-            Save Changes
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-// Blocked Users Modal
-function BlockedUsersModal({ onClose, blockedUsers, onUnblock }) {
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[80vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-xl font-bold text-gray-900 mb-6">Blocked Users</h3>
-        
-        {blockedUsers.length === 0 ? (
-          <div className="text-center py-8">
-            <Ban className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-            <p className="text-gray-500">No blocked users</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {blockedUsers.map((user) => (
-              <div key={user.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-lg">
-                    {user.avatar}
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">{user.name}</p>
-                    {user.username && (
-                      <p className="text-sm text-gray-500">@{user.username}</p>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={() => onUnblock(user.id)}
-                  className="px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-sm rounded-lg font-medium transition"
-                >
-                  Unblock
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <button
-          onClick={onClose}
-          className="w-full mt-6 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition"
-        >
-          Close
-        </button>
-      </motion.div>
-    </div>
-  );
-}
-
-
-
-// Two-Factor Auth Modal
-function TwoFactorModal({ onClose }) {
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="text-center">
-          <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Smartphone className="w-8 h-8 text-blue-600" />
-          </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-2">Two-Factor Authentication</h3>
-          <p className="text-gray-600 mb-6">
-            This feature is coming soon! Two-factor authentication will add an extra layer of security to your account.
-          </p>
-          <button
-            onClick={onClose}
-            className="w-full px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition"
-          >
-            Got it
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-
-// Toggle Setting Component
-function ToggleSetting({ label, description, value, onChange }) {
-  return (
-    <div className="flex items-start justify-between py-3">
-      <div className="flex-1">
-        <p className="font-medium text-gray-900">{label}</p>
-        <p className="text-sm text-gray-500">{description}</p>
-      </div>
-      <button
-        type="button"
-        onClick={() => onChange(!value)}
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ml-4 flex-shrink-0 ${
-          value ? 'bg-rose-500' : 'bg-gray-300'
-        }`}
-      >
-        <span
-          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-            value ? 'translate-x-6' : 'translate-x-1'
-          }`}
-        />
-      </button>
     </div>
   );
 }

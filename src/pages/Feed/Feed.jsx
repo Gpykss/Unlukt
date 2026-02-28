@@ -1,28 +1,37 @@
-// src/pages/Feed/Feed.jsx - WITH POST MODAL
+// src/pages/Feed/Feed.jsx - WITH POST MODAL + NSFW TOGGLE (GLOBAL FILTER)
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Loader2, Users, Sparkles, ChevronRight } from 'lucide-react';
+import { Loader2, Users, Sparkles, ChevronRight, EyeOff, Eye } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+
 import PostCard from '../../components/feed/PostCard';
-import PostModal from '../../components/Modals/PostModal';
+import PostModal from '../../components/Modals/PostModal'; // ✅ fixed path casing
+
 import { getAllPosts } from '../../services/postService';
 import { getFollowingPosts } from '../../services/followService';
 import { useAuth } from '../../hooks/useAuth';
 import { useUserProfile } from '../../hooks/useUserProfile';
+
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+
+import { useContentSettings } from '../../hooks/useContentSettings';
 
 export default function Feed() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const { isCreator, profile } = useUserProfile();
+
   const [activeTab, setActiveTab] = useState('foryou');
   const [posts, setPosts] = useState([]);
   const [topCreators, setTopCreators] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  
+
+  // ✅ GLOBAL NSFW TOGGLE
+  const { showNSFW, setShowNSFW } = useContentSettings();
+
   // ✅ POST MODAL STATE
   const [selectedPost, setSelectedPost] = useState(null);
   const [showPostModal, setShowPostModal] = useState(false);
@@ -35,6 +44,7 @@ export default function Feed() {
   useEffect(() => {
     loadPosts();
     loadTopCreators();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, currentUser]);
 
   useEffect(() => {
@@ -48,6 +58,7 @@ export default function Feed() {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, currentUser]);
 
   const loadTopCreators = async () => {
@@ -56,11 +67,11 @@ export default function Feed() {
       const usersSnapshot = await getDocs(usersRef);
 
       const creators = [];
-      usersSnapshot.forEach((doc) => {
-        const userData = doc.data();
+      usersSnapshot.forEach((d) => {
+        const userData = d.data();
         if (userData.kycStatus === 'approved') {
           creators.push({
-            id: doc.id,
+            id: d.id,
             ...userData,
           });
         }
@@ -68,8 +79,8 @@ export default function Feed() {
 
       creators.sort((a, b) => (b.followers || 0) - (a.followers || 0));
       setTopCreators(creators);
-    } catch (error) {
-      console.error('Error loading top creators:', error);
+    } catch (err) {
+      console.error('Error loading top creators:', err);
     }
   };
 
@@ -82,10 +93,10 @@ export default function Feed() {
       const postsSnapshot = await getDocs(postsRef);
 
       const creatorPostCounts = {};
-      
-      postsSnapshot.forEach((doc) => {
-        const post = doc.data();
-        
+
+      postsSnapshot.forEach((d) => {
+        const post = d.data();
+
         let postDate = null;
         if (post.createdAt) {
           if (typeof post.createdAt.toDate === 'function') {
@@ -98,21 +109,19 @@ export default function Feed() {
             postDate = new Date(post.createdAt.seconds * 1000);
           }
         }
-        
+
         if (postDate && postDate >= fortyEightHoursAgo) {
           const userId = post.userId;
           creatorPostCounts[userId] = (creatorPostCounts[userId] || 0) + 1;
         }
       });
 
-      const trendingCreatorIds = Object.entries(creatorPostCounts)
+      return Object.entries(creatorPostCounts)
         .sort(([, a], [, b]) => b - a)
         .slice(0, 20)
         .map(([userId]) => userId);
-
-      return trendingCreatorIds;
-    } catch (error) {
-      console.error('Error getting trending creators:', error);
+    } catch (err) {
+      console.error('Error getting trending creators:', err);
       return [];
     }
   };
@@ -121,9 +130,9 @@ export default function Feed() {
     try {
       setLoading(true);
       setError('');
-      
+
       let fetchedPosts;
-      
+
       if (activeTab === 'following') {
         if (!currentUser) {
           setError('Please login to see posts from creators you follow');
@@ -134,18 +143,19 @@ export default function Feed() {
         fetchedPosts = await getFollowingPosts(currentUser.uid, 20);
       } else {
         const trendingCreatorIds = await getTrendingCreatorIds();
-        
+
         if (trendingCreatorIds.length > 0) {
           const allPosts = await getAllPosts(100);
-          fetchedPosts = allPosts.filter(post => 
-            trendingCreatorIds.includes(post.userId)
-          ).slice(0, 20);
+          fetchedPosts = allPosts
+            .filter((post) => trendingCreatorIds.includes(post.userId))
+            .slice(0, 20);
         } else {
           fetchedPosts = await getAllPosts(20);
         }
       }
-      
-      const visiblePosts = fetchedPosts.filter(post => !post.archived);
+
+      // Hide archived
+      const visiblePosts = fetchedPosts.filter((post) => !post.archived);
       setPosts(visiblePosts);
     } catch (err) {
       console.error('Error loading posts:', err);
@@ -156,11 +166,19 @@ export default function Feed() {
   };
 
   const handlePostDeleted = (postId) => {
-    setPosts(posts.filter(post => post.id !== postId));
+    setPosts((prev) => prev.filter((post) => post.id !== postId));
   };
 
   // ✅ HANDLE POST CLICK - OPEN MODAL
   const handlePostClick = (post) => {
+    const rating = (post?.contentRating || 'sfw').toLowerCase();
+
+    // block opening NSFW when toggle is off
+    if (!showNSFW && rating === 'nsfw') {
+      alert('NSFW is hidden. Turn on "Show NSFW" to view this content.');
+      return;
+    }
+
     setSelectedPost(post);
     setShowPostModal(true);
   };
@@ -171,10 +189,19 @@ export default function Feed() {
     setSelectedPost(null);
   };
 
+  // ✅ FILTERED POSTS (global nsfw toggle)
+  const filteredPosts = useMemo(() => {
+    if (showNSFW) return posts;
+
+    return posts.filter((p) => {
+      const rating = (p?.contentRating || 'sfw').toLowerCase(); // old posts default -> sfw
+      return rating !== 'nsfw';
+    });
+  }, [posts, showNSFW]);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-6 lg:px-6">
-        
         {/* Top Creators - Mobile Only */}
         <div className="lg:hidden mb-4 sm:mb-6">
           <div className="flex items-center justify-between mb-3 sm:mb-4">
@@ -197,13 +224,15 @@ export default function Feed() {
                 key={creator.id}
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                onClick={() => navigate(`/creator/${creator.username?.replace('@', '') || creator.id}`)}
+                onClick={() =>
+                  navigate(`/creator/${creator.username?.replace('@', '') || creator.id}`)
+                }
                 className="bg-white rounded-xl p-3 border border-gray-200 hover:border-red-300 hover:shadow-md transition cursor-pointer"
               >
                 <div className="w-full aspect-square mx-auto rounded-full bg-gradient-to-br from-red-100 to-pink-100 flex items-center justify-center text-2xl mb-2 overflow-hidden">
                   {creator.profilePicture ? (
-                    <img 
-                      src={creator.profilePicture} 
+                    <img
+                      src={creator.profilePicture}
                       alt={creator.displayName}
                       className="w-full h-full object-cover"
                     />
@@ -222,26 +251,43 @@ export default function Feed() {
           </div>
         </div>
 
-        {/* Tabs */}
+        {/* Tabs + NSFW Toggle */}
         <div className="bg-white rounded-xl sm:rounded-2xl border border-gray-200 p-1.5 sm:p-2 mb-4 sm:mb-6 sticky top-0 z-10 shadow-sm">
-          <div className="flex items-center space-x-2">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-semibold transition ${
-                    activeTab === tab.id
-                      ? 'bg-red-500 text-white'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  <Icon className="w-5 h-5" />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="flex items-center space-x-2">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-semibold transition ${
+                      activeTab === tab.id
+                        ? 'bg-red-500 text-white'
+                        : 'text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Icon className="w-5 h-5" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* ✅ NSFW Toggle */}
+            <button
+              type="button"
+              onClick={() => setShowNSFW((v) => !v)}
+              className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-semibold transition border ${
+                showNSFW
+                  ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                  : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+              }`}
+              title={showNSFW ? 'NSFW is visible' : 'NSFW is hidden'}
+            >
+              {showNSFW ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+              <span className="text-sm">{showNSFW ? 'Show NSFW: ON' : 'Show NSFW: OFF'}</span>
+            </button>
           </div>
         </div>
 
@@ -254,6 +300,19 @@ export default function Feed() {
             <p className="text-sm text-red-700 flex items-center space-x-2">
               <Sparkles className="w-4 h-4" />
               <span>Posts from trending creators (most active in 48 hours)</span>
+            </p>
+          </motion.div>
+        )}
+
+        {!showNSFW && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg"
+          >
+            <p className="text-sm text-gray-700 flex items-center space-x-2">
+              <EyeOff className="w-4 h-4" />
+              <span>NSFW content is hidden. Turn it on if you want to see everything.</span>
             </p>
           </motion.div>
         )}
@@ -275,7 +334,7 @@ export default function Feed() {
           </div>
         ) : (
           <>
-            {posts.length === 0 ? (
+            {filteredPosts.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -288,14 +347,21 @@ export default function Feed() {
                     <Sparkles className="w-8 h-8 text-gray-400" />
                   )}
                 </div>
+
                 <h3 className="text-xl font-bold text-gray-900 mb-2">
-                  {activeTab === 'following' ? 'No Posts from Followed Creators' : 'No Trending Posts Yet'}
+                  {activeTab === 'following'
+                    ? 'No Posts from Followed Creators'
+                    : 'No Trending Posts Yet'}
                 </h3>
+
                 <p className="text-gray-600 mb-6">
-                  {activeTab === 'following' 
-                    ? "Follow creators to see their content here" 
-                    : "Check back soon for posts from trending creators"}
+                  {activeTab === 'following'
+                    ? 'Follow creators to see their content here'
+                    : showNSFW
+                      ? 'Check back soon for posts from trending creators'
+                      : `It looks like the available posts may be NSFW. Turn on "Show NSFW" or check back later.`}
                 </p>
+
                 <button
                   onClick={() => navigate('/discover')}
                   className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold transition"
@@ -305,7 +371,7 @@ export default function Feed() {
               </motion.div>
             ) : (
               <div className="space-y-4 sm:space-y-6">
-                {posts.map((post) => (
+                {filteredPosts.map((post) => (
                   <PostCard
                     key={post.id}
                     post={post}
@@ -318,12 +384,8 @@ export default function Feed() {
           </>
         )}
 
-        {!loading && posts.length > 0 && posts.length >= 20 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="mt-6 text-center pb-4"
-          >
+        {!loading && filteredPosts.length > 0 && posts.length >= 20 && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-6 text-center pb-4">
             <button
               onClick={loadPosts}
               className="px-6 py-3 bg-white hover:bg-gray-50 text-gray-700 rounded-lg font-medium border border-gray-200 transition"
@@ -340,12 +402,14 @@ export default function Feed() {
         onClose={closePostModal}
         post={selectedPost}
         onPostUpdate={(updatedPost) => {
+          if (!selectedPost) return;
+
           if (updatedPost === null) {
-            // Post was deleted
             handlePostDeleted(selectedPost.id);
+            closePostModal();
           } else {
-            // Post was updated
-            setPosts(posts.map(p => p.id === updatedPost.id ? updatedPost : p));
+            setPosts((prev) => prev.map((p) => (p.id === updatedPost.id ? updatedPost : p)));
+            setSelectedPost(updatedPost);
           }
         }}
       />
