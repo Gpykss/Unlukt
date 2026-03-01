@@ -1,8 +1,8 @@
 # 🔒 Security Configuration & Deployment Checklist
 
-## 🚨 CRITICAL - Deploy These Rules NOW
+## 🚨 CRITICAL - Deploy Firestore Rules NOW
 
-### 1. Firestore Security Rules
+### Firestore Security Rules
 **File:** `firestore.rules`
 
 **Deploy to Firebase Console:**
@@ -20,22 +20,7 @@
 - ✅ Immutable unlocked content records
 - ✅ Default deny-all at the end
 
----
-
-### 2. Storage Security Rules
-**File:** `storage.rules`
-
-**Deploy to Firebase Console:**
-1. Go to Firebase Console → Storage → Rules
-2. Copy contents of `storage.rules`
-3. Paste and click **Publish**
-
-**Key Security Features:**
-- ✅ File size limits (10MB images, 500MB videos)
-- ✅ Content type validation
-- ✅ User can only upload to their own folders
-- ✅ KYC documents admin-only read access
-- ✅ Payment proofs restricted to uploader + admin
+**Note:** You're using Bunny.net CDN for all file storage (images, videos, payment proofs). Firebase Storage is NOT used in this project.
 
 ---
 
@@ -162,10 +147,14 @@ npm install dompurify
 
 ### Firebase Configuration
 - [ ] Deploy Firestore security rules
-- [ ] Deploy Storage security rules
 - [ ] Enable Firebase App Check (recommended)
 - [ ] Set up Firebase Authentication email templates
-- [ ] Configure CORS for Bunny.net domain
+
+### Bunny.net Configuration
+- [ ] Configure CORS for your domain
+- [ ] Set up access keys for upload API
+- [ ] Enable pull zone for CDN delivery
+- [ ] Configure video streaming settings
 
 ### Environment Setup
 - [ ] Add `.env` to `.gitignore`
