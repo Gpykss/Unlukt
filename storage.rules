@@ -1,0 +1,77 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+    
+    function isValidImage() {
+      return request.resource.contentType.matches('image/.*') &&
+             request.resource.size < 10 * 1024 * 1024; // 10MB max
+    }
+    
+    function isValidVideo() {
+      return request.resource.contentType.matches('video/.*') &&
+             request.resource.size < 500 * 1024 * 1024; // 500MB max
+    }
+    
+    function isValidAudio() {
+      return request.resource.contentType.matches('audio/.*') &&
+             request.resource.size < 50 * 1024 * 1024; // 50MB max
+    }
+
+    // User avatars and banners
+    match /avatars/{userId}/{fileName} {
+      allow read: if true; // Public
+      allow write: if isOwner(userId) && isValidImage();
+    }
+    
+    match /banners/{userId}/{fileName} {
+      allow read: if true; // Public
+      allow write: if isOwner(userId) && isValidImage();
+    }
+
+    // Post media (images/videos)
+    match /posts/{userId}/{postId}/{fileName} {
+      allow read: if true; // Access control handled by Firestore rules
+      allow write: if isOwner(userId) && (isValidImage() || isValidVideo());
+    }
+
+    // PPV message media
+    match /ppv/{userId}/{conversationId}/{fileName} {
+      allow read: if isAuthenticated(); // Access control via Firestore
+      allow write: if isOwner(userId) && (isValidImage() || isValidVideo());
+    }
+
+    // Community media
+    match /communities/{communityId}/{fileName} {
+      allow read: if true;
+      allow write: if isAuthenticated() && isValidImage();
+    }
+
+    // Payment proofs (crypto receipts)
+    match /payment_proofs/{userId}/{paymentId}/{fileName} {
+      allow read: if isAuthenticated() && 
+                     (isOwner(userId) || 
+                      firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin == true);
+      allow write: if isOwner(userId) && isValidImage();
+    }
+
+    // KYC documents (sensitive)
+    match /kyc/{userId}/{fileName} {
+      allow read: if firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+      allow write: if isOwner(userId) && isValidImage();
+    }
+
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
