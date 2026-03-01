@@ -20,6 +20,7 @@ import { useNavigate } from 'react-router-dom';
 import { doc, getDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { db, auth } from '../../config/firebase';
 import { useAuth } from '../../hooks/useAuth';
+import AvailabilityToggle from '../../components/Dashboard/AvailabilityToggle';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -449,6 +450,11 @@ export default function Dashboard() {
             )}
             <p className="text-gray-500 text-xs mt-2">Across all posts</p>
           </motion.div>
+        </div>
+
+        {/* Call Availability Section (Creators Only) */}
+        <div className="mb-6">
+          <AvailabilityToggle />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">

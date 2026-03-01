@@ -38,6 +38,8 @@ import CommunityDetail from './pages/Communities/CommunityDetail';
 import CreateCommunity from './pages/Communities/CreateCommunity';
 import { ContentSettingsProvider } from './contexts/ContentSettingsContext';
 import Support from './pages/Support/Support';
+import VideoCallRoom from './pages/VideoCall/VideoCallRoom';
+import VoiceCallRoom from './pages/VideoCall/VoiceCallRoom';
 
 
 function AppContent() {
@@ -45,8 +47,8 @@ function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Pages without any navigation
-  const noNavPages = ['/', '/login', '/register', '/verify-email', '/complete-profile', '/legal/privacy', '/legal/terms', '/help'];
-  const showNav = !noNavPages.includes(location.pathname);
+  const noNavPages = ['/', '/login', '/register', '/verify-email', '/complete-profile', '/legal/privacy', '/legal/terms', '/help', '/video-call', '/voice-call'];
+  const showNav = !noNavPages.includes(location.pathname) && !location.pathname.startsWith('/video-call/') && !location.pathname.startsWith('/voice-call/');
 
   // Pages that show discover sidebar on desktop
   const showDiscoverSidebar = location.pathname === '/feed';
@@ -144,6 +146,10 @@ function AppContent() {
           <Route path="/create-community" element={<ProtectedRoute><CreateCommunity /></ProtectedRoute>} />
 
           <Route path="/support" element={<Support />} />
+
+          {/* Call Routes (Full Screen - No Nav) */}
+          <Route path="/video-call/:bookingId" element={<ProtectedRoute><VideoCallRoom /></ProtectedRoute>} />
+          <Route path="/voice-call/:bookingId" element={<ProtectedRoute><VoiceCallRoom /></ProtectedRoute>} />
         </Routes>
       </div>
 
