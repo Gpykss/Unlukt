@@ -152,7 +152,7 @@ export const getUserTier = async (userId, creatorId) => {
 /**
  * Check if user has access based on tier
  */
-export const hasT ierAccess = async (userId, creatorId, requiredTier = 'supporter') => {
+export const hasTierAccess = async (userId, creatorId, requiredTier = 'supporter') => {
   try {
     const userTier = await getUserTier(userId, creatorId);
     
