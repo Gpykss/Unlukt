@@ -306,7 +306,7 @@ export default function Settings() {
         {
           id: 'location',
           label: 'Location',
-          description: location || 'Not set',
+          description: location?.countryName || location || 'Not set',
           icon: MapPin,
           action: () => setShowEditLocation(true)
         }

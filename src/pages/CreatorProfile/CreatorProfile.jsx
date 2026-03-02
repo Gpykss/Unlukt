@@ -29,7 +29,7 @@ import { getUserProfile, getUserByUsername, updateUserProfile } from '../../serv
 import { getUserPosts } from '../../services/postService';
 import { hasActiveSubscription, getOrCreateConversation } from '../../services/messageService';
 import { blockUser, reportUser } from '../../services/userService';
-import { uploadMedia } from '../../services/cloudinaryService';
+import { uploadToBunny as uploadMedia } from '../../services/bunnyUpload.service';
 import FollowButton from '../../components/common/FollowButton';
 import PostCard from '../../components/feed/PostCard';
 import PostModal from '../../components/Modals/PostModal';
@@ -594,9 +594,9 @@ export default function CreatorProfile() {
             <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs sm:text-sm text-gray-600">
               {creator.location && (
                 <div className="flex items-center space-x-1 sm:space-x-2">
-                  <MapPin className="w-3 h-3 sm:w-4 sm:h-4" />
-                  <span>{creator.location}</span>
-                </div>
+                <MapPin className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span>{creator.location?.countryName || creator.location}</span>
+              </div>
               )}
               <div className="flex items-center space-x-1 sm:space-x-2">
                 <Calendar className="w-3 h-3 sm:w-4 sm:h-4" />

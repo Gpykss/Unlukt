@@ -17,7 +17,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { createCommunity } from '../../services/communityService';
-import { uploadMedia } from '../../services/cloudinaryService';
+import { uploadToBunny as uploadMedia } from '../../services/bunnyUpload.service';
 
 const CATEGORIES = [
   'Fitness',

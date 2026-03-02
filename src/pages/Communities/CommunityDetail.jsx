@@ -28,7 +28,7 @@ import {
   isCommunityMember,
   createCommunityPost
 } from '../../services/communityService';
-import { uploadMedia } from '../../services/cloudinaryService';
+import { uploadToBunny as uploadMedia } from '../../services/bunnyUpload.service';
 import { getUserProfile } from '../../services/firestoreService';
 
 export default function CommunityDetail() {

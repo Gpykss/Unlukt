@@ -19,7 +19,7 @@ import { useNavigate } from 'react-router-dom';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { useAuth } from '../../hooks/useAuth';
 import { createPost } from '../../services/postService';
-import { uploadMedia } from '../../services/cloudinaryService';
+import { uploadToBunny as uploadMedia } from '../../services/bunnyUpload.service';
 
 export default function NewPost() {
   const navigate = useNavigate();
@@ -137,7 +137,7 @@ export default function NewPost() {
 
       // Upload media to Cloudinary if file is selected
       if (selectedFile) {
-        console.log('📤 Uploading media to Cloudinary...');
+        console.log('📤 Uploading media to Bunny...');
         const uploadResult = await uploadMedia(
           selectedFile,
           'posts',

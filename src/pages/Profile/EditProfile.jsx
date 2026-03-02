@@ -6,7 +6,7 @@ import { User, AtSign, FileText, Mail, Phone, Loader2, CheckCircle, Camera, X, M
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { updateUserProfile, checkUsernameAvailability } from '../../services/firestoreService';
-import { uploadMedia } from '../../services/cloudinaryService'; // ✅ USE CLOUDINARY
+import { uploadToBunny as uploadMedia } from '../../services/bunnyUpload.service';
 
 // ✅ Popular cities/countries list
 const LOCATIONS = [

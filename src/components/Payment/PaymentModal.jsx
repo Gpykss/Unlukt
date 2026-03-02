@@ -33,39 +33,42 @@ export default function PaymentModal({
     }
   }, [isOpen]);
 
-  const initializeCryptoPayment = async () => {
-    if (!currentUser?.uid) {
-      setError('Please login to continue');
-      return;
+ const initializeCryptoPayment = async () => {
+  if (!currentUser?.uid) {
+    setError('Please login to continue');
+    return;
+  }
+
+  setError('');
+  setLoading(true);
+
+  try {
+    const result = await cryptoService.initializeUSDTPayment({
+      amount: Number(amountUSD),
+      userId: currentUser.uid,
+      userEmail: currentUser.email,
+      userName: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
+      contentId,
+      contentType,
+      creatorId,
+      userCountry: 'Unknown' // You can add country detection later
+    });
+
+    // ✅ REDIRECT TO NOWPAYMENTS
+    if (result.paymentUrl) {
+      console.log('🔵 Redirecting to:', result.paymentUrl);
+      window.location.href = result.paymentUrl;
+    } else {
+      setError('Payment URL not received');
     }
-
-    setError('');
-    setLoading(true);
-
-    try {
-      const result = await cryptoService.initializeUSDTPayment({
-        amount: Number(amountUSD),
-        userId: currentUser.uid,
-        userEmail: currentUser.email,
-        userName: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
-        contentId,
-        contentType,
-        creatorId,
-        userCountry: 'Unknown' // You can add country selection if needed
-      });
-
-      setPaymentData(result);
-      
-      if (onSuccess) {
-        onSuccess({ paymentId: result.paymentId });
-      }
-    } catch (err) {
-      console.error('Payment initialization error:', err);
-      setError(err.message || 'Failed to initialize payment');
-    } finally {
-      setLoading(false);
-    }
-  };
+    
+  } catch (err) {
+    console.error('Payment initialization error:', err);
+    setError(err.message || 'Failed to initialize payment');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
