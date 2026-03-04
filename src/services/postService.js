@@ -95,19 +95,28 @@ export const createPost = async (userId, postData) => {
     const postRef = doc(collection(db, 'posts'));
 
     // Clean images
-    const cleanImages = (postData.images || [])
-      .map((img) => {
-        if (typeof img === 'string') return { url: img, type: 'image' };
-        return {
-          url: img.url || '',
-          type: img.type || img.resourceType || 'image',
-          publicId: img.publicId || '',
-          width: img.width || 0,
-          height: img.height || 0,
-          duration: img.duration || null
-        };
-      })
-      .filter((img) => img.url);
+   const cleanImages = (postData.images || [])
+  .map((img) => {
+    if (typeof img === 'string') {
+      // ✅ Detect if URL is video based on extension
+      const isVideo = /\.(mp4|mov|avi|webm|mkv)$/i.test(img);
+      return { url: img, type: isVideo ? 'video' : 'image' };
+    }
+    
+    // ✅ Properly detect video type
+    const imgType = img.type || img.resourceType || 'image';
+    const isVideo = imgType === 'video' || /\.(mp4|mov|avi|webm|mkv)$/i.test(img.url || '');
+    
+    return {
+      url: img.url || '',
+      type: isVideo ? 'video' : 'image', // ✅ Correctly set type
+      publicId: img.publicId || '',
+      width: img.width || 0,
+      height: img.height || 0,
+      duration: img.duration || null
+    };
+  })
+  .filter((img) => img.url);
 
     const contentRating = normalizeRating(postData?.contentRating);
 

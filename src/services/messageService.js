@@ -236,7 +236,7 @@ export const sendMessage = async (conversationId, senderId, receiverId, messageT
     const messageData = {
       senderId,
       receiverId,
-      text: messageText,
+      text: String(messageText),
       read: false,
       createdAt: serverTimestamp()
     };

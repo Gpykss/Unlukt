@@ -44,11 +44,12 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { updateUserProfile } from '../../services/firestoreService';
+import AvailabilityToggle from '../../components/Dashboard/AvailabilityToggle';
 
 export default function Settings() {
   const navigate = useNavigate();
   const { currentUser, logout } = useAuth();
-  const { profile, displayName, username, isVerified } = useUserProfile();
+  const { profile, displayName, username, isVerified, isCreator } = useUserProfile();
   
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -476,6 +477,17 @@ export default function Settings() {
           </motion.div>
         ))}
 
+        {/* Call Availability - Creators Only */}
+        {isCreator && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+            className="mb-6"
+          >
+            <AvailabilityToggle />
+          </motion.div>
+        )}
         {/* Danger Zone */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}

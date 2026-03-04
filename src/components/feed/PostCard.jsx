@@ -457,15 +457,40 @@ export default function PostCard({
         )}
       </div>
 
+
+      
+
+    
       {/* Media */}
       <div className="relative bg-black">
         {imageUrl ? (
-          <img
-            src={imageUrl}
-            alt="Post"
-            className={`w-full max-h-[520px] object-cover ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
-            loading="lazy"
-          />
+          (() => {
+            const mediaItem = post?.images?.[0];
+            const url = imageUrl;
+            const isVideo =
+              mediaItem?.type === 'video' ||
+              /\.(mp4|mov|avi|webm|mkv)$/i.test(url) ||
+              mediaItem?.mimeType?.startsWith('video/');
+
+            return isVideo ? (
+              <video
+                src={url}
+                controls
+                playsInline
+                preload="metadata"
+                className={`w-full max-h-[520px] ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
+                style={{ backgroundColor: 'black' }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <img
+                src={url}
+                alt="Post"
+                className={`w-full max-h-[520px] object-cover ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
+                loading="lazy"
+              />
+            );
+          })()
         ) : (
           <div className="w-full h-[380px] flex items-center justify-center text-7xl text-white">
             📸

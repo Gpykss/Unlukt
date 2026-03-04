@@ -20,7 +20,8 @@ import {
   Ban,
   X,
   Eye,
-  EyeOff
+  EyeOff,
+  Video, Phone 
 } from 'lucide-react';
 
 import { useNavigate, useParams } from 'react-router-dom';
@@ -33,7 +34,8 @@ import { uploadToBunny as uploadMedia } from '../../services/bunnyUpload.service
 import FollowButton from '../../components/common/FollowButton';
 import PostCard from '../../components/feed/PostCard';
 import PostModal from '../../components/Modals/PostModal';
-
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 import { useContentSettings } from '../../hooks/useContentSettings';
 
 export default function CreatorProfile() {
@@ -124,6 +126,22 @@ export default function CreatorProfile() {
           postsCount: 0,
           subscriptionPrice: foundCreator.subscriptionPrice || 9.99
         });
+
+
+        // Load call availability
+        try {
+          const availDoc = await getDoc(doc(db, 'creator_availability', uid));
+          if (availDoc.exists()) {
+            const avail = availDoc.data();
+            setCreator(prev => ({
+              ...prev,
+              videoCallPrice: avail.callsEnabled ? avail.videoCallPrice : null,
+              voiceCallPrice: avail.callsEnabled ? avail.voiceCallPrice : null,
+            }));
+          }
+        } catch (err) {
+          console.error('Error loading availability:', err);
+        }
 
         const userPosts = await getUserPosts(uid);
         const activePosts = userPosts.filter((p) => !p.archived);
@@ -504,6 +522,29 @@ export default function CreatorProfile() {
 
                 {!isOwnProfile ? (
                   <>
+                    {/* Video Call Button */}
+                    {creator.videoCallPrice && (
+                      <button
+                        onClick={() => navigate(`/book-video-call/${creator.uid}`)}
+                        className="flex items-center space-x-1 sm:space-x-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-full border-2 border-rose-200 hover:bg-rose-50 transition"
+                        title={`Book video call • $${creator.videoCallPrice}/15min`}
+                      >
+                        <Video className="w-4 h-4 sm:w-5 sm:h-5 text-rose-500" />
+                        <span className="hidden sm:inline text-sm font-semibold text-rose-600">${creator.videoCallPrice}</span>
+                      </button>
+                    )}
+
+                    {/* Voice Call Button */}
+                    {creator.voiceCallPrice && (
+                      <button
+                        onClick={() => navigate(`/book-voice-call/${creator.uid}`)}
+                        className="flex items-center space-x-1 sm:space-x-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-full border-2 border-purple-200 hover:bg-purple-50 transition"
+                        title={`Book voice call • $${creator.voiceCallPrice}/15min`}
+                      >
+                        <Phone className="w-4 h-4 sm:w-5 sm:h-5 text-purple-500" />
+                        <span className="hidden sm:inline text-sm font-semibold text-purple-600">${creator.voiceCallPrice}</span>
+                      </button>
+                    )}
                     <button
                       onClick={handleMessage}
                       disabled={sendingMessage}

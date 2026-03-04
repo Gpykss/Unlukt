@@ -15,11 +15,16 @@ import {
   Bell,
   MessageSquareOff,
   Ban,
-  AlertTriangle
+  AlertTriangle,
+  Lock,
+  X, Image, Video
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useUserProfile } from '../../hooks/useUserProfile';
+import PPVMessageCard from '../../components/Messages/PPVMessageCard';
+import { uploadToBunny } from '../../services/bunnyUpload.service';
+import { sendPPVMessage } from '../../services/ppvMessageService';
 import {
   subscribeToConversations,
   subscribeToMessages,
@@ -55,6 +60,12 @@ export default function Messages() {
   const [showClearModal, setShowClearModal] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [showPPVModal, setShowPPVModal] = useState(false);
+  const [ppvContent, setPPVContent] = useState('');
+  const [ppvPrice, setPPVPrice] = useState(12);
+  const [sendingPPV, setSendingPPV] = useState(false);
+  const [ppvMedia, setPPVMedia] = useState(null);
+
   const messagesEndRef = useRef(null);
   const messageInputRef = useRef(null); 
 
@@ -292,6 +303,37 @@ export default function Messages() {
       alert('Failed to block user');
     }
   };
+
+  const handleSendPPV = async () => {
+  if (!ppvContent.trim() && !ppvMedia) return;
+  try {
+    setSendingPPV(true);
+    let mediaUrl = null;
+    let mediaType = null;
+
+    if (ppvMedia) {
+      const result = await uploadToBunny(ppvMedia, 'ppv-messages');
+      mediaUrl = result.url;
+      mediaType = ppvMedia.type.startsWith('video') ? 'video' : 'image';
+    }
+
+    await sendPPVMessage(selectedChat.id, currentUser.uid, {
+      content: ppvContent,
+      price: parseFloat(ppvPrice),
+      mediaUrl,
+      mediaType
+    });
+    setPPVContent('');
+    setPPVPrice(12);
+    setPPVMedia(null);
+    setShowPPVModal(false);
+  } catch (err) {
+    console.error('Error sending PPV:', err);
+    alert('Failed to send locked message');
+  } finally {
+    setSendingPPV(false);
+  }
+};
 
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
@@ -623,29 +665,54 @@ export default function Messages() {
 
               {/* ✅ Messages - ONLY THIS SCROLLS */}
               <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 space-y-2 sm:space-y-3 md:space-y-4">
-                {messages.map((msg) => (
-                  <motion.div
-                    key={msg.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={`flex ${msg.senderId === currentUser.uid ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div className="max-w-[85%] sm:max-w-[75%] md:max-w-xs lg:max-w-md">
-                      <div className={`rounded-2xl px-3 sm:px-4 py-2 sm:py-3 ${
-                        msg.senderId === currentUser.uid
-                          ? 'bg-rose-500 text-white'
-                          : 'bg-gray-100 text-gray-900'
-                      }`}>
-                        <p className="text-sm sm:text-base break-words">{msg.text}</p>
-                      </div>
-                      <p className={`text-xs text-gray-400 mt-1 ${
-                        msg.senderId === currentUser.uid ? 'text-right' : 'text-left'
-                      }`}>
-                        {formatMessageTime(msg.createdAt)}
-                      </p>
+              {messages.map((msg) => (
+              msg.isPPV ? (
+                <PPVMessageCard
+                  key={msg.id}
+                  message={msg}
+                  conversationId={selectedChat.id}
+                  onUnlock={(payment) => {
+                    window.open(payment.paymentUrl, '_blank');
+                  }}
+                />
+              ) : (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`flex ${msg.senderId === currentUser.uid ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div className="max-w-[85%] sm:max-w-[75%] md:max-w-xs lg:max-w-md">
+                    <div className={`rounded-2xl px-3 sm:px-4 py-2 sm:py-3 ${
+                      msg.senderId === currentUser.uid
+                        ? 'bg-rose-500 text-white'
+                        : 'bg-gray-100 text-gray-900'
+                    }`}>
+                     <p className="text-sm sm:text-base break-words">
+                      {(() => {
+                        // ✅ Handle multiple message formats
+                        if (typeof msg.text === 'string') {
+                          return msg.text;
+                        }
+                        if (msg.text && typeof msg.text === 'object') {
+                          return msg.text.text || JSON.stringify(msg.text);
+                        }
+                        if (msg.content) {
+                          return msg.content;
+                        }
+                        return '';
+                      })()}
+                    </p>
                     </div>
-                  </motion.div>
-                ))}
+                    <p className={`text-xs text-gray-400 mt-1 ${
+                      msg.senderId === currentUser.uid ? 'text-right' : 'text-left'
+                    }`}>
+                      {formatMessageTime(msg.createdAt)}
+                    </p>
+                  </div>
+                </motion.div>
+              )
+            ))}
                 <div ref={messagesEndRef} />
               </div>
 
@@ -669,6 +736,15 @@ export default function Messages() {
                     </button>
                   </div>
 
+                  {profile?.isCreator && (
+                    <button
+                      onClick={() => setShowPPVModal(true)}
+                      className="p-2.5 sm:p-3 rounded-full bg-purple-100 hover:bg-purple-200 transition flex-shrink-0"
+                      title="Send locked message"
+                    >
+                      <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />
+                    </button>
+                  )}
                   <button
                     onClick={handleSendMessage}
                     disabled={!message.trim() || sending || isBlocked}
@@ -701,8 +777,86 @@ export default function Messages() {
         </div>
       </div>
 
-      {/* Modals... */}
-      {/* (keeping all your existing modals - they're fine) */}
+      {/* PPV Modal */}
+          <AnimatePresence>
+            {showPPVModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
+              <motion.div
+                initial={{ opacity: 0, y: 50 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 50 }}
+                className="bg-white rounded-2xl p-6 w-full max-w-md"
+              >
+                <h3 className="text-lg font-bold text-gray-900 mb-4">🔒 Send Locked Message</h3>
+                
+                <textarea
+                  value={ppvContent}
+                  onChange={(e) => setPPVContent(e.target.value)}
+                  placeholder="Message content (blurred until unlocked)..."
+                  rows={3}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 resize-none text-sm mb-3"
+                />
+
+                {/* Media Upload */}
+                <div className="mb-4">
+                  {ppvMedia ? (
+                    <div className="relative rounded-xl overflow-hidden border border-gray-200">
+                      {ppvMedia.type.startsWith('video') ? (
+                        <video src={URL.createObjectURL(ppvMedia)} className="w-full max-h-40 object-cover" />
+                      ) : (
+                        <img src={URL.createObjectURL(ppvMedia)} className="w-full max-h-40 object-cover" />
+                      )}
+                      <button
+                        onClick={() => setPPVMedia(null)}
+                        className="absolute top-2 right-2 bg-black/50 text-white rounded-full p-1"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex items-center justify-center space-x-2 w-full py-3 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:border-rose-300 transition">
+                      <input
+                        type="file"
+                        accept="image/*,video/*"
+                        onChange={(e) => setPPVMedia(e.target.files?.[0] || null)}
+                        className="hidden"
+                      />
+                      <Image className="w-5 h-5 text-gray-400" />
+                      <span className="text-sm text-gray-500">Add photo or video</span>
+                    </label>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-3 mb-4">
+                  <label className="text-sm font-semibold text-gray-700">Unlock Price ($)</label>
+                  <input
+                    type="number"
+                    min="12"
+                    value={ppvPrice}
+                    onChange={(e) => setPPVPrice(e.target.value)}
+                    className="w-24 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500 text-sm"
+                  />
+                </div>
+
+                <div className="flex space-x-3">
+                  <button
+                    onClick={() => { setShowPPVModal(false); setPPVMedia(null); }}
+                    className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl font-semibold transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSendPPV}
+                    disabled={(!ppvContent.trim() && !ppvMedia) || sendingPPV}
+                    className="flex-1 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-semibold transition disabled:opacity-50"
+                  >
+                    {sendingPPV ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Send Locked'}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+          </AnimatePresence>
     </div>
   );
 }

@@ -6,8 +6,9 @@ import logger from '../utils/logger';
 import { getUserTier, getCallDiscount } from './tierService';
 import cryptoService from './crypto.service';
 
-const MINIMUM_VIDEO_PRICE = 10; // $10 USD
-const CALL_DURATION = 30; // 30 minutes
+const MINIMUM_VIDEO_PRICE = 12;
+const MINIMUM_VOICE_PRICE = 12;
+const CALL_DURATION = 30;
 
 /**
  * Get creator's video call availability and pricing
@@ -25,7 +26,7 @@ export const getCreatorAvailability = async (creatorId) => {
     return {
       status: 'offline',
       videoCallPrice: MINIMUM_VIDEO_PRICE,
-      voiceCallPrice: 5,
+      voiceCallPrice: 10,
       callsEnabled: false,
       lastUpdated: new Date()
     };
@@ -44,7 +45,7 @@ export const updateCreatorAvailability = async (creatorId, data) => {
     
     // Validate pricing
     const videoPrice = Math.max(MINIMUM_VIDEO_PRICE, Number(data.videoCallPrice) || MINIMUM_VIDEO_PRICE);
-    const voicePrice = Math.max(5, Number(data.voiceCallPrice) || 5);
+    const voicePrice = Math.max(MINIMUM_VOICE_PRICE, Number(data.voiceCallPrice) || MINIMUM_VOICE_PRICE);
     
     const update = {
       status: data.status || 'offline',

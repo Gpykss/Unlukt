@@ -135,38 +135,58 @@ export default function NewPost() {
 
       let mediaUrls = [];
 
-      // Upload media to Cloudinary if file is selected
+      // Upload media to Bunny if file is selected
       if (selectedFile) {
         console.log('📤 Uploading media to Bunny...');
-        const uploadResult = await uploadMedia(
-          selectedFile,
-          'posts',
-          (progress) => {
-            setUploadProgress(Math.round(progress));
-          }
-        );
+        console.log('🔍 Selected file type:', selectedFile.type);
+        console.log('🔍 Selected file name:', selectedFile.name);
+        
+        // Show progress manually (since uploadToBunny doesn't support progress callback)
+       setUploadProgress(30);
 
-        mediaUrls.push({
-          url: uploadResult.url,
-          type: uploadResult.resourceType,
-          publicId: uploadResult.publicId,
-          width: uploadResult.width,
-          height: uploadResult.height,
-          duration: uploadResult.duration
+        const uploadResult = await uploadMedia(selectedFile, { 
+          folder: 'posts', 
+          contentType: 'media' 
         });
 
-        console.log('✅ Media uploaded:', uploadResult.url);
+        setUploadProgress(100);
+
+        console.log('✅ Full upload result:', uploadResult);
+
+        const cdnUrl = uploadResult.cdnUrl; // ✅ FIXED: was uploadResult.url
+
+        const isVideo = selectedFile.type.startsWith('video') || 
+                        uploadResult.mimeType?.startsWith('video/') ||
+                        /\.(mp4|mov|avi|webm|mkv)$/i.test(cdnUrl);
+
+        console.log('✅ CDN URL:', cdnUrl);
+        console.log('✅ Detected type:', isVideo ? 'video' : 'image');
+
+        if (!cdnUrl) throw new Error('Upload succeeded but no CDN URL returned');
+
+        mediaUrls.push({
+          url: cdnUrl,
+          type: isVideo ? 'video' : 'image',
+          publicId: uploadResult.objectPath || '',
+          width: 0,
+          height: 0,
+          duration: null
+        });
+
+        console.log('✅ Media uploaded to:', cdnUrl);
       }
 
-      // ✅ Prepare post data (includes contentRating)
+      // Prepare post data
       const postData = {
         content: caption,
         images: mediaUrls,
         type: visibility === 'public' ? 'free' : visibility,
         price: visibility === 'paid' ? parseFloat(price) : 0,
         tags: tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : [],
-        contentRating: contentRating // ✅ 'sfw' | 'nsfw'
+        contentRating: contentRating
       };
+
+      console.log('📝 Creating post with data:', postData);
 
       const newPost = await createPost(currentUser.uid, postData);
 
@@ -406,10 +426,12 @@ export default function NewPost() {
                 />
               ) : (
                 <video
-                  src={preview}
-                  controls
-                  className="w-full rounded-xl"
-                />
+                src={preview}
+                controls
+                playsInline
+                preload="metadata"
+                className="w-full rounded-xl max-h-96 object-contain bg-black"
+              />
               )}
 
               <button

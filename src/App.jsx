@@ -40,6 +40,8 @@ import { ContentSettingsProvider } from './contexts/ContentSettingsContext';
 import Support from './pages/Support/Support';
 import VideoCallRoom from './pages/VideoCall/VideoCallRoom';
 import VoiceCallRoom from './pages/VideoCall/VoiceCallRoom';
+import BookVideoCall from './pages/VideoCall/BookVideoCall';
+import BookVoiceCall from './pages/VideoCall/BookVoiceCall';
 
 
 function AppContent() {
@@ -47,7 +49,7 @@ function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Pages without any navigation
-  const noNavPages = ['/', '/login', '/register', '/verify-email', '/complete-profile', '/legal/privacy', '/legal/terms', '/help', '/video-call', '/voice-call'];
+  const noNavPages = ['/', '/login', '/register', '/verify-email', '/complete-profile', '/legal/privacy', '/legal/terms', '/help', '/video-call', '/voice-call', '/book-video-call', '/book-voice-call'];
   const showNav = !noNavPages.includes(location.pathname) && !location.pathname.startsWith('/video-call/') && !location.pathname.startsWith('/voice-call/');
 
   // Pages that show discover sidebar on desktop
@@ -150,6 +152,8 @@ function AppContent() {
           {/* Call Routes (Full Screen - No Nav) */}
           <Route path="/video-call/:bookingId" element={<ProtectedRoute><VideoCallRoom /></ProtectedRoute>} />
           <Route path="/voice-call/:bookingId" element={<ProtectedRoute><VoiceCallRoom /></ProtectedRoute>} />
+          <Route path="/book-video-call/:creatorId" element={<ProtectedRoute><BookVideoCall /></ProtectedRoute>} />
+          <Route path="/book-voice-call/:creatorId" element={<ProtectedRoute><BookVoiceCall /></ProtectedRoute>} />
         </Routes>
       </div>
 

@@ -242,6 +242,7 @@ async function processPayment(db, paymentData, paymentId) {
 }
 
 
+
 // ========== CREATE NOWPAYMENTS INVOICE ==========
 exports.createPayment = onRequest(
   {
@@ -396,6 +397,7 @@ exports.uploadToBunny = onRequest(
   {
     region: "us-central1",
     secrets: [BUNNY_STORAGE_PASSWORD],
+    rawBody: true,
   },
   (req, res) => {
     corsHandler(req, res, async () => {
@@ -425,7 +427,11 @@ exports.uploadToBunny = onRequest(
 
           busboy.on("finish", () => buffer ? resolve({ buffer, mimeType, originalName }) : reject(new Error("No file")));
           busboy.on("error", reject);
-          req.pipe(busboy);
+          const { Readable } = require("stream");
+          const readable = new Readable();
+          readable.push(req.rawBody);
+          readable.push(null);
+          readable.pipe(busboy);
         });
 
         // Upload to Bunny
