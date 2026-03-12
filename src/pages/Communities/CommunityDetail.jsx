@@ -1,81 +1,77 @@
-// src/pages/Communities/CommunityDetail.jsx - View Community Details
+// src/pages/Communities/CommunityDetail.jsx
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  ArrowLeft,
-  Users,
-  Lock,
-  Globe,
-  Settings,
-  UserPlus,
-  MessageSquare,
-  Image as ImageIcon,
-  Send,
-  Loader2,
-  MoreVertical,
-  X,
-  Crown
+import {
+  ArrowLeft, Users, Lock, Globe, Settings, UserPlus,
+  Send, Loader2, MoreVertical, X, Crown, Heart,
+  Play, Wallet, AlertCircle, CheckCircle, MessageCircle,
+  PlusCircle, Camera, Film, Image as ImageIcon
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { 
-  getCommunity,
-  getCommunityMembers,
-  getCommunityPosts,
-  joinCommunity,
-  leaveCommunity,
-  isCommunityMember,
-  createCommunityPost
+import {
+  getCommunity, getCommunityMembers, getCommunityPosts,
+  joinCommunity, leaveCommunity, isCommunityMember, createCommunityPost,
+  likeCommunityPost, addCommunityPostComment, getCommunityPostComments
 } from '../../services/communityService';
-import { uploadToBunny as uploadMedia } from '../../services/bunnyUpload.service';
+import { uploadToBunny } from '../../services/bunnyUpload.service';
 import { getUserProfile } from '../../services/firestoreService';
+import { getWalletBalance, deductFromWallet } from '../../services/walletService';
+import { doc, updateDoc, setDoc, serverTimestamp, collection } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 
 export default function CommunityDetail() {
   const navigate = useNavigate();
   const { communityId } = useParams();
   const { currentUser } = useAuth();
-  
+  const fileInputRef = useRef();
+  const textareaRef = useRef();
+
   const [community, setCommunity] = useState(null);
   const [members, setMembers] = useState([]);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isMember, setIsMember] = useState(false);
-  const [joining, setJoining] = useState(false);
-  const [activeTab, setActiveTab] = useState('posts'); // posts or members
-  
-  // Create post state
-  const [showCreatePost, setShowCreatePost] = useState(false);
+  const [activeTab, setActiveTab] = useState('posts');
+
+  // Sticky post bar
   const [postContent, setPostContent] = useState('');
-  const [postImages, setPostImages] = useState([]);
+  const [postMedia, setPostMedia] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [posting, setPosting] = useState(false);
 
+  // Join modal
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [joinType, setJoinType] = useState('monthly');
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState('');
+  const [walletBalance, setWalletBalance] = useState(0);
+
   const isOwner = community && currentUser && community.creatorId === currentUser.uid;
+  const isFree = community?.isPrivate === false; // public = no payment needed
+  const canPost = isOwner || (isMember && community?.membersCanPost === true);
+  const canView = isOwner || isMember || isFree;
 
-  useEffect(() => {
-    loadCommunityData();
-  }, [communityId, currentUser]);
+  useEffect(() => { loadData(); }, [communityId, currentUser]);
 
-  const loadCommunityData = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
-      
-      // Load community details
       const communityData = await getCommunity(communityId);
-      if (!communityData) {
-        navigate('/communities');
-        return;
-      }
+      if (!communityData) { navigate('/communities'); return; }
       setCommunity(communityData);
-      
-      // Check membership
+
       if (currentUser) {
-        const memberStatus = await isCommunityMember(currentUser.uid, communityId);
+        const [memberStatus, bal] = await Promise.all([
+          isCommunityMember(currentUser.uid, communityId),
+          getWalletBalance(currentUser.uid)
+        ]);
         setIsMember(memberStatus);
-        
-        // Load posts and members if user is a member or owner
-        if (memberStatus || communityData.creatorId === currentUser.uid) {
+        setWalletBalance(bal);
+
+        // Load posts/members for: owner, members, OR public communities
+        if (memberStatus || communityData.creatorId === currentUser.uid || communityData.isPrivate === false) {
           const [postsData, membersData] = await Promise.all([
             getCommunityPosts(communityId),
             getCommunityMembers(communityId)
@@ -84,472 +80,405 @@ export default function CommunityDetail() {
           setMembers(membersData);
         }
       }
-    } catch (error) {
-      console.error('Error loading community:', error);
+    } catch (e) {
+      console.error('Error loading community:', e);
     } finally {
       setLoading(false);
     }
   };
 
+  const getJoinPrice = () => {
+    if (joinType === 'monthly') return community?.price || 9.99;
+    return community?.oneTimePrice || (community?.price || 9.99) * 3;
+  };
+
   const handleJoin = async () => {
-    if (!currentUser) {
-      alert('Please login to join communities');
-      navigate('/login');
+    if (!currentUser) { navigate('/login'); return; }
+    setJoinError('');
+    const price = getJoinPrice();
+    if (walletBalance < price) {
+      setJoinError(`Insufficient balance ($${walletBalance.toFixed(2)}). Need $${price.toFixed(2)}.`);
       return;
     }
-
     try {
       setJoining(true);
-      
-      // Navigate to payment page
-      navigate('/wallet', {
-        state: {
-          action: 'join-community',
-          communityId: community.id,
-          communityName: community.name,
-          price: community.price
-        }
+      await deductFromWallet(currentUser.uid, price, `Community join: ${community.name}`, {
+        contentType: 'community_join', communityId, joinType, creatorId: community.creatorId,
       });
-    } catch (error) {
-      console.error('Error joining community:', error);
-      alert('Failed to join community');
+      const subscriptionEnd = joinType === 'monthly' ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null;
+      await joinCommunity(currentUser.uid, communityId, { subscriptionEnd });
+
+      const earning = price * 0.85;
+      const creatorBalRef = doc(db, 'creator_balances', community.creatorId);
+      try {
+        await updateDoc(creatorBalRef, { pendingBalance: earning, totalEarnings: earning, updatedAt: serverTimestamp() });
+      } catch {
+        await setDoc(creatorBalRef, { creatorId: community.creatorId, availableBalance: 0, pendingBalance: earning, totalEarnings: earning, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      }
+
+      setIsMember(true);
+      setShowJoinModal(false);
+      const [postsData, membersData] = await Promise.all([getCommunityPosts(communityId), getCommunityMembers(communityId)]);
+      setPosts(postsData);
+      setMembers(membersData);
+    } catch (e) {
+      setJoinError(e.message || 'Failed to join');
     } finally {
       setJoining(false);
     }
   };
 
   const handleLeave = async () => {
-    const confirmed = window.confirm('Are you sure you want to leave this community?');
-    if (!confirmed) return;
-
+    if (!window.confirm('Leave this community?')) return;
     try {
       await leaveCommunity(currentUser.uid, communityId);
       setIsMember(false);
-      alert('You have left the community');
       navigate('/communities');
-    } catch (error) {
-      console.error('Error leaving community:', error);
-      alert('Failed to leave community');
-    }
+    } catch { alert('Failed to leave'); }
   };
 
-  const handleImageUpload = async (e) => {
+  const handleMediaUpload = async (e) => {
     const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-
-    if (postImages.length + files.length > 4) {
-      alert('Maximum 4 images allowed');
-      return;
-    }
-
+    if (!files.length) return;
+    if (postMedia.length + files.length > 4) { alert('Max 4 files'); return; }
     try {
       setUploading(true);
-      
-      const uploadPromises = files.map(file => 
-        uploadMedia(file, 'community-posts')
-      );
-      
-      const results = await Promise.all(uploadPromises);
-      const urls = results.map(r => r.url);
-      
-      setPostImages([...postImages, ...urls]);
-    } catch (error) {
-      console.error('Error uploading images:', error);
-      alert('Failed to upload images');
-    } finally {
-      setUploading(false);
-    }
+      const results = await Promise.all(files.map(f => uploadToBunny(f, { folder: 'community-posts', contentType: 'media' })));
+      const newMedia = results.map((r, i) => ({ url: r.cdnUrl, type: files[i].type.startsWith('video') ? 'video' : 'image' }));
+      setPostMedia(prev => [...prev, ...newMedia]);
+    } catch { alert('Upload failed'); }
+    finally { setUploading(false); }
   };
 
   const handleCreatePost = async () => {
-    if (!postContent.trim() && postImages.length === 0) {
-      alert('Please add some content or images');
-      return;
-    }
-
+    if (!postContent.trim() && postMedia.length === 0) return;
     try {
       setPosting(true);
-      
       await createCommunityPost(communityId, currentUser.uid, {
         content: postContent,
-        images: postImages
+        images: postMedia.filter(m => m.type === 'image').map(m => m.url),
+        videos: postMedia.filter(m => m.type === 'video').map(m => m.url),
       });
-      
-      // Reload posts
       const postsData = await getCommunityPosts(communityId);
       setPosts(postsData);
-      
-      // Reset form
       setPostContent('');
-      setPostImages([]);
-      setShowCreatePost(false);
-      
-      alert('Post created successfully!');
-    } catch (error) {
-      console.error('Error creating post:', error);
-      alert('Failed to create post');
+      setPostMedia([]);
+      // Reset textarea height
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    } catch (e) {
+      alert('Failed to post: ' + e.message);
     } finally {
       setPosting(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 text-rose-500 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">Loading community...</p>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <Loader2 className="w-12 h-12 text-rose-500 animate-spin" />
+    </div>
+  );
 
-  if (!community) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Community Not Found</h2>
-          <button
-            onClick={() => navigate('/communities')}
-            className="px-6 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-semibold transition"
-          >
-            Back to Communities
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const canViewContent = isMember || isOwner;
+  if (!community) return null;
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20 lg:pb-8">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-4xl mx-auto">
-          {/* Cover Image */}
-          <div className="relative h-48 sm:h-56 md:h-64 bg-gradient-to-br from-rose-200 via-pink-200 to-purple-200">
-            {community.coverImage && (
-              <img 
-                src={community.coverImage} 
-                alt={community.name}
-                className="w-full h-full object-cover"
-              />
-            )}
-            
-            {/* Back Button */}
-            <button
-              onClick={() => navigate('/communities')}
-              className="absolute top-4 left-4 p-2 bg-black/50 hover:bg-black/70 backdrop-blur-sm rounded-lg transition text-white"
-            >
+    // ✅ Extra bottom padding when sticky bar is visible
+    <div className={`min-h-screen bg-gray-50 ${canPost && activeTab === 'posts' ? 'pb-36 lg:pb-24' : 'pb-20 lg:pb-8'}`}>
+
+      {/* ── Sticky Header ── */}
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-20">
+        <div className="max-w-3xl mx-auto">
+          <div className="relative h-40 sm:h-48 bg-gradient-to-br from-rose-200 via-pink-200 to-purple-200">
+            {community.coverImage && <img src={community.coverImage} alt="" className="w-full h-full object-cover" />}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+            <button onClick={() => navigate('/communities')} className="absolute top-4 left-4 p-2 bg-black/40 backdrop-blur-sm rounded-full text-white hover:bg-black/60 transition">
               <ArrowLeft className="w-5 h-5" />
             </button>
-
-            {/* Settings Button (Owner Only) */}
             {isOwner && (
-              <button
-                onClick={() => navigate(`/community/${communityId}/settings`)}
-                className="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/70 backdrop-blur-sm rounded-lg transition text-white"
-              >
+              <button onClick={() => navigate(`/community/${communityId}/settings`)} className="absolute top-4 right-4 p-2 bg-black/40 backdrop-blur-sm rounded-full text-white hover:bg-black/60 transition">
                 <Settings className="w-5 h-5" />
               </button>
             )}
+            <div className="absolute bottom-4 left-4 right-16">
+              <div className="flex items-center space-x-2 mb-1">
+                {community.isPrivate ? <Lock className="w-4 h-4 text-white/80" /> : <Globe className="w-4 h-4 text-white/80" />}
+                <span className="text-white/80 text-xs font-medium uppercase tracking-wide">{community.category}</span>
+              </div>
+              <h1 className="text-2xl font-bold text-white leading-tight">{community.name}</h1>
+              <span className="text-white/80 text-sm flex items-center space-x-1 mt-1">
+                <Users className="w-3.5 h-3.5" /><span>{community.memberCount || 0} members</span>
+              </span>
+            </div>
           </div>
 
-          {/* Community Info */}
-          <div className="px-4 sm:px-6 py-6">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex-1">
-                <div className="flex items-center space-x-2 mb-2">
-                  <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-                    {community.name}
-                  </h1>
-                  {community.isPrivate ? (
-                    <Lock className="w-5 h-5 text-gray-600" />
-                  ) : (
-                    <Globe className="w-5 h-5 text-gray-600" />
-                  )}
-                </div>
-                
-                <p className="text-gray-600 mb-3">
-                  {community.description || 'No description'}
-                </p>
-
-                <div className="flex items-center space-x-4 text-sm text-gray-600">
-                  <div className="flex items-center space-x-1">
-                    <Users className="w-4 h-4" />
-                    <span>{community.memberCount || 0} members</span>
+          <div className="px-4 py-3 flex items-center justify-between">
+            <p className="text-sm text-gray-600 line-clamp-1 flex-1 mr-4">{community.description}</p>
+            {!isOwner && (
+              isMember
+                ? <div className="flex items-center space-x-2">
+                    <span className="px-3 py-1.5 bg-green-100 text-green-700 rounded-xl text-sm font-semibold flex items-center space-x-1">
+                      <CheckCircle className="w-4 h-4" /><span>Joined</span>
+                    </span>
+                    <button onClick={handleLeave} className="px-3 py-1.5 bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-500 rounded-xl text-xs font-medium transition whitespace-nowrap">Leave</button>
                   </div>
-                  <span className="px-2 py-1 bg-rose-50 text-rose-600 text-xs font-medium rounded-full">
-                    {community.category || 'general'}
-                  </span>
-                </div>
-              </div>
+                : isFree
+                  ? <button onClick={async () => {
+                      try {
+                        await joinCommunity(currentUser.uid, communityId, {});
+                        setIsMember(true);
+                        const [p, m] = await Promise.all([getCommunityPosts(communityId), getCommunityMembers(communityId)]);
+                        setPosts(p); setMembers(m);
+                      } catch(e) { alert('Failed to join: ' + e.message); }
+                    }} className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl text-sm font-semibold transition whitespace-nowrap flex items-center space-x-1">
+                      <UserPlus className="w-4 h-4" /><span>Join Free</span>
+                    </button>
+                  : <button onClick={() => setShowJoinModal(true)} className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-sm font-semibold transition whitespace-nowrap flex items-center space-x-1">
+                      <UserPlus className="w-4 h-4" /><span>Join</span>
+                    </button>
+            )}
+          </div>
 
-              {/* Join/Leave Button */}
-              {!isOwner && (
-                <div className="ml-4">
-                  {isMember ? (
-                    <button
-                      onClick={handleLeave}
-                      className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-semibold transition"
-                    >
-                      Leave
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleJoin}
-                      disabled={joining}
-                      className="px-6 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-semibold transition disabled:opacity-50 flex items-center space-x-2"
-                    >
-                      {joining ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          <span>Joining...</span>
-                        </>
-                      ) : (
-                        <>
-                          <UserPlus className="w-5 h-5" />
-                          <span>Join • ${community.price}/mo</span>
-                        </>
-                      )}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
+          <div className="flex border-t border-gray-100">
+            {['posts', 'members'].map(tab => (
+              <button key={tab} onClick={() => setActiveTab(tab)}
+                className={`flex-1 py-3 text-sm font-semibold capitalize transition border-b-2 ${activeTab === tab ? 'border-rose-500 text-rose-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                {tab}{tab === 'members' && ` (${members.length})`}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
-        {!canViewContent ? (
-          /* Not a Member - Show Preview */
-          <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center">
-            <Lock className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-xl font-bold text-gray-900 mb-2">
-              Join to Access Exclusive Content
-            </h3>
-            <p className="text-gray-600 mb-6">
-              Become a member to view posts, interact with other members, and get exclusive content.
-            </p>
-            <button
-              onClick={handleJoin}
-              className="px-8 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-semibold transition inline-flex items-center space-x-2"
-            >
-              <UserPlus className="w-5 h-5" />
-              <span>Join Community for ${community.price}/month</span>
+      {/* ── Content ── */}
+      <div className="max-w-3xl mx-auto px-4 py-4">
+        {!canView && !isFree ? (
+          <div className="bg-white rounded-2xl border border-gray-200 p-10 text-center">
+            <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Lock className="w-10 h-10 text-rose-400" />
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Members Only</h3>
+            <p className="text-gray-600 mb-2">Join to access exclusive content.</p>
+            <p className="text-gray-500 text-sm mb-6">From <span className="font-bold text-rose-600">${(community.price || 9.99).toFixed(2)}/month</span></p>
+            <button onClick={() => setShowJoinModal(true)} className="px-8 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-semibold transition inline-flex items-center space-x-2">
+              <UserPlus className="w-5 h-5" /><span>Join Community</span>
             </button>
           </div>
-        ) : (
-          /* Member View */
-          <>
-            {/* Tabs */}
-            <div className="bg-white rounded-2xl border border-gray-200 mb-6 p-1 flex space-x-1">
-              <button
-                onClick={() => setActiveTab('posts')}
-                className={`flex-1 py-2 rounded-lg font-semibold transition ${
-                  activeTab === 'posts'
-                    ? 'bg-rose-500 text-white'
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                Posts
-              </button>
-              <button
-                onClick={() => setActiveTab('members')}
-                className={`flex-1 py-2 rounded-lg font-semibold transition ${
-                  activeTab === 'members'
-                    ? 'bg-rose-500 text-white'
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                Members ({members.length})
-              </button>
+
+        ) : !community.isPrivate && !isMember && !isOwner ? (
+          // Public community — auto-join silently or show free badge
+          <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center">
+            <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-3">
+              <Globe className="w-8 h-8 text-green-500" />
             </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-1">Public Community</h3>
+            <p className="text-gray-500 text-sm mb-4">This is a free community. Join to participate.</p>
+            <button onClick={async () => { await joinCommunity(currentUser.uid, communityId, {}); setIsMember(true); const [p,m] = await Promise.all([getCommunityPosts(communityId), getCommunityMembers(communityId)]); setPosts(p); setMembers(m); }}
+              className="px-6 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl font-semibold transition inline-flex items-center space-x-2">
+              <UserPlus className="w-4 h-4" /><span>Join Free</span>
+            </button>
+          </div>
 
-            {activeTab === 'posts' ? (
-              /* Posts Tab */
-              <div className="space-y-6">
-                {/* Create Post Button */}
-                {isMember && (
-                  <button
-                    onClick={() => setShowCreatePost(true)}
-                    className="w-full bg-white rounded-2xl border border-gray-200 hover:border-rose-300 p-4 text-left transition"
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-bold">
-                        {currentUser?.displayName?.charAt(0)?.toUpperCase() || '?'}
-                      </div>
-                      <p className="text-gray-500">Share something with the community...</p>
-                    </div>
-                  </button>
-                )}
-
-                {/* Posts List */}
-                {posts.length === 0 ? (
-                  <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center">
-                    <MessageSquare className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                    <h3 className="text-lg font-semibold text-gray-900 mb-2">No posts yet</h3>
-                    <p className="text-gray-600">Be the first to share something!</p>
-                  </div>
-                ) : (
-                  posts.map((post) => (
-                    <CommunityPostCard key={post.id} post={post} />
-                  ))
-                )}
+        ) : activeTab === 'posts' ? (
+          <div className="space-y-4">
+            {posts.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-gray-200 p-10 text-center">
+                <MessageCircle className="w-14 h-14 text-gray-200 mx-auto mb-3" />
+                <p className="text-gray-500 font-medium">No posts yet</p>
+                {isOwner && <p className="text-sm text-gray-400 mt-1">Broadcast your first message to members</p>}
               </div>
             ) : (
-              /* Members Tab */
-              <div className="bg-white rounded-2xl border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                  Members ({members.length})
-                </h3>
-                
-                {members.length === 0 ? (
-                  <p className="text-gray-600 text-center py-8">No members yet</p>
-                ) : (
-                  <div className="space-y-3">
-                    {members.map((member) => (
-                      <div key={member.id} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-lg overflow-hidden">
-                            {member.user.avatar ? (
-                              <img 
-                                src={member.user.avatar} 
-                                alt={member.user.name}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              '👤'
-                            )}
-                          </div>
-                          <div>
-                            <div className="flex items-center space-x-2">
-                              <p className="font-semibold text-gray-900">{member.user.name}</p>
-                              {member.role === 'admin' && (
-                                <Crown className="w-4 h-4 text-yellow-500" />
-                              )}
-                            </div>
-                            {member.user.username && (
-                              <p className="text-sm text-gray-500">@{member.user.username}</p>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <button
-                          onClick={() => navigate(`/creator/${member.user.username}`)}
-                          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition"
-                        >
-                          View Profile
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              posts.map(post => (
+                <CommunityPostCard
+                  key={post.id}
+                  post={post}
+                  isOwner={isOwner}
+                  communityCreatorId={community.creatorId}
+                  canComment={canView}
+                />
+              ))
             )}
-          </>
+          </div>
+
+        ) : (
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            <div className="p-4 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-900">{members.length} Members</h3>
+            </div>
+            {members.length === 0
+              ? <p className="text-center text-gray-500 py-10">No members yet</p>
+              : <div className="divide-y divide-gray-50">
+                  {members.map(member => (
+                    <div key={member.id} className="flex items-center justify-between p-4 hover:bg-gray-50 transition">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 overflow-hidden flex items-center justify-center">
+                          {member.user?.avatar?.startsWith('http')
+                            ? <img src={member.user.avatar} alt="" className="w-full h-full object-cover" />
+                            : <span className="text-lg">👤</span>}
+                        </div>
+                        <div>
+                          <div className="flex items-center space-x-1">
+                            <p className="font-semibold text-gray-900 text-sm">{member.user?.name || 'User'}</p>
+                            {member.role === 'admin' && <Crown className="w-3.5 h-3.5 text-yellow-500" />}
+                          </div>
+                          {member.user?.username && <p className="text-xs text-gray-500">@{member.user.username}</p>}
+                        </div>
+                      </div>
+                      <button onClick={() => navigate(`/creator/${member.user?.username}`)}
+                        className="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg font-medium transition">Profile</button>
+                    </div>
+                  ))}
+                </div>
+            }
+          </div>
         )}
       </div>
 
-      {/* Create Post Modal */}
-      <AnimatePresence>
-        {showCreatePost && (
-          <div 
-            className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
-            onClick={() => setShowCreatePost(false)}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-            >
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xl font-bold text-gray-900">Create Post</h3>
-                  <button
-                    onClick={() => setShowCreatePost(false)}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition"
-                  >
-                    <X className="w-5 h-5 text-gray-600" />
-                  </button>
-                </div>
+      {/* ── STICKY POST BAR — fixed bottom, above mobile nav ── */}
+      {canPost && activeTab === 'posts' && (
+        <div className="fixed bottom-16 lg:bottom-0 left-0 right-0 z-30 lg:left-64">
+          <div className="max-w-3xl mx-auto">
 
-                <textarea
-                  value={postContent}
-                  onChange={(e) => setPostContent(e.target.value)}
-                  placeholder="What's on your mind?"
-                  rows="5"
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 transition resize-none mb-4"
-                />
-
-                {/* Image Previews */}
-                {postImages.length > 0 && (
-                  <div className="grid grid-cols-2 gap-2 mb-4">
-                    {postImages.map((url, index) => (
-                      <div key={index} className="relative aspect-square">
-                        <img 
-                          src={url} 
-                          alt={`Upload ${index + 1}`}
-                          className="w-full h-full object-cover rounded-lg"
-                        />
+            {/* Media tray — slides up when files are attached */}
+            <AnimatePresence>
+              {postMedia.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 16 }}
+                  className="bg-white border border-b-0 border-gray-200 rounded-t-2xl px-3 pt-3 pb-2 mx-2"
+                >
+                  <div className="flex items-center space-x-2 overflow-x-auto pb-1">
+                    {postMedia.map((m, i) => (
+                      <div key={i} className="relative flex-shrink-0 w-16 h-16 rounded-xl overflow-hidden bg-gray-100">
+                        {m.type === 'video'
+                          ? <div className="w-full h-full flex items-center justify-center bg-gray-800"><Film className="w-6 h-6 text-white" /></div>
+                          : <img src={m.url} alt="" className="w-full h-full object-cover" />}
                         <button
-                          onClick={() => setPostImages(postImages.filter((_, i) => i !== index))}
-                          className="absolute top-2 right-2 p-1 bg-black/50 hover:bg-black/70 rounded-full transition"
+                          onClick={() => setPostMedia(prev => prev.filter((_, j) => j !== i))}
+                          className="absolute top-0.5 right-0.5 w-4 h-4 bg-black/60 rounded-full flex items-center justify-center"
                         >
-                          <X className="w-4 h-4 text-white" />
+                          <X className="w-2.5 h-2.5 text-white" />
                         </button>
                       </div>
                     ))}
                   </div>
-                )}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg cursor-pointer transition">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={handleImageUpload}
-                      className="hidden"
-                      disabled={uploading || postImages.length >= 4}
-                    />
-                    {uploading ? (
-                      <>
-                        <Loader2 className="w-5 h-5 text-gray-600 animate-spin" />
-                        <span className="text-sm text-gray-600">Uploading...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ImageIcon className="w-5 h-5 text-gray-600" />
-                        <span className="text-sm text-gray-600">Add Images</span>
-                      </>
-                    )}
-                  </label>
+            {/* Input row */}
+            <div className="bg-white border-t border-gray-200 px-3 py-2.5 shadow-lg">
+              <div className="flex items-end space-x-2">
 
-                  <button
-                    onClick={handleCreatePost}
-                    disabled={posting || (!postContent.trim() && postImages.length === 0)}
-                    className="px-6 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-                  >
-                    {posting ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>Posting...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Send className="w-5 h-5" />
-                        <span>Post</span>
-                      </>
-                    )}
-                  </button>
-                </div>
+                {/* Attach media */}
+                <label className="flex-shrink-0 p-2 hover:bg-gray-100 rounded-full cursor-pointer transition">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,video/*"
+                    multiple
+                    onChange={handleMediaUpload}
+                    className="hidden"
+                    disabled={uploading}
+                  />
+                  {uploading
+                    ? <Loader2 className="w-5 h-5 text-rose-400 animate-spin" />
+                    : <PlusCircle className="w-5 h-5 text-rose-400" />}
+                </label>
+
+                {/* Camera */}
+                <label className="flex-shrink-0 p-2 hover:bg-gray-100 rounded-full cursor-pointer transition">
+                  <input type="file" accept="image/*" capture="environment" onChange={handleMediaUpload} className="hidden" disabled={uploading} />
+                  <Camera className="w-5 h-5 text-gray-400" />
+                </label>
+
+                {/* Text input */}
+                <textarea
+                  ref={textareaRef}
+                  value={postContent}
+                  onChange={e => {
+                    setPostContent(e.target.value);
+                    e.target.style.height = 'auto';
+                    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCreatePost(); }}
+                  placeholder={isOwner ? 'Broadcast to channel...' : 'Write a post...'}
+                  rows={1}
+                  className="flex-1 resize-none bg-gray-100 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300 leading-relaxed"
+                  style={{ minHeight: '40px', maxHeight: '120px' }}
+                />
+
+                {/* Send */}
+                <button
+                  onClick={handleCreatePost}
+                  disabled={posting || (!postContent.trim() && postMedia.length === 0)}
+                  className="flex-shrink-0 w-10 h-10 rounded-full bg-rose-500 hover:bg-rose-600 disabled:bg-gray-200 text-white flex items-center justify-center transition"
+                >
+                  {posting
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Send className="w-4 h-4" />}
+                </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Join Modal ── */}
+      <AnimatePresence>
+        {showJoinModal && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={() => setShowJoinModal(false)}>
+            <motion.div
+              initial={{ opacity: 0, y: 60 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 60 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md p-6"
+            >
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-xl font-bold text-gray-900">Join {community.name}</h2>
+                <button onClick={() => setShowJoinModal(false)} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-5 h-5" /></button>
+              </div>
+
+              <div className={`rounded-xl p-3 mb-5 flex items-center justify-between ${walletBalance >= getJoinPrice() ? 'bg-green-50 border border-green-200' : 'bg-amber-50 border border-amber-200'}`}>
+                <div className="flex items-center space-x-2">
+                  <Wallet className={`w-4 h-4 ${walletBalance >= getJoinPrice() ? 'text-green-600' : 'text-amber-600'}`} />
+                  <span className="text-sm font-semibold text-gray-700">Balance: <span className={walletBalance >= getJoinPrice() ? 'text-green-700' : 'text-amber-700'}>${walletBalance.toFixed(2)}</span></span>
+                </div>
+                {walletBalance < getJoinPrice() && (
+                  <button onClick={() => { setShowJoinModal(false); navigate('/wallet'); }} className="text-xs font-semibold text-rose-600 underline">Add Funds</button>
+                )}
+              </div>
+
+              <div className="space-y-3 mb-5">
+                {[
+                  { type: 'monthly', label: 'Monthly', desc: 'Renews every 30 days', price: (community.price || 9.99).toFixed(2), sub: '/month', highlight: false },
+                  { type: 'onetime', label: 'One-time Access', desc: 'Lifetime membership', price: (community.oneTimePrice || (community.price || 9.99) * 3).toFixed(2), sub: 'Best value', highlight: true },
+                ].map(({ type, label, desc, price, sub, highlight }) => (
+                  <div key={type} onClick={() => setJoinType(type)}
+                    className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition ${joinType === type ? 'border-rose-500 bg-rose-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <div><p className="font-semibold text-gray-900">{label}</p><p className="text-xs text-gray-500">{desc}</p></div>
+                    <div className="text-right">
+                      <p className="text-xl font-bold text-rose-600">${price}</p>
+                      <p className={`text-xs font-medium ${highlight ? 'text-green-600' : 'text-gray-500'}`}>{sub}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {joinError && (
+                <div className="flex items-center space-x-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
+                  <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                  <p className="text-sm text-red-700 flex-1">{joinError}</p>
+                  {joinError.includes('Insufficient') && (
+                    <button onClick={() => { setShowJoinModal(false); navigate('/wallet'); }} className="text-xs font-semibold text-rose-600 underline whitespace-nowrap">Top up</button>
+                  )}
+                </div>
+              )}
+
+              <button onClick={handleJoin} disabled={joining || walletBalance < getJoinPrice()}
+                className="w-full py-4 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-bold transition disabled:opacity-50 flex items-center justify-center space-x-2">
+                {joining ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
+                <span>{joining ? 'Joining...' : `Join for $${getJoinPrice().toFixed(2)}`}</span>
+              </button>
+              <p className="text-center text-xs text-gray-400 mt-3">Deducted instantly from your wallet</p>
             </motion.div>
           </div>
         )}
@@ -558,74 +487,197 @@ export default function CommunityDetail() {
   );
 }
 
-// Community Post Card Component
-function CommunityPostCard({ post }) {
+// ── Post Card ──
+function CommunityPostCard({ post, isOwner, communityCreatorId, canComment }) {
+  const { currentUser } = useAuth();
   const [author, setAuthor] = useState(null);
+  const [isLiked, setIsLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(post.likeCount || 0);
+  const [showComments, setShowComments] = useState(false);
+  const [comments, setComments] = useState([]);
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [commentText, setCommentText] = useState('');
+  const [submittingComment, setSubmittingComment] = useState(false);
+
+  const isChannelPost = post.authorId === communityCreatorId;
 
   useEffect(() => {
-    loadAuthor();
-  }, [post.authorId]);
+    getUserProfile(post.authorId).then(setAuthor).catch(() => {});
+    if (currentUser && post.likedBy) setIsLiked(post.likedBy.includes(currentUser.uid));
+  }, [post.authorId, post.likedBy, currentUser]);
 
-  const loadAuthor = async () => {
+  const handleLike = async () => {
+    if (!currentUser) return;
     try {
-      const userData = await getUserProfile(post.authorId);
-      setAuthor(userData);
-    } catch (error) {
-      console.error('Error loading author:', error);
+      const liked = await likeCommunityPost(post.id, currentUser.uid);
+      setIsLiked(liked);
+      setLikeCount(prev => liked ? prev + 1 : prev - 1);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleToggleComments = async () => {
+    const next = !showComments;
+    setShowComments(next);
+    if (next && comments.length === 0) {
+      try {
+        setLoadingComments(true);
+        const data = await getCommunityPostComments(post.id);
+        const enriched = await Promise.all(
+          data.map(async c => {
+            const u = await getUserProfile(c.userId).catch(() => null);
+            return { ...c, author: u };
+          })
+        );
+        setComments(enriched);
+      } catch (e) { console.error(e); }
+      finally { setLoadingComments(false); }
     }
   };
 
+  const handleSubmitComment = async () => {
+    if (!commentText.trim() || !currentUser) return;
+    try {
+      setSubmittingComment(true);
+      const newComment = await addCommunityPostComment(post.id, currentUser.uid, commentText.trim());
+      const u = await getUserProfile(currentUser.uid).catch(() => null);
+      setComments(prev => [...prev, { ...newComment, author: u }]);
+      setCommentText('');
+    } catch (e) {
+      alert('Failed to comment: ' + e.message);
+    } finally {
+      setSubmittingComment(false);
+    }
+  };
+
+  const timeAgo = (ts) => {
+    if (!ts) return '';
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    const diff = (Date.now() - d.getTime()) / 1000;
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return d.toLocaleDateString();
+  };
+
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-6">
-      {/* Author Info */}
-      <div className="flex items-center space-x-3 mb-4">
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-lg overflow-hidden">
-          {author?.avatar ? (
-            <img src={author.avatar} alt={author.displayName} className="w-full h-full object-cover" />
-          ) : (
-            '👤'
-          )}
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+      className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+
+      {/* Author */}
+      <div className="flex items-center justify-between px-4 pt-4 pb-3">
+        <div className="flex items-center space-x-3">
+          <div className="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-rose-100 to-pink-200 flex items-center justify-center flex-shrink-0">
+            {author?.profilePicture?.startsWith('http')
+              ? <img src={author.profilePicture} alt="" className="w-full h-full object-cover" />
+              : <span className="text-base">👤</span>}
+          </div>
+          <div>
+            <div className="flex items-center space-x-1.5">
+              <p className="font-semibold text-gray-900 text-sm">{author?.displayName || '...'}</p>
+              {isChannelPost && <Crown className="w-3.5 h-3.5 text-yellow-500" />}
+            </div>
+            <p className="text-xs text-gray-400">{timeAgo(post.createdAt)}</p>
+          </div>
         </div>
-        <div>
-          <p className="font-semibold text-gray-900">{author?.displayName || 'Loading...'}</p>
-          <p className="text-sm text-gray-500">
-            {post.createdAt?.toDate ? 
-              post.createdAt.toDate().toLocaleDateString() : 
-              'Recently'}
-          </p>
-        </div>
+        <button className="p-1.5 hover:bg-gray-100 rounded-full transition">
+          <MoreVertical className="w-4 h-4 text-gray-400" />
+        </button>
       </div>
 
-      {/* Content */}
-      {post.content && (
-        <p className="text-gray-700 mb-4 whitespace-pre-wrap">{post.content}</p>
-      )}
+      {/* Text */}
+      {post.content && <p className="px-4 pb-3 text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">{post.content}</p>}
 
       {/* Images */}
-      {post.images && post.images.length > 0 && (
-        <div className={`grid gap-2 mb-4 ${
-          post.images.length === 1 ? 'grid-cols-1' : 
-          post.images.length === 2 ? 'grid-cols-2' : 
-          'grid-cols-2'
-        }`}>
-          {post.images.map((url, index) => (
-            <img 
-              key={index}
-              src={url} 
-              alt={`Post image ${index + 1}`}
-              className="w-full h-48 object-cover rounded-lg"
-            />
+      {post.images?.length > 0 && (
+        <div className={`grid gap-0.5 ${post.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+          {post.images.map((url, i) => (
+            <img key={i} src={url} alt="" className={`w-full object-cover ${post.images.length === 1 ? 'max-h-80' : 'h-40'}`} />
           ))}
         </div>
       )}
 
-      {/* Actions */}
-      <div className="flex items-center space-x-4 text-sm text-gray-600">
-        <button className="flex items-center space-x-1 hover:text-rose-500 transition">
-          <MessageSquare className="w-5 h-5" />
-          <span>{post.commentCount || 0}</span>
+      {/* Videos */}
+      {post.videos?.length > 0 && (
+        <div className="space-y-0.5">
+          {post.videos.map((url, i) => (
+            <video key={i} src={url} controls playsInline preload="metadata" className="w-full" onClick={e => e.stopPropagation()} />
+          ))}
+        </div>
+      )}
+
+      {/* Reaction bar */}
+      <div className="px-4 py-2.5 flex items-center space-x-4 border-t border-gray-50">
+        <button onClick={handleLike}
+          className={`flex items-center space-x-1.5 transition ${isLiked ? 'text-rose-500' : 'text-gray-400 hover:text-rose-500'}`}>
+          <Heart className={`w-4 h-4 ${isLiked ? 'fill-rose-500' : ''}`} />
+          <span className="text-xs font-medium">{likeCount}</span>
+        </button>
+        <button onClick={handleToggleComments}
+          className={`flex items-center space-x-1.5 transition ${showComments ? 'text-blue-500' : 'text-gray-400 hover:text-blue-500'}`}>
+          <MessageCircle className="w-4 h-4" />
+          <span className="text-xs font-medium">{post.commentCount || 0}</span>
         </button>
       </div>
-    </div>
+
+      {/* ── Comments panel ── */}
+      <AnimatePresence>
+        {showComments && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="border-t border-gray-100 overflow-hidden"
+          >
+            {/* Comment input */}
+            {canComment && (
+              <div className="flex items-center space-x-2 px-4 py-3 border-b border-gray-50">
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-rose-100 to-pink-200 flex-shrink-0 overflow-hidden flex items-center justify-center text-xs">
+                  {currentUser?.photoURL
+                    ? <img src={currentUser.photoURL} alt="" className="w-full h-full object-cover" />
+                    : '👤'}
+                </div>
+                <input
+                  type="text"
+                  value={commentText}
+                  onChange={e => setCommentText(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmitComment(); } }}
+                  placeholder="Write a comment..."
+                  className="flex-1 bg-gray-100 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300"
+                />
+                <button onClick={handleSubmitComment} disabled={submittingComment || !commentText.trim()}
+                  className="p-1.5 text-rose-500 hover:text-rose-600 disabled:opacity-40 transition flex-shrink-0">
+                  {submittingComment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                </button>
+              </div>
+            )}
+
+            {/* Comments list */}
+            <div className="px-4 py-3 space-y-3 max-h-64 overflow-y-auto">
+              {loadingComments ? (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="w-5 h-5 text-rose-400 animate-spin" />
+                </div>
+              ) : comments.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-3">No comments yet. Be first!</p>
+              ) : (
+                comments.map(comment => (
+                  <div key={comment.id} className="flex items-start space-x-2">
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-rose-100 to-pink-200 flex-shrink-0 overflow-hidden flex items-center justify-center text-xs">
+                      {comment.author?.profilePicture?.startsWith('http')
+                        ? <img src={comment.author.profilePicture} alt="" className="w-full h-full object-cover" />
+                        : '👤'}
+                    </div>
+                    <div className="flex-1 bg-gray-50 rounded-2xl px-3 py-2">
+                      <p className="text-xs font-semibold text-gray-800">{comment.author?.displayName || 'User'}</p>
+                      <p className="text-xs text-gray-700 mt-0.5 leading-relaxed">{comment.text}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 }

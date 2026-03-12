@@ -25,6 +25,8 @@ export default function Admin() {
     pendingKYC: 0,
     approvedKYC: 0,
     rejectedKYC: 0,
+    totalRevenue: 0,
+    pendingPayments: 0,
   });
   const [loading, setLoading] = useState(true);
 
@@ -56,6 +58,20 @@ export default function Admin() {
       // Rejected KYC
       const rejectedQuery = query(usersRef, where('kycStatus', '==', 'rejected'));
       const rejectedSnap = await getCountFromServer(rejectedQuery);
+
+      // ✅ Revenue from crypto_payments
+      const paymentsRef = collection(db, 'crypto_payments');
+      const finishedQuery = query(paymentsRef, where('status', '==', 'finished'));
+      const finishedSnap = await getDocs(finishedQuery);
+      
+      let totalRevenue = 0;
+      finishedSnap.forEach(doc => {
+        totalRevenue += Number(doc.data().amount || 0);
+      });
+
+      // ✅ Pending payments
+      const pendingPaymentsQuery = query(paymentsRef, where('status', 'in', ['waiting', 'confirming']));
+      const pendingPaymentsSnap = await getCountFromServer(pendingPaymentsQuery);
       
       setStats({
         totalUsers: totalUsersSnap.data().count,
@@ -63,6 +79,8 @@ export default function Admin() {
         pendingKYC: pendingSnap.data().count,
         approvedKYC: approvedSnap.data().count,
         rejectedKYC: rejectedSnap.data().count,
+        totalRevenue,
+        pendingPayments: pendingPaymentsSnap.data().count,
       });
     } catch (error) {
       console.error('Error loading stats:', error);
@@ -81,18 +99,20 @@ export default function Admin() {
       gradient: 'from-rose-500 to-pink-500',
       route: '/admin/kyc',
       stat: stats.pendingKYC,
-      statLabel: 'Pending Applications'
+      statLabel: 'Pending Applications',
+      needsAttention: stats.pendingKYC > 0
     },
     {
-      id: 'crypto',
-      title: 'Crypto Payments',
-      description: 'Review and verify USDT payments',
-      icon: Wallet, // ← Import Wallet from lucide-react at top
+      id: 'payments',
+      title: 'Payment Logs',
+      description: 'View all NowPayments transactions',
+      icon: Wallet,
       color: 'green',
       gradient: 'from-green-500 to-emerald-500',
-      route: '/admin/crypto-payments',
-      stat: 0, // This will show pending count
-      statLabel: 'Pending Verification'
+      route: '/admin/payment-logs',
+      stat: stats.pendingPayments,
+      statLabel: 'Pending Verification',
+      needsAttention: stats.pendingPayments > 0
     },
     {
       id: 'users',
@@ -115,17 +135,6 @@ export default function Admin() {
       route: '/admin/analytics',
       stat: stats.totalCreators,
       statLabel: 'Active Creators'
-    },
-    {
-      id: 'revenue',
-      title: 'Revenue',
-      description: 'Monitor platform revenue',
-      icon: DollarSign,
-      color: 'green',
-      gradient: 'from-green-500 to-emerald-500',
-      route: '/admin/revenue',
-      stat: '$0',
-      statLabel: 'This Month'
     },
   ];
 
@@ -156,7 +165,6 @@ export default function Admin() {
               <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
                 <Users className="w-6 h-6 text-blue-600" />
               </div>
-              <span className="text-green-600 text-sm font-semibold">+12%</span>
             </div>
             <h3 className="text-2xl font-bold text-gray-900 mb-1">{stats.totalUsers}</h3>
             <p className="text-gray-600 text-sm">Total Users</p>
@@ -172,7 +180,6 @@ export default function Admin() {
               <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
                 <CheckCircle className="w-6 h-6 text-purple-600" />
               </div>
-              <span className="text-green-600 text-sm font-semibold">+8%</span>
             </div>
             <h3 className="text-2xl font-bold text-gray-900 mb-1">{stats.totalCreators}</h3>
             <p className="text-gray-600 text-sm">Active Creators</p>
@@ -208,10 +215,9 @@ export default function Admin() {
               <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
                 <DollarSign className="w-6 h-6 text-green-600" />
               </div>
-              <span className="text-green-600 text-sm font-semibold">+15%</span>
             </div>
-            <h3 className="text-2xl font-bold text-gray-900 mb-1">$0</h3>
-            <p className="text-gray-600 text-sm">Revenue (This Month)</p>
+            <h3 className="text-2xl font-bold text-gray-900 mb-1">${stats.totalRevenue.toFixed(2)}</h3>
+            <p className="text-gray-600 text-sm">Total Revenue</p>
           </motion.div>
         </div>
 
@@ -224,8 +230,17 @@ export default function Admin() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 * index }}
               onClick={() => navigate(section.route)}
-              className="bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-xl transition cursor-pointer group"
+              className="bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-xl transition cursor-pointer group relative"
             >
+              {section.needsAttention && (
+                <div className="absolute top-4 right-4">
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+                  </span>
+                </div>
+              )}
+              
               <div className="flex items-start justify-between mb-4">
                 <div className={`w-14 h-14 bg-gradient-to-br ${section.gradient} rounded-xl flex items-center justify-center group-hover:scale-110 transition`}>
                   <section.icon className="w-7 h-7 text-white" />

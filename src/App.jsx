@@ -1,15 +1,20 @@
-// src/App.jsx - NO BOTTOM PADDING ON MESSAGES PAGE
+// src/App.jsx
 
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { ContentSettingsProvider } from './contexts/ContentSettingsContext';
+import { DataLiteProvider } from './contexts/DataLiteContext';
+
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
-import LoadingScreen from "./components/common/LoadingScreen";
-import GlobalSidebar from "./layout/GlobalSidebar";
-import MobileNavbar from "./layout/MobileNavbar";
-import MobileBottomNav from "./layout/MobileBottomNav";
-import DiscoverSidebar from "./components/discover/DiscoverSidebar";
+import LoadingScreen from './components/common/LoadingScreen';
+import GlobalSidebar from './layout/GlobalSidebar';
+import MobileNavbar from './layout/MobileNavbar';
+import MobileBottomNav from './layout/MobileBottomNav';
+import DiscoverSidebar from './components/discover/DiscoverSidebar';
+
+// Pages
 import Landing from './pages/Landing/Landing';
 import Login from './pages/Auth/Login';
 import Register from './pages/Auth/Register';
@@ -17,9 +22,8 @@ import VerifyEmail from './pages/Auth/VerifyEmail';
 import Feed from './pages/Feed/Feed';
 import CreatorProfile from './pages/CreatorProfile/CreatorProfile';
 import Dashboard from './pages/Dashboard/Dashboard';
+import CreatorAnalytics from './pages/Analytics/Analytics';
 import Wallet from './pages/Wallet/Wallet';
-import Admin from './pages/Admin/Admin';
-import KYCManagement from './pages/Admin/KYCManagement';
 import Settings from './pages/Settings/Settings';
 import SearchPage from './pages/Search/Search';
 import Discover from './pages/Discover/Discover';
@@ -29,138 +33,117 @@ import NewPost from './pages/NewPost/NewPost';
 import CompleteProfile from './pages/Profile/CompleteProfile';
 import EditProfile from './pages/Profile/EditProfile';
 import BecomeCreator from './pages/CreatorProfile/BecomeCreator';
-import CryptoPayments from './pages/Admin/CryptoPayments';
 import TermsAndConditions from './pages/Legal/TermsAndConditions';
 import PrivacyPolicy from './pages/Legal/PrivacyPolicy';
 import HelpCenter from './pages/Legal/HelpCenter';
 import Communities from './pages/Communities/Communities';
 import CommunityDetail from './pages/Communities/CommunityDetail';
 import CreateCommunity from './pages/Communities/CreateCommunity';
-import { ContentSettingsProvider } from './contexts/ContentSettingsContext';
+import CommunitySettings from './pages/Communities/CommunitySettings';
 import Support from './pages/Support/Support';
 import VideoCallRoom from './pages/VideoCall/VideoCallRoom';
 import VoiceCallRoom from './pages/VideoCall/VoiceCallRoom';
 import BookVideoCall from './pages/VideoCall/BookVideoCall';
 import BookVoiceCall from './pages/VideoCall/BookVoiceCall';
+import CallWaitingRoom from './pages/VideoCall/CallWaitingRoom';
+import CallSummary from './pages/VideoCall/CallSummary';
 
+// ✅ Admin Pages
+import Admin from './pages/Admin/Admin';
+import KYCManagement from './pages/Admin/KYCManagement';
+import UserManagement from './pages/Admin/UserManagement';
+import AdminAnalytics from './pages/Admin/Analytics';
+import NowPaymentsLogs from './pages/Admin/NowPaymentsLogs';
+import CryptoPayments from './pages/Admin/CryptoPayments';
+
+// Pages that should have NO navigation chrome
+const NO_NAV_PATHS = new Set([
+  '/', '/login', '/register', '/verify-email', '/complete-profile',
+  '/legal/privacy', '/legal/terms', '/help',
+]);
 
 function AppContent() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Pages without any navigation
-  const noNavPages = ['/', '/login', '/register', '/verify-email', '/complete-profile', '/legal/privacy', '/legal/terms', '/help', '/video-call', '/voice-call', '/book-video-call', '/book-voice-call'];
-  const showNav = !noNavPages.includes(location.pathname) && !location.pathname.startsWith('/video-call/') && !location.pathname.startsWith('/voice-call/');
+  const path = location.pathname;
 
-  // Pages that show discover sidebar on desktop
-  const showDiscoverSidebar = location.pathname === '/feed';
+  const showNav = !NO_NAV_PATHS.has(path)
+    && !path.startsWith('/video-call/')
+    && !path.startsWith('/voice-call/')
+    && !path.startsWith('/book-video-call/')
+    && !path.startsWith('/waiting-room/')
+    && !path.startsWith('/call-summary/')
+    && !path.startsWith('/book-voice-call/');
 
-  // ✅ Messages page needs special handling (no bottom padding)
-  const isMessagesPage = location.pathname === '/messages';
+  const showDiscoverSidebar = path === '/feed';
+  const isMessagesPage = path === '/messages';
 
   return (
     <div className="app min-h-screen bg-gray-50">
-      {/* Mobile Navbar - Top (MOBILE ONLY) */}
-      {showNav && (
-        <MobileNavbar onMenuClick={() => setSidebarOpen(true)} />
-      )}
+      {showNav && <MobileNavbar onMenuClick={() => setSidebarOpen(true)} />}
+      {showNav && <GlobalSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
 
-      {/* Desktop Sidebar - Left */}
-      {showNav && (
-        <GlobalSidebar
-          isOpen={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* ✅ Main Content - SPECIAL HANDLING FOR MESSAGES */}
-      <div className={`
-        ${showNav ? (isMessagesPage ? 'pt-14 lg:pt-0' : 'pt-14 pb-20 lg:pt-0 lg:pb-0') : ''}
-        ${showNav ? 'lg:ml-64' : ''}
-        ${showNav && showDiscoverSidebar ? 'xl:mr-80' : ''}
-        ${isMessagesPage ? 'h-screen' : ''}
-      `}>
+      <div className={[
+        showNav ? (isMessagesPage ? 'pt-14 lg:pt-0' : 'pt-14 pb-20 lg:pt-0 lg:pb-0') : '',
+        showNav ? 'lg:ml-64' : '',
+        showNav && showDiscoverSidebar ? 'xl:mr-80' : '',
+        isMessagesPage ? 'h-screen' : '',
+      ].filter(Boolean).join(' ')}>
         <Routes>
-          {/* Public Routes */}
+          {/* Public */}
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/legal/terms" element={<TermsAndConditions />} />
+          <Route path="/legal/privacy" element={<PrivacyPolicy />} />
+          <Route path="/help" element={<HelpCenter />} />
+          <Route path="/support" element={<Support />} />
 
-          {/* Verify Email page should be accessible even if not verified */}
-          <Route
-            path="/verify-email"
-            element={
-              <ProtectedRoute requireVerification={false}>
-                <VerifyEmail />
-              </ProtectedRoute>
-            }
-          />
+          {/* Auth required but no email verification */}
+          <Route path="/verify-email" element={<ProtectedRoute requireVerification={false}><VerifyEmail /></ProtectedRoute>} />
+          <Route path="/complete-profile" element={<ProtectedRoute requireVerification={false}><CompleteProfile /></ProtectedRoute>} />
 
-          {/* ✅ Protected Routes */}
-          {/* IMPORTANT: Feed should require verification */}
-          <Route
-            path="/feed"
-            element={
-              <ProtectedRoute requireVerification={true}>
-                <Feed />
-              </ProtectedRoute>
-            }
-          />
-
+          {/* Main app */}
+          <Route path="/feed" element={<ProtectedRoute requireVerification={true}><Feed /></ProtectedRoute>} />
           <Route path="/creator/:username" element={<ProtectedRoute><CreatorProfile /></ProtectedRoute>} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/analytics" element={<ProtectedRoute><CreatorAnalytics /></ProtectedRoute>} />
           <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
-
-          {/* Admin Routes */}
-          <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
-          <Route path="/admin/kyc" element={<AdminRoute><KYCManagement /></AdminRoute>} />
-          <Route path="/admin/crypto-payments" element={<AdminRoute><CryptoPayments /></AdminRoute>} />
-
-          {/* Other Protected Routes */}
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="/search" element={<ProtectedRoute><SearchPage /></ProtectedRoute>} />
           <Route path="/discover" element={<ProtectedRoute><Discover /></ProtectedRoute>} />
           <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
           <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
           <Route path="/new-post" element={<ProtectedRoute><NewPost /></ProtectedRoute>} />
-
-          {/* You already allowed profile completion without verification */}
-          <Route
-            path="/complete-profile"
-            element={
-              <ProtectedRoute requireVerification={false}>
-                <CompleteProfile />
-              </ProtectedRoute>
-            }
-          />
-
           <Route path="/edit-profile" element={<ProtectedRoute><EditProfile /></ProtectedRoute>} />
           <Route path="/become-creator" element={<ProtectedRoute><BecomeCreator /></ProtectedRoute>} />
 
-          {/* Legal Pages */}
-          <Route path="/legal/terms" element={<TermsAndConditions />} />
-          <Route path="/legal/privacy" element={<PrivacyPolicy />} />
-          <Route path="/help" element={<HelpCenter />} />
-
-          {/* Community Routes */}
+          {/* Communities */}
           <Route path="/communities" element={<ProtectedRoute><Communities /></ProtectedRoute>} />
           <Route path="/community/:communityId" element={<ProtectedRoute><CommunityDetail /></ProtectedRoute>} />
+          <Route path="/community/:communityId/settings" element={<ProtectedRoute><CommunitySettings /></ProtectedRoute>} />
           <Route path="/create-community" element={<ProtectedRoute><CreateCommunity /></ProtectedRoute>} />
 
-          <Route path="/support" element={<Support />} />
-
-          {/* Call Routes (Full Screen - No Nav) */}
+          {/* Calls — full screen, no nav */}
           <Route path="/video-call/:bookingId" element={<ProtectedRoute><VideoCallRoom /></ProtectedRoute>} />
           <Route path="/voice-call/:bookingId" element={<ProtectedRoute><VoiceCallRoom /></ProtectedRoute>} />
           <Route path="/book-video-call/:creatorId" element={<ProtectedRoute><BookVideoCall /></ProtectedRoute>} />
           <Route path="/book-voice-call/:creatorId" element={<ProtectedRoute><BookVoiceCall /></ProtectedRoute>} />
+          <Route path="/waiting-room/:bookingId" element={<ProtectedRoute><CallWaitingRoom /></ProtectedRoute>} />
+          <Route path="/call-summary/:bookingId" element={<ProtectedRoute><CallSummary /></ProtectedRoute>} />
+
+          {/* Admin Routes */}
+          <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+          <Route path="/admin/kyc" element={<AdminRoute><KYCManagement /></AdminRoute>} />
+          <Route path="/admin/users" element={<AdminRoute><UserManagement /></AdminRoute>} />
+          <Route path="/admin/analytics" element={<AdminRoute><AdminAnalytics /></AdminRoute>} />
+          <Route path="/admin/payment-logs" element={<AdminRoute><NowPaymentsLogs /></AdminRoute>} />
+          <Route path="/admin/crypto-payments" element={<AdminRoute><CryptoPayments /></AdminRoute>} />
         </Routes>
       </div>
 
-      {/* Desktop Discover Sidebar - Right */}
       {showNav && showDiscoverSidebar && <DiscoverSidebar />}
-
-      {/* Mobile Bottom Navigation (MOBILE ONLY) */}
       {showNav && <MobileBottomNav />}
     </div>
   );
@@ -168,28 +151,23 @@ function AppContent() {
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
-
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 3000);
-
-    return () => clearTimeout(timer);
+    const t = setTimeout(() => setIsLoading(false), 3000);
+    return () => clearTimeout(t);
   }, []);
 
-  if (isLoading) {
-    return <LoadingScreen />;
-  }
+  if (isLoading) return <LoadingScreen />;
 
   return (
     <BrowserRouter>
-  <AuthProvider>
-    <ContentSettingsProvider>
-      <AppContent />
-    </ContentSettingsProvider>
-  </AuthProvider>
-</BrowserRouter>
-
+      <AuthProvider>
+        <ContentSettingsProvider>
+          <DataLiteProvider>
+            <AppContent />
+          </DataLiteProvider>
+        </ContentSettingsProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
 

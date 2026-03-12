@@ -1,112 +1,175 @@
-// src/services/agoraService.js - Agora RTC Integration
-
+// src/services/agoraService.js
 import AgoraRTC from 'agora-rtc-sdk-ng';
+import { auth } from '../config/firebase';
 import logger from '../utils/logger';
 
-const AGORA_APP_ID = import.meta.env.VITE_AGORA_APP_ID;
+const AGORA_TOKEN_URL = import.meta.env.VITE_FIREBASE_FUNCTIONS_URL + '/getAgoraToken';
 
-/**
- * Agora client instance
- */
 let client = null;
 let localAudioTrack = null;
 let localVideoTrack = null;
 
-/**
- * Initialize Agora client
- */
 export const initializeAgoraClient = () => {
-  if (!AGORA_APP_ID) {
-    throw new Error('Agora App ID not configured. Add VITE_AGORA_APP_ID to .env');
-  }
-  
   if (!client) {
-    client = AgoraRTC.createClient({ 
-      mode: 'rtc', 
-      codec: 'vp8' 
-    });
-    
+    client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
     logger.info('Agora client initialized');
   }
-  
   return client;
 };
 
 /**
- * Join a call channel
- * @param {string} channelName - Unique channel identifier
- * @param {string} token - Token from backend (null for testing without certificate)
- * @param {string} uid - User ID (optional, Agora will generate if null)
- * @param {boolean} videoEnabled - Enable video (true) or audio-only (false)
+ * Wait for Firebase auth to be ready
  */
-export const joinChannel = async (channelName, token, uid, videoEnabled = true) => {
+const getAuthUser = () => {
+  return new Promise((resolve, reject) => {
+    if (auth.currentUser) { resolve(auth.currentUser); return; }
+    const timer = setTimeout(() => reject(new Error('Auth timeout — not signed in')), 5000);
+    const unsub = auth.onAuthStateChanged((user) => {
+      clearTimeout(timer);
+      unsub();
+      if (user) resolve(user);
+      else reject(new Error('Not authenticated'));
+    });
+  });
+};
+
+/**
+ * Fetch a token from your Cloud Function
+ */
+const fetchAgoraToken = async (channelName, bookingId) => {
+  const user = await getAuthUser();
+  const idToken = await user.getIdToken(true);
+
+  const res = await fetch(AGORA_TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({ channelName, bookingId }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Failed to get Agora token');
+  }
+
+  const data = await res.json();
+
+  if (!data.token) {
+    throw new Error('Agora token is empty — check App ID and Certificate in Firebase secrets');
+  }
+
+  logger.info('Agora token fetched for channel:', channelName);
+  return data;
+};
+
+/**
+ * ✅ Request mic/camera permissions BEFORE joining
+ * Returns { granted: true } or { granted: false, reason: string }
+ */
+export const requestMediaPermissions = async (videoEnabled = true) => {
   try {
-    if (!client) {
-      initializeAgoraClient();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: videoEnabled,
+    });
+    // Release immediately — just needed the browser permission prompt
+    stream.getTracks().forEach(t => t.stop());
+    logger.info('Media permissions granted');
+    return { granted: true };
+  } catch (err) {
+    logger.warn('Media permission error:', err.name, err.message);
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      return { granted: false, reason: 'permission_denied' };
     }
-    
+    if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+      return { granted: false, reason: 'no_device' };
+    }
+    if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+      return { granted: false, reason: 'device_in_use' };
+    }
+    return { granted: false, reason: err.message };
+  }
+};
+
+/**
+ * Human-readable error message for permission failures
+ */
+export const getPermissionErrorMessage = (reason, videoEnabled = true) => {
+  const device = videoEnabled ? 'microphone and camera' : 'microphone';
+  switch (reason) {
+    case 'permission_denied':
+      return `${videoEnabled ? 'Camera and microphone' : 'Microphone'} access was denied. Please click the lock icon in your browser's address bar and allow ${device} access, then refresh and try again.`;
+    case 'no_device':
+      return `No ${device} was found on your device. Please connect a ${device} and try again.`;
+    case 'device_in_use':
+      return `Your ${device} is being used by another app. Please close other apps (like Zoom, Teams, etc.) and try again.`;
+    default:
+      return `Could not access your ${device}: ${reason}`;
+  }
+};
+
+/**
+ * Join a call channel — requests permissions first, then fetches token
+ */
+export const joinChannel = async (channelName, _tokenIgnored, uid, videoEnabled = true, bookingId = null) => {
+  try {
+    if (!client) initializeAgoraClient();
+
+    // ✅ Prevent double-join
+    if (client.connectionState === 'CONNECTED' || client.connectionState === 'CONNECTING') {
+      logger.warn('Client already connected — leaving first');
+      await client.leave();
+      if (localAudioTrack) { localAudioTrack.close(); localAudioTrack = null; }
+      if (localVideoTrack) { localVideoTrack.close(); localVideoTrack = null; }
+    }
+
+    // ✅ Check permissions BEFORE doing anything else
+    const perm = await requestMediaPermissions(videoEnabled);
+    if (!perm.granted) {
+      throw new Error(getPermissionErrorMessage(perm.reason, videoEnabled));
+    }
+
+    const resolvedBookingId = bookingId || channelName.replace(/^(video|voice)_/, '');
+
+    logger.info('Fetching Agora token for channel:', channelName);
+    const { token, appId, uid: agoraUid } = await fetchAgoraToken(channelName, resolvedBookingId);
+
     logger.info('Joining Agora channel:', channelName, 'Video:', videoEnabled);
-    
-    // Join the channel
-    const agoraUid = await client.join(AGORA_APP_ID, channelName, token, uid);
-    
-    logger.success('Joined channel successfully. UID:', agoraUid);
-    
-    // Create and publish audio track
+    const joinedUid = await client.join(appId, channelName, token, agoraUid);
+    logger.info('Joined channel. UID:', joinedUid);
+
     localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
     await client.publish([localAudioTrack]);
-    
-    logger.success('Audio track published');
-    
-    // Create and publish video track (if video call)
+    logger.info('Audio track published');
+
     if (videoEnabled) {
       localVideoTrack = await AgoraRTC.createCameraVideoTrack();
       await client.publish([localVideoTrack]);
-      
-      logger.success('Video track published');
+      logger.info('Video track published');
     }
-    
-    return {
-      uid: agoraUid,
-      audioTrack: localAudioTrack,
-      videoTrack: localVideoTrack
-    };
+
+    return { uid: joinedUid, audioTrack: localAudioTrack, videoTrack: localVideoTrack };
   } catch (error) {
     logger.error('Failed to join Agora channel:', error);
     throw error;
   }
 };
 
-/**
- * Leave the call channel
- */
 export const leaveChannel = async () => {
   try {
-    // Close local tracks
-    if (localAudioTrack) {
-      localAudioTrack.close();
-      localAudioTrack = null;
-    }
-    
-    if (localVideoTrack) {
-      localVideoTrack.close();
-      localVideoTrack = null;
-    }
-    
-    // Leave the channel
-    if (client) {
+    if (localAudioTrack) { localAudioTrack.close(); localAudioTrack = null; }
+    if (localVideoTrack) { localVideoTrack.close(); localVideoTrack = null; }
+    if (client && client.connectionState !== 'DISCONNECTED') {
       await client.leave();
-      logger.success('Left Agora channel');
+      logger.info('Left Agora channel');
     }
   } catch (error) {
     logger.error('Error leaving channel:', error);
-    throw error;
   }
 };
 
-/**
- * Mute/Unmute microphone
- */
 export const toggleMicrophone = async (muted) => {
   if (localAudioTrack) {
     await localAudioTrack.setEnabled(!muted);
@@ -114,9 +177,6 @@ export const toggleMicrophone = async (muted) => {
   }
 };
 
-/**
- * Toggle camera on/off
- */
 export const toggleCamera = async (enabled) => {
   if (localVideoTrack) {
     await localVideoTrack.setEnabled(enabled);
@@ -124,9 +184,6 @@ export const toggleCamera = async (enabled) => {
   }
 };
 
-/**
- * Switch camera (front/back on mobile)
- */
 export const switchCamera = async () => {
   if (localVideoTrack) {
     await localVideoTrack.switchDevice();
@@ -134,12 +191,6 @@ export const switchCamera = async () => {
   }
 };
 
-/**
- * Play remote user's audio/video
- * @param {HTMLElement} videoElement - DOM element to play video
- * @param {object} user - Remote user object
- * @param {string} mediaType - 'audio' or 'video'
- */
 export const playRemoteMedia = (user, mediaType, videoElement = null) => {
   if (mediaType === 'video' && videoElement) {
     user.videoTrack?.play(videoElement);
@@ -150,10 +201,6 @@ export const playRemoteMedia = (user, mediaType, videoElement = null) => {
   }
 };
 
-/**
- * Play local video preview
- * @param {HTMLElement} videoElement - DOM element to play video
- */
 export const playLocalVideo = (videoElement) => {
   if (localVideoTrack && videoElement) {
     localVideoTrack.play(videoElement);
@@ -161,56 +208,29 @@ export const playLocalVideo = (videoElement) => {
   }
 };
 
-/**
- * Get client instance (for subscribing to events)
- */
 export const getClient = () => {
-  if (!client) {
-    initializeAgoraClient();
-  }
+  if (!client) initializeAgoraClient();
   return client;
 };
 
-/**
- * Set up call duration timer (30 minutes auto-disconnect)
- * @param {function} onTimeUp - Callback when time is up
- * @param {number} duration - Duration in milliseconds (default: 30 minutes)
- */
 export const setupCallTimer = (onTimeUp, duration = 30 * 60 * 1000) => {
   logger.info('Call timer set for', duration / 1000 / 60, 'minutes');
-  
-  const timer = setTimeout(() => {
+  return setTimeout(() => {
     logger.warn('Call duration limit reached - disconnecting');
     onTimeUp();
   }, duration);
-  
-  return timer;
 };
 
-/**
- * Clean up Agora resources
- */
 export const cleanup = async () => {
   await leaveChannel();
-  
-  if (client) {
-    client.removeAllListeners();
-    client = null;
-  }
-  
+  if (client) { client.removeAllListeners(); client = null; }
   logger.info('Agora resources cleaned up');
 };
 
 export default {
-  initializeAgoraClient,
-  joinChannel,
-  leaveChannel,
-  toggleMicrophone,
-  toggleCamera,
-  switchCamera,
-  playRemoteMedia,
-  playLocalVideo,
-  getClient,
-  setupCallTimer,
-  cleanup
+  initializeAgoraClient, joinChannel, leaveChannel,
+  requestMediaPermissions, getPermissionErrorMessage,
+  toggleMicrophone, toggleCamera, switchCamera,
+  playRemoteMedia, playLocalVideo, getClient,
+  setupCallTimer, cleanup,
 };

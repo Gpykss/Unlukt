@@ -291,18 +291,7 @@ export default function Feed() {
           </div>
         </div>
 
-        {activeTab === 'foryou' && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg"
-          >
-            <p className="text-sm text-red-700 flex items-center space-x-2">
-              <Sparkles className="w-4 h-4" />
-              <span>Posts from trending creators (most active in 48 hours)</span>
-            </p>
-          </motion.div>
-        )}
+        
 
         {!showNSFW && (
           <motion.div

@@ -1,50 +1,27 @@
-// src/pages/Settings/Settings.jsx - WITH BACK BUTTON AND LOCATION
+// src/pages/Settings/Settings.jsx
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  User, 
-  Lock, 
-  CreditCard, 
-  LogOut,
-  ChevronRight,
-  Mail,
-  Phone,
-  Globe,
-  Eye,
-  EyeOff,
-  Ban,
-  Download,
-  Check,
-  X,
-  AlertTriangle,
-  Loader2,
-  ArrowLeft,
-  MapPin
+  User, Lock, CreditCard, LogOut, ChevronRight, ChevronDown,
+  Mail, Phone, Globe, Eye, EyeOff, Ban, Download,
+  Check, X, AlertTriangle, Loader2, ArrowLeft, MapPin, Tag, DollarSign
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { 
-  sendEmailVerification,
-  updatePassword,
-  EmailAuthProvider,
-  reauthenticateWithCredential,
-  deleteUser
+  sendEmailVerification, updatePassword,
+  EmailAuthProvider, reauthenticateWithCredential, deleteUser
 } from 'firebase/auth';
 import { 
-  doc, 
-  updateDoc, 
-  collection, 
-  query, 
-  where, 
-  getDocs,
-  deleteDoc,
-  getDoc
+  doc, updateDoc, collection, query, where,
+  getDocs, deleteDoc, getDoc
 } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { updateUserProfile } from '../../services/firestoreService';
 import AvailabilityToggle from '../../components/Dashboard/AvailabilityToggle';
+import CreatorDiscountManager from "./CreatorDiscountManager";
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -62,11 +39,28 @@ export default function Settings() {
   const [activeSessions, setActiveSessions] = useState([]);
   const [location, setLocation] = useState(profile?.location || '');
   
+  // ✅ Subscription price state
+  const [subscriptionPrice, setSubscriptionPrice] = useState(profile?.subscriptionPrice || 9.99);
+  const [savingPrice, setSavingPrice] = useState(false);
+  
+  // ✅ Collapsible sections state
+  const [expandedSections, setExpandedSections] = useState({
+    account: true,
+    creator: isCreator,
+    privacy: false,
+    data: false,
+    billing: false,
+  });
+  
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
   
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
+  };
+
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
   useEffect(() => {
@@ -75,445 +69,343 @@ export default function Settings() {
   }, [currentUser]);
 
   useEffect(() => {
-    if (profile?.location) {
-      setLocation(profile.location);
-    }
+    if (profile?.location) setLocation(profile.location);
+    if (profile?.subscriptionPrice) setSubscriptionPrice(profile.subscriptionPrice);
   }, [profile]);
 
   const loadBlockedUsers = async () => {
     if (!currentUser) return;
-    
     try {
-      const blocksRef = collection(db, 'blocks');
-      const q = query(blocksRef, where('blockerId', '==', currentUser.uid));
+      const q = query(collection(db, 'blocks'), where('blockerId', '==', currentUser.uid));
       const snapshot = await getDocs(q);
-      
       const blocked = await Promise.all(
         snapshot.docs.map(async (docSnap) => {
           const blockData = docSnap.data();
           const userDoc = await getDoc(doc(db, 'users', blockData.blockedId));
-          
           if (userDoc.exists()) {
             const userData = userDoc.data();
-            return {
-              id: docSnap.id,
-              userId: blockData.blockedId,
-              name: userData.displayName || 'User',
-              username: userData.username || '',
-              avatar: userData.avatar || '👤'
-            };
+            return { id: docSnap.id, userId: blockData.blockedId, name: userData.displayName || 'User', username: userData.username || '', avatar: userData.avatar || '👤' };
           }
           return null;
         })
       );
-      
       setBlockedUsers(blocked.filter(Boolean));
-    } catch (error) {
-      console.error('Error loading blocked users:', error);
-    }
+    } catch (error) { console.error('Error loading blocked users:', error); }
   };
 
   const loadActiveSessions = async () => {
-    setActiveSessions([
-      {
-        id: 1,
-        device: 'Chrome on Windows',
-        location: 'Port Harcourt, NG',
-        lastActive: 'Active now',
-        current: true
-      }
-    ]);
+    setActiveSessions([{ id: 1, device: 'Chrome on Windows', location: 'Port Harcourt, NG', lastActive: 'Active now', current: true }]);
   };
 
   const handleUnblockUser = async (blockId) => {
     try {
       await deleteDoc(doc(db, 'blocks', blockId));
       setBlockedUsers(blockedUsers.filter(u => u.id !== blockId));
-      showToast('User unblocked successfully!', 'success');
-    } catch (error) {
-      console.error('Error unblocking user:', error);
-      showToast('Failed to unblock user', 'error');
-    }
+      showToast('User unblocked successfully!');
+    } catch { showToast('Failed to unblock user', 'error'); }
   };
 
   const handleSendVerificationEmail = async () => {
     if (!currentUser) return;
-    
-    if (currentUser.emailVerified) {
-      showToast('Your email is already verified!', 'success');
-      return;
-    }
-    
+    if (currentUser.emailVerified) { showToast('Your email is already verified!'); return; }
     setLoading(true);
     try {
       await sendEmailVerification(currentUser);
-      showToast('Verification email sent! Check your inbox.', 'success');
+      showToast('Verification email sent! Check your inbox.');
     } catch (error) {
-      console.error('Error sending verification:', error);
-      if (error.code === 'auth/too-many-requests') {
-        showToast('Too many requests. Please try again later.', 'error');
-      } else {
-        showToast('Failed to send verification email', 'error');
-      }
-    } finally {
-      setLoading(false);
-    }
+      showToast(error.code === 'auth/too-many-requests' ? 'Too many requests. Try again later.' : 'Failed to send verification email', 'error');
+    } finally { setLoading(false); }
   };
 
-  // ✅ NEW: Update location
   const handleUpdateLocation = async () => {
     if (!currentUser) return;
-    
     setLoading(true);
     try {
       await updateUserProfile(currentUser.uid, { location });
-      showToast('Location updated successfully!', 'success');
+      showToast('Location updated successfully!');
       setShowEditLocation(false);
-    } catch (error) {
-      console.error('Error updating location:', error);
-      showToast('Failed to update location', 'error');
-    } finally {
-      setLoading(false);
+    } catch { showToast('Failed to update location', 'error'); }
+    finally { setLoading(false); }
+  };
+
+  // ✅ Save subscription price
+  const handleSaveSubscriptionPrice = async () => {
+    if (!currentUser || !isCreator) return;
+    if (subscriptionPrice < 4.99 || subscriptionPrice > 999.99) {
+      showToast('Price must be between $4.99 and $999.99', 'error');
+      return;
     }
+    setSavingPrice(true);
+    try {
+      await updateUserProfile(currentUser.uid, { subscriptionPrice: parseFloat(subscriptionPrice) });
+      showToast('Subscription price updated successfully!');
+    } catch { showToast('Failed to update subscription price', 'error'); }
+    finally { setSavingPrice(false); }
   };
 
   const handleDeleteAccount = async () => {
     if (!currentUser) return;
-    
-    const confirmation = prompt(
-      'This will permanently delete your account and all data. Type "DELETE" to confirm:'
-    );
-    
-    if (confirmation !== 'DELETE') {
-      alert('Account deletion cancelled.');
-      return;
-    }
-    
+    const confirmation = prompt('This will permanently delete your account. Type "DELETE" to confirm:');
+    if (confirmation !== 'DELETE') { alert('Account deletion cancelled.'); return; }
     setLoading(true);
     try {
-      const userRef = doc(db, 'users', currentUser.uid);
-      await deleteDoc(userRef);
-      
-      const convoQuery = query(
-        collection(db, 'conversations'),
-        where('participants', 'array-contains', currentUser.uid)
-      );
-      const convoSnap = await getDocs(convoQuery);
-      await Promise.all(convoSnap.docs.map(doc => deleteDoc(doc.ref)));
-      
-      const blocksQuery = query(
-        collection(db, 'blocks'),
-        where('blockerId', '==', currentUser.uid)
-      );
-      const blocksSnap = await getDocs(blocksQuery);
-      await Promise.all(blocksSnap.docs.map(doc => deleteDoc(doc.ref)));
-      
+      await deleteDoc(doc(db, 'users', currentUser.uid));
+      const convoSnap = await getDocs(query(collection(db, 'conversations'), where('participants', 'array-contains', currentUser.uid)));
+      await Promise.all(convoSnap.docs.map(d => deleteDoc(d.ref)));
+      const blocksSnap = await getDocs(query(collection(db, 'blocks'), where('blockerId', '==', currentUser.uid)));
+      await Promise.all(blocksSnap.docs.map(d => deleteDoc(d.ref)));
       await currentUser.delete();
-      
-      alert('Account deleted successfully. You will be redirected to login.');
       navigate('/login');
     } catch (error) {
-      console.error('Error deleting account:', error);
       if (error.code === 'auth/requires-recent-login') {
-        alert('For security, please log out and log back in, then try deleting your account again.');
+        alert('Please log out and log back in, then try again.');
       } else {
-        alert('Failed to delete account. Please try again or contact support.');
+        alert('Failed to delete account. Please contact support.');
       }
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const handleLogout = async () => {
-    try {
-      await logout();
-      navigate('/login');
-    } catch (error) {
-      console.error('Logout error:', error);
-      showToast('Failed to logout', 'error');
-    }
+    try { await logout(); navigate('/login'); }
+    catch { showToast('Failed to logout', 'error'); }
   };
 
   const handleDownloadData = async () => {
     setLoading(true);
     try {
       const userData = {
-        profile: {
-          email: currentUser?.email,
-          displayName: profile?.displayName || displayName,
-          username: username,
-          avatar: profile?.avatar,
-          bio: profile?.bio,
-          phoneNumber: profile?.phoneNumber,
-          location: profile?.location,
-          emailVerified: currentUser?.emailVerified,
-          createdAt: currentUser?.metadata?.creationTime,
-          lastSignIn: currentUser?.metadata?.lastSignInTime
-        },
-        blockedUsers: blockedUsers.map(u => ({
-          name: u.name,
-          username: u.username
-        })),
-        exportDate: new Date().toISOString()
+        profile: { email: currentUser?.email, displayName: profile?.displayName || displayName, username, exportDate: new Date().toISOString() },
+        blockedUsers: blockedUsers.map(u => ({ name: u.name, username: u.username })),
       };
-      
-      const dataStr = JSON.stringify(userData, null, 2);
-      const dataBlob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(dataBlob);
+      const blob = new Blob([JSON.stringify(userData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = url;
-      link.download = `my-data-${Date.now()}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      
-      showToast('Your data has been downloaded successfully!', 'success');
-    } catch (error) {
-      console.error('Error downloading data:', error);
-      showToast('Failed to download data', 'error');
-    } finally {
-      setLoading(false);
-    }
+      link.href = url; link.download = `my-data-${Date.now()}.json`;
+      document.body.appendChild(link); link.click();
+      document.body.removeChild(link); URL.revokeObjectURL(url);
+      showToast('Data downloaded successfully!');
+    } catch { showToast('Failed to download data', 'error'); }
+    finally { setLoading(false); }
   };
-
-  const settingsSections = [
-    {
-      title: 'Account',
-      items: [
-        {
-          id: 'profile',
-          label: 'Edit Profile',
-          description: 'Update your profile information',
-          icon: User,
-          action: () => navigate('/edit-profile')
-        },
-        {
-          id: 'email',
-          label: 'Email',
-          description: currentUser?.email,
-          icon: Mail,
-          badge: currentUser?.emailVerified ? 'Verified' : 'Not Verified',
-          badgeColor: currentUser?.emailVerified ? 'green' : 'yellow',
-          action: currentUser?.emailVerified ? null : () => handleSendVerificationEmail()
-        },
-        {
-          id: 'phone',
-          label: 'Phone Number',
-          description: profile?.phoneNumber || 'Not set',
-          icon: Phone,
-          action: () => navigate('/edit-profile')
-        },
-        {
-          id: 'location',
-          label: 'Location',
-          description: location?.countryName || location || 'Not set',
-          icon: MapPin,
-          action: () => setShowEditLocation(true)
-        }
-      ]
-    },
-    {
-      title: 'Privacy & Security',
-      items: [
-        {
-          id: 'password',
-          label: 'Change Password',
-          description: 'Update your password',
-          icon: Lock,
-          action: () => setShowChangePassword(true)
-        },
-        {
-          id: 'blocked',
-          label: 'Blocked Users',
-          description: `${blockedUsers.length} users blocked`,
-          icon: Ban,
-          action: () => setShowBlockedUsers(true)
-        },
-        {
-          id: 'sessions',
-          label: 'Active Sessions',
-          description: 'Manage your active login sessions',
-          icon: Globe,
-          action: () => setShowActiveSessions(true)
-        }
-      ]
-    },
-    {
-      title: 'Data & Privacy',
-      items: [
-        {
-          id: 'download',
-          label: 'Download Your Data',
-          description: 'Get a copy of your information',
-          icon: Download,
-          action: handleDownloadData,
-          loading: loading
-        }
-      ]
-    },
-    {
-      title: 'Billing',
-      items: [
-        {
-          id: 'payment',
-          label: 'Payment Methods',
-          description: 'Manage your payment options',
-          icon: CreditCard,
-          action: () => navigate('/wallet')
-        }
-      ]
-    }
-  ];
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20 lg:pb-8">
-      {/* ✅ BACK BUTTON */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-20">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center space-x-4">
-          <button
-            onClick={() => navigate('/feed')}
-            className="p-2 hover:bg-gray-100 rounded-lg transition"
-          >
+          <button onClick={() => navigate('/feed')} className="p-2 hover:bg-gray-100 rounded-lg transition">
             <ArrowLeft className="w-5 h-5 text-gray-600" />
           </button>
           <h1 className="text-xl font-bold text-gray-900">Settings</h1>
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto py-8 px-4">
+      <div className="max-w-4xl mx-auto py-8 px-4 space-y-6">
         {/* Profile Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6"
-        >
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center space-x-4">
             <div className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-bold text-2xl overflow-hidden">
-              {profile?.avatar ? (
-                <img 
-                  src={profile.avatar} 
-                  alt={displayName} 
-                  className="w-full h-full object-cover" 
-                />
-              ) : (
-                displayName.charAt(0).toUpperCase()
-              )}
+              {profile?.avatar
+                ? <img src={profile.avatar} alt={displayName} className="w-full h-full object-cover" />
+                : displayName?.charAt(0)?.toUpperCase()}
             </div>
             <div className="flex-1">
               <div className="flex items-center space-x-2">
                 <h3 className="text-xl font-bold text-gray-900">{displayName}</h3>
-                {isVerified && (
-                  <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
-                    <span className="text-white text-xs">✓</span>
-                  </div>
-                )}
+                {isVerified && <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center"><span className="text-white text-xs">✓</span></div>}
               </div>
               {username && <p className="text-gray-500">@{username}</p>}
+              {isCreator && <span className="text-xs bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-semibold">Creator</span>}
             </div>
-            <button
-              onClick={() => navigate('/edit-profile')}
-              className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition"
-            >
+            <button onClick={() => navigate('/edit-profile')} className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition">
               Edit Profile
             </button>
           </div>
         </motion.div>
 
-        {/* Settings Sections */}
-        {settingsSections.map((section, idx) => (
-          <motion.div
-            key={section.title}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.1 }}
-            className="bg-white rounded-2xl shadow-sm border border-gray-200 mb-6 overflow-hidden"
-          >
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">{section.title}</h2>
-            </div>
-            <div className="divide-y divide-gray-200">
-              {section.items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <div
-                    key={item.id}
-                    onClick={item.action}
-                    className={`px-6 py-4 flex items-center space-x-4 transition ${
-                      item.action ? 'hover:bg-gray-50 cursor-pointer' : ''
-                    }`}
-                  >
-                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                      <Icon className="w-5 h-5 text-gray-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900">{item.label}</p>
-                      <p className="text-sm text-gray-500 truncate">{item.description}</p>
-                    </div>
-                    {item.badge && (
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        item.badgeColor === 'green' 
-                          ? 'bg-green-100 text-green-700' 
-                          : item.badgeColor === 'yellow'
-                          ? 'bg-yellow-100 text-yellow-700'
-                          : 'bg-gray-100 text-gray-700'
-                      }`}>
-                        {item.badge}
-                      </span>
-                    )}
-                    {item.action ? (
-                      <div className="flex items-center">
-                        {item.loading ? (
-                          <Loader2 className="w-5 h-5 text-rose-500 animate-spin flex-shrink-0" />
-                        ) : (
-                          <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          </motion.div>
-        ))}
-
-        {/* Call Availability - Creators Only */}
-        {isCreator && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5 }}
-            className="mb-6"
-          >
-            <AvailabilityToggle />
-          </motion.div>
-        )}
-        {/* Danger Zone */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6 }}
-          className="bg-white rounded-2xl shadow-sm border border-red-200 overflow-hidden"
+        {/* ========== ACCOUNT SECTION ========== */}
+        <CollapsibleSection
+          title="Account"
+          icon={User}
+          isExpanded={expandedSections.account}
+          onToggle={() => toggleSection('account')}
         >
+          <SettingItem
+            icon={User}
+            label="Edit Profile"
+            description="Update your profile information"
+            onClick={() => navigate('/edit-profile')}
+          />
+          <SettingItem
+            icon={Mail}
+            label="Email"
+            description={currentUser?.email}
+            badge={currentUser?.emailVerified ? 'Verified' : 'Not Verified'}
+            badgeColor={currentUser?.emailVerified ? 'green' : 'yellow'}
+            onClick={currentUser?.emailVerified ? null : handleSendVerificationEmail}
+          />
+          <SettingItem
+            icon={Phone}
+            label="Phone Number"
+            description={profile?.phoneNumber || 'Not set'}
+            onClick={() => navigate('/edit-profile')}
+          />
+          <SettingItem
+            icon={MapPin}
+            label="Location"
+            description={location?.countryName || location || 'Not set'}
+            onClick={() => setShowEditLocation(true)}
+          />
+        </CollapsibleSection>
+
+        {/* ========== CREATOR SETTINGS (CREATORS ONLY) ========== */}
+        {isCreator && (
+          <CollapsibleSection
+            title="Creator Settings"
+            icon={DollarSign}
+            isExpanded={expandedSections.creator}
+            onToggle={() => toggleSection('creator')}
+          >
+            {/* Subscription Pricing */}
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">💰 Subscription Pricing</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Set your monthly subscription price. Fans pay this to access your exclusive content.
+              </p>
+
+              <div className="max-w-md">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Monthly Price (USD)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-lg">$</span>
+                  <input
+                    type="number"
+                    min="4.99"
+                    max="999.99"
+                    step="0.01"
+                    value={subscriptionPrice}
+                    onChange={(e) => setSubscriptionPrice(parseFloat(e.target.value) || 4.99)}
+                    className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 text-lg font-semibold"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Min: $4.99 • Max: $999.99 • You earn 80% after fees
+                </p>
+
+                {/* Price Preview */}
+                <div className="mt-4 p-4 bg-gradient-to-br from-rose-50 to-pink-50 rounded-xl border border-rose-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-gray-700 font-medium">Fan pays:</span>
+                    <span className="text-xl font-bold text-gray-900">
+                      ${subscriptionPrice.toFixed(2)}/mo
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-700 font-medium">You earn (80%):</span>
+                    <span className="text-xl font-bold text-green-600">
+                      ${(subscriptionPrice * 0.8).toFixed(2)}/mo
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleSaveSubscriptionPrice}
+                  disabled={savingPrice || subscriptionPrice === profile?.subscriptionPrice}
+                  className="w-full mt-4 px-4 py-3 bg-rose-500 hover:bg-rose-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-semibold transition flex items-center justify-center"
+                >
+                  {savingPrice ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Save Price'}
+                </button>
+              </div>
+            </div>
+
+            {/* Availability Toggle */}
+            <div className="p-6 border-b border-gray-200">
+              <AvailabilityToggle />
+            </div>
+
+            {/* Discount Manager */}
+            <div className="p-6">
+              <CreatorDiscountManager />
+            </div>
+          </CollapsibleSection>
+        )}
+
+        {/* ========== PRIVACY & SECURITY ========== */}
+        <CollapsibleSection
+          title="Privacy & Security"
+          icon={Lock}
+          isExpanded={expandedSections.privacy}
+          onToggle={() => toggleSection('privacy')}
+        >
+          <SettingItem
+            icon={Lock}
+            label="Change Password"
+            description="Update your password"
+            onClick={() => setShowChangePassword(true)}
+          />
+          <SettingItem
+            icon={Ban}
+            label="Blocked Users"
+            description={`${blockedUsers.length} users blocked`}
+            onClick={() => setShowBlockedUsers(true)}
+          />
+          <SettingItem
+            icon={Globe}
+            label="Active Sessions"
+            description="Manage your active login sessions"
+            onClick={() => setShowActiveSessions(true)}
+          />
+        </CollapsibleSection>
+
+        {/* ========== DATA & PRIVACY ========== */}
+        <CollapsibleSection
+          title="Data & Privacy"
+          icon={Download}
+          isExpanded={expandedSections.data}
+          onToggle={() => toggleSection('data')}
+        >
+          <SettingItem
+            icon={Download}
+            label="Download Your Data"
+            description="Get a copy of your information"
+            onClick={handleDownloadData}
+            loading={loading}
+          />
+        </CollapsibleSection>
+
+        {/* ========== BILLING ========== */}
+        <CollapsibleSection
+          title="Billing"
+          icon={CreditCard}
+          isExpanded={expandedSections.billing}
+          onToggle={() => toggleSection('billing')}
+        >
+          <SettingItem
+            icon={CreditCard}
+            label="Payment Methods"
+            description="Manage your payment options"
+            onClick={() => navigate('/wallet')}
+          />
+        </CollapsibleSection>
+
+        {/* ========== DANGER ZONE ========== */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-2xl shadow-sm border border-red-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-red-200 bg-red-50">
             <h2 className="text-lg font-semibold text-red-900">Danger Zone</h2>
           </div>
           <div className="p-6 space-y-4">
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition"
-            >
+            <button onClick={handleLogout}
+              className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition">
               <div className="flex items-center space-x-3">
                 <LogOut className="w-5 h-5 text-gray-600" />
                 <span className="font-medium text-gray-900">Sign Out</span>
               </div>
               <ChevronRight className="w-5 h-5 text-gray-400" />
             </button>
-
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="w-full flex items-center justify-between px-4 py-3 bg-red-50 hover:bg-red-100 rounded-lg transition"
-            >
+            <button onClick={() => setShowDeleteConfirm(true)}
+              className="w-full flex items-center justify-between px-4 py-3 bg-red-50 hover:bg-red-100 rounded-lg transition">
               <div className="flex items-center space-x-3">
                 <User className="w-5 h-5 text-red-600" />
                 <span className="font-medium text-red-900">Delete Account</span>
@@ -524,39 +416,18 @@ export default function Settings() {
         </motion.div>
       </div>
 
-      {/* MODALS */}
-      
-      {/* ✅ Edit Location Modal */}
+      {/* Modals */}
       <AnimatePresence>
         {showEditLocation && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setShowEditLocation(false)}>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
               <h3 className="text-xl font-bold text-gray-900 mb-4">Update Location</h3>
-              <input
-                type="text"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="City, Country"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500 mb-4"
-              />
+              <input type="text" value={location} onChange={e => setLocation(e.target.value)} placeholder="City, Country"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500 mb-4" />
               <div className="flex space-x-3">
-                <button
-                  onClick={() => setShowEditLocation(false)}
-                  className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleUpdateLocation}
-                  disabled={loading}
-                  className="flex-1 px-4 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition disabled:opacity-50"
-                >
+                <button onClick={() => setShowEditLocation(false)} className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition">Cancel</button>
+                <button onClick={handleUpdateLocation} disabled={loading} className="flex-1 px-4 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition disabled:opacity-50">
                   {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Save'}
                 </button>
               </div>
@@ -565,73 +436,34 @@ export default function Settings() {
         )}
       </AnimatePresence>
 
-      {/* Change Password Modal */}
       <AnimatePresence>
-        {showChangePassword && (
-          <ChangePasswordModal 
-            onClose={() => setShowChangePassword(false)}
-            currentUser={currentUser}
-            showToast={showToast}
-          />
-        )}
+        {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} currentUser={currentUser} showToast={showToast} />}
       </AnimatePresence>
 
-      {/* Blocked Users Modal */}
       <AnimatePresence>
-        {showBlockedUsers && (
-          <BlockedUsersModal
-            onClose={() => setShowBlockedUsers(false)}
-            blockedUsers={blockedUsers}
-            onUnblock={handleUnblockUser}
-          />
-        )}
+        {showBlockedUsers && <BlockedUsersModal onClose={() => setShowBlockedUsers(false)} blockedUsers={blockedUsers} onUnblock={handleUnblockUser} />}
       </AnimatePresence>
 
-      {/* Active Sessions Modal */}
       <AnimatePresence>
-        {showActiveSessions && (
-          <ActiveSessionsModal
-            onClose={() => setShowActiveSessions(false)}
-            sessions={activeSessions}
-          />
-        )}
+        {showActiveSessions && <ActiveSessionsModal onClose={() => setShowActiveSessions(false)} sessions={activeSessions} />}
       </AnimatePresence>
 
-      {/* Delete Confirmation Modal */}
       <AnimatePresence>
         {showDeleteConfirm && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setShowDeleteConfirm(false)}>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
               <div className="flex items-center space-x-3 mb-4">
                 <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
                   <AlertTriangle className="w-6 h-6 text-red-600" />
                 </div>
                 <h3 className="text-xl font-bold text-gray-900">Delete Account?</h3>
               </div>
-              <p className="text-gray-600 mb-6">
-                This action cannot be undone. All your data, subscriptions, and content will be permanently deleted.
-              </p>
+              <p className="text-gray-600 mb-6">This action cannot be undone. All your data will be permanently deleted.</p>
               <div className="flex items-center space-x-3">
-                <button
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={async () => {
-                    setShowDeleteConfirm(false);
-                    await handleDeleteAccount();
-                  }}
-                  disabled={loading}
-                  className="flex-1 px-4 py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium transition disabled:opacity-50 flex items-center justify-center"
-                >
+                <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition">Cancel</button>
+                <button onClick={async () => { setShowDeleteConfirm(false); await handleDeleteAccount(); }} disabled={loading}
+                  className="flex-1 px-4 py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium transition disabled:opacity-50 flex items-center justify-center">
                   {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Delete Account'}
                 </button>
               </div>
@@ -640,18 +472,10 @@ export default function Settings() {
         )}
       </AnimatePresence>
 
-      {/* Toast Notification */}
       <AnimatePresence>
         {toast.show && (
-          <motion.div
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-4 right-4 z-50"
-          >
-            <div className={`px-6 py-4 rounded-lg shadow-lg flex items-center space-x-3 ${
-              toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'
-            } text-white`}>
+          <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 50 }} className="fixed bottom-4 right-4 z-50">
+            <div className={`px-6 py-4 rounded-lg shadow-lg flex items-center space-x-3 ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'} text-white`}>
               {toast.type === 'success' ? <Check className="w-5 h-5" /> : <X className="w-5 h-5" />}
               <p className="font-medium">{toast.message}</p>
             </div>
@@ -662,123 +486,143 @@ export default function Settings() {
   );
 }
 
-// Helper Modal Components
+// ========== HELPER COMPONENTS ==========
+
+function CollapsibleSection({ title, icon: Icon, isExpanded, onToggle, children }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden"
+    >
+      <button
+        onClick={onToggle}
+        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition"
+      >
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
+            <Icon className="w-5 h-5 text-gray-600" />
+          </div>
+          <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+        </div>
+        <ChevronDown
+          className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="border-t border-gray-200 overflow-hidden"
+          >
+            <div className="divide-y divide-gray-200">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+function SettingItem({ icon: Icon, label, description, badge, badgeColor, onClick, loading }) {
+  return (
+    <div
+      onClick={onClick}
+      className={`px-6 py-4 flex items-center space-x-4 transition ${
+        onClick ? 'hover:bg-gray-50 cursor-pointer' : ''
+      }`}
+    >
+      <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+        <Icon className="w-5 h-5 text-gray-600" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="font-medium text-gray-900">{label}</p>
+        <p className="text-sm text-gray-500 truncate">{description}</p>
+      </div>
+      {badge && (
+        <span
+          className={`px-3 py-1 rounded-full text-xs font-medium ${
+            badgeColor === 'green'
+              ? 'bg-green-100 text-green-700'
+              : badgeColor === 'yellow'
+              ? 'bg-yellow-100 text-yellow-700'
+              : 'bg-gray-100 text-gray-700'
+          }`}
+        >
+          {badge}
+        </span>
+      )}
+      {onClick && (
+        loading ? (
+          <Loader2 className="w-5 h-5 text-rose-500 animate-spin flex-shrink-0" />
+        ) : (
+          <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+        )
+      )}
+    </div>
+  );
+}
+
+// ── Helper Modals (keep these as they are) ──
+
 function ChangePasswordModal({ onClose, currentUser, showToast }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
 
-  const handleChangePassword = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (newPassword !== confirmPassword) {
-      showToast('New passwords do not match!', 'error');
-      return;
-    }
-    
-    if (newPassword.length < 6) {
-      showToast('Password must be at least 6 characters!', 'error');
-      return;
-    }
-
+    if (newPassword !== confirmPassword) { showToast('Passwords do not match!', 'error'); return; }
+    if (newPassword.length < 6) { showToast('Password must be at least 6 characters!', 'error'); return; }
     setLoading(true);
     try {
       const credential = EmailAuthProvider.credential(currentUser.email, currentPassword);
       await reauthenticateWithCredential(currentUser, credential);
       await updatePassword(currentUser, newPassword);
-      
-      showToast('Password changed successfully!', 'success');
+      showToast('Password changed successfully!');
       onClose();
     } catch (error) {
-      console.error('Error changing password:', error);
-      if (error.code === 'auth/wrong-password') {
-        showToast('Current password is incorrect!', 'error');
-      } else {
-        showToast('Failed to change password', 'error');
-      }
-    } finally {
-      setLoading(false);
-    }
+      showToast(error.code === 'auth/wrong-password' ? 'Current password is incorrect!' : 'Failed to change password', 'error');
+    } finally { setLoading(false); }
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
         <h3 className="text-xl font-bold text-gray-900 mb-6">Change Password</h3>
-        <form onSubmit={handleChangePassword} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Current Password</label>
-            <div className="relative">
-              <input
-                type={showCurrentPassword ? 'text' : 'password'}
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                required
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
-              />
-              <button
-                type="button"
-                onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
-              >
-                {showCurrentPassword ? <EyeOff className="w-5 h-5 text-gray-400" /> : <Eye className="w-5 h-5 text-gray-400" />}
-              </button>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {[
+            { label: 'Current Password', value: currentPassword, onChange: setCurrentPassword, show: showCurrent, toggle: () => setShowCurrent(v => !v) },
+            { label: 'New Password', value: newPassword, onChange: setNewPassword, show: showNew, toggle: () => setShowNew(v => !v) },
+          ].map(({ label, value, onChange, show, toggle }) => (
+            <div key={label}>
+              <label className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
+              <div className="relative">
+                <input type={show ? 'text' : 'password'} value={value} onChange={e => onChange(e.target.value)} required
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                <button type="button" onClick={toggle} className="absolute right-3 top-1/2 -translate-y-1/2">
+                  {show ? <EyeOff className="w-5 h-5 text-gray-400" /> : <Eye className="w-5 h-5 text-gray-400" />}
+                </button>
+              </div>
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">New Password</label>
-            <div className="relative">
-              <input
-                type={showNewPassword ? 'text' : 'password'}
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                required
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
-              />
-              <button
-                type="button"
-                onClick={() => setShowNewPassword(!showNewPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
-              >
-                {showNewPassword ? <EyeOff className="w-5 h-5 text-gray-400" /> : <Eye className="w-5 h-5 text-gray-400" />}
-              </button>
-            </div>
-          </div>
-
+          ))}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Confirm New Password</label>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
-            />
+            <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500" />
           </div>
-
           <div className="flex space-x-3 mt-6">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition disabled:opacity-50 flex items-center justify-center"
-            >
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition">Cancel</button>
+            <button type="submit" disabled={loading} className="flex-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition disabled:opacity-50 flex items-center justify-center">
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Change Password'}
             </button>
           </div>
@@ -791,50 +635,25 @@ function ChangePasswordModal({ onClose, currentUser, showToast }) {
 function BlockedUsersModal({ onClose, blockedUsers, onUnblock }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[80vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h3 className="text-xl font-bold text-gray-900 mb-6">Blocked Users</h3>
-        
         {blockedUsers.length === 0 ? (
-          <div className="text-center py-8">
-            <Ban className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-            <p className="text-gray-500">No blocked users</p>
-          </div>
+          <div className="text-center py-8"><Ban className="w-12 h-12 text-gray-400 mx-auto mb-3" /><p className="text-gray-500">No blocked users</p></div>
         ) : (
           <div className="space-y-3">
-            {blockedUsers.map((user) => (
+            {blockedUsers.map(user => (
               <div key={user.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                 <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-lg">
-                    {user.avatar}
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">{user.name}</p>
-                    {user.username && <p className="text-sm text-gray-500">@{user.username}</p>}
-                  </div>
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-lg">{user.avatar}</div>
+                  <div><p className="font-medium text-gray-900">{user.name}</p>{user.username && <p className="text-sm text-gray-500">@{user.username}</p>}</div>
                 </div>
-                <button
-                  onClick={() => onUnblock(user.id)}
-                  className="px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-sm rounded-lg font-medium transition"
-                >
-                  Unblock
-                </button>
+                <button onClick={() => onUnblock(user.id)} className="px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-sm rounded-lg font-medium transition">Unblock</button>
               </div>
             ))}
           </div>
         )}
-
-        <button
-          onClick={onClose}
-          className="w-full mt-6 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition"
-        >
-          Close
-        </button>
+        <button onClick={onClose} className="w-full mt-6 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition">Close</button>
       </motion.div>
     </div>
   );
@@ -843,17 +662,11 @@ function BlockedUsersModal({ onClose, blockedUsers, onUnblock }) {
 function ActiveSessionsModal({ onClose, sessions }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
         <h3 className="text-xl font-bold text-gray-900 mb-6">Active Sessions</h3>
-        
         <div className="space-y-3">
-          {sessions.map((session) => (
+          {sessions.map(session => (
             <div key={session.id} className="p-4 bg-gray-50 rounded-lg">
               <div className="flex items-start justify-between">
                 <div className="flex items-start space-x-3">
@@ -864,26 +677,12 @@ function ActiveSessionsModal({ onClose, sessions }) {
                     <p className="text-xs text-gray-400 mt-1">{session.lastActive}</p>
                   </div>
                 </div>
-                {session.current && (
-                  <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full font-medium">
-                    Current
-                  </span>
-                )}
+                {session.current && <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full font-medium">Current</span>}
               </div>
             </div>
           ))}
         </div>
-
-        <p className="text-sm text-gray-500 mt-4">
-          If you see any suspicious activity, sign out from all devices and change your password.
-        </p>
-
-        <button
-          onClick={onClose}
-          className="w-full mt-6 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition"
-        >
-          Close
-        </button>
+        <button onClick={onClose} className="w-full mt-6 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition">Close</button>
       </motion.div>
     </div>
   );

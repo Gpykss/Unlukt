@@ -1,3 +1,4 @@
+// src/pages/Admin/KYCManagement.jsx
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
@@ -12,11 +13,15 @@ import {
   CreditCard,
   Calendar,
   Mail,
-  ExternalLink
+  ExternalLink,
+  ArrowLeft
 } from 'lucide-react';
-import { getPendingKYCApplications, approveKYC, rejectKYC } from '../../services/firestoreService';
+import { useNavigate } from 'react-router-dom';
+import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 
 export default function KYCManagement() {
+  const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedApp, setSelectedApp] = useState(null);
@@ -31,7 +36,15 @@ export default function KYCManagement() {
   const loadApplications = async () => {
     try {
       setLoading(true);
-      const apps = await getPendingKYCApplications();
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('kycStatus', '==', 'pending'));
+      const snapshot = await getDocs(q);
+      
+      const apps = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
       setApplications(apps);
     } catch (error) {
       console.error('Error loading applications:', error);
@@ -47,7 +60,14 @@ export default function KYCManagement() {
 
     try {
       setActionLoading(true);
-      await approveKYC(userId);
+      const userRef = doc(db, 'users', userId);
+      
+      await updateDoc(userRef, {
+        kycStatus: 'approved',
+        isCreator: true,
+        kycApprovedAt: new Date(),
+        updatedAt: new Date()
+      });
       
       // Remove from list
       setApplications(apps => apps.filter(app => app.id !== userId));
@@ -70,7 +90,14 @@ export default function KYCManagement() {
 
     try {
       setActionLoading(true);
-      await rejectKYC(selectedApp.id, rejectionReason);
+      const userRef = doc(db, 'users', selectedApp.id);
+      
+      await updateDoc(userRef, {
+        kycStatus: 'rejected',
+        kycRejectionReason: rejectionReason,
+        kycRejectedAt: new Date(),
+        updatedAt: new Date()
+      });
       
       // Remove from list
       setApplications(apps => apps.filter(app => app.id !== selectedApp.id));
@@ -89,14 +116,18 @@ export default function KYCManagement() {
 
   const formatDate = (timestamp) => {
     if (!timestamp) return 'N/A';
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    try {
+      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+      return date.toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return 'N/A';
+    }
   };
 
   if (loading) {
@@ -112,6 +143,10 @@ export default function KYCManagement() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
+          <button onClick={() => navigate('/admin')} className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 mb-4 transition">
+            <ArrowLeft className="w-5 h-5" />
+            <span>Back to Dashboard</span>
+          </button>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center space-x-3">
             <Shield className="w-8 h-8 text-rose-500" />
             <span>KYC Management</span>
@@ -141,8 +176,12 @@ export default function KYCManagement() {
               >
                 {/* User Info */}
                 <div className="flex items-center space-x-4 mb-4 pb-4 border-b border-gray-200">
-                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-bold text-xl">
-                    {app.displayName?.charAt(0).toUpperCase() || 'U'}
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-bold text-xl overflow-hidden">
+                    {app.avatar || app.profilePicture ? (
+                      <img src={app.avatar || app.profilePicture} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span>{app.displayName?.charAt(0).toUpperCase() || 'U'}</span>
+                    )}
                   </div>
                   <div className="flex-1">
                     <h3 className="text-lg font-bold text-gray-900">{app.displayName}</h3>
@@ -157,30 +196,30 @@ export default function KYCManagement() {
                 <div className="space-y-3 mb-4">
                   <div className="flex items-center space-x-3 text-sm">
                     <User className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-700">{app.kycData?.fullName}</span>
+                    <span className="text-gray-700">{app.kycData?.fullName || 'N/A'}</span>
                   </div>
                   <div className="flex items-center space-x-3 text-sm">
                     <Calendar className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-700">{app.kycData?.dateOfBirth}</span>
+                    <span className="text-gray-700">{app.kycData?.dateOfBirth || 'N/A'}</span>
                   </div>
                   <div className="flex items-center space-x-3 text-sm">
                     <Mail className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-700">{app.email}</span>
+                    <span className="text-gray-700">{app.email || 'N/A'}</span>
                   </div>
                   <div className="flex items-center space-x-3 text-sm">
                     <Phone className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-700">{app.kycData?.phoneNumber}</span>
+                    <span className="text-gray-700">{app.kycData?.phoneNumber || 'N/A'}</span>
                   </div>
                   <div className="flex items-center space-x-3 text-sm">
                     <MapPin className="w-4 h-4 text-gray-400" />
                     <span className="text-gray-700">
-                      {app.kycData?.city}, {app.kycData?.country}
+                      {app.kycData?.city ? `${app.kycData.city}, ${app.kycData.country}` : 'N/A'}
                     </span>
                   </div>
                   <div className="flex items-center space-x-3 text-sm">
                     <CreditCard className="w-4 h-4 text-gray-400" />
                     <span className="text-gray-700">
-                      {app.kycData?.idType?.replace('_', ' ').toUpperCase()} - {app.kycData?.idNumber}
+                      {app.kycData?.idType ? `${app.kycData.idType.replace('_', ' ').toUpperCase()} - ${app.kycData.idNumber}` : 'N/A'}
                     </span>
                   </div>
                 </div>
@@ -221,10 +260,11 @@ export default function KYCManagement() {
 
         {/* Reject Modal */}
         {showRejectModal && selectedApp && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setShowRejectModal(false)}>
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
+              onClick={(e) => e.stopPropagation()}
               className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
             >
               <h3 className="text-xl font-bold text-gray-900 mb-4">Reject Application</h3>
@@ -269,10 +309,11 @@ export default function KYCManagement() {
 
         {/* Details Modal */}
         {selectedApp && !showRejectModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto" onClick={() => setSelectedApp(null)}>
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
+              onClick={(e) => e.stopPropagation()}
               className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-8 my-8"
             >
               <div className="flex items-center justify-between mb-6">
@@ -292,19 +333,19 @@ export default function KYCManagement() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-sm text-gray-500">Full Name</p>
-                      <p className="font-medium text-gray-900">{selectedApp.kycData?.fullName}</p>
+                      <p className="font-medium text-gray-900">{selectedApp.kycData?.fullName || 'N/A'}</p>
                     </div>
                     <div>
                       <p className="text-sm text-gray-500">Date of Birth</p>
-                      <p className="font-medium text-gray-900">{selectedApp.kycData?.dateOfBirth}</p>
+                      <p className="font-medium text-gray-900">{selectedApp.kycData?.dateOfBirth || 'N/A'}</p>
                     </div>
                     <div>
                       <p className="text-sm text-gray-500">Email</p>
-                      <p className="font-medium text-gray-900">{selectedApp.email}</p>
+                      <p className="font-medium text-gray-900">{selectedApp.email || 'N/A'}</p>
                     </div>
                     <div>
                       <p className="text-sm text-gray-500">Phone</p>
-                      <p className="font-medium text-gray-900">{selectedApp.kycData?.phoneNumber}</p>
+                      <p className="font-medium text-gray-900">{selectedApp.kycData?.phoneNumber || 'N/A'}</p>
                     </div>
                   </div>
                 </div>
@@ -315,11 +356,11 @@ export default function KYCManagement() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="col-span-2">
                       <p className="text-sm text-gray-500">Street Address</p>
-                      <p className="font-medium text-gray-900">{selectedApp.kycData?.address}</p>
+                      <p className="font-medium text-gray-900">{selectedApp.kycData?.address || 'N/A'}</p>
                     </div>
                     <div>
                       <p className="text-sm text-gray-500">City</p>
-                      <p className="font-medium text-gray-900">{selectedApp.kycData?.city}</p>
+                      <p className="font-medium text-gray-900">{selectedApp.kycData?.city || 'N/A'}</p>
                     </div>
                     <div>
                       <p className="text-sm text-gray-500">State</p>
@@ -331,7 +372,7 @@ export default function KYCManagement() {
                     </div>
                     <div>
                       <p className="text-sm text-gray-500">Country</p>
-                      <p className="font-medium text-gray-900">{selectedApp.kycData?.country}</p>
+                      <p className="font-medium text-gray-900">{selectedApp.kycData?.country || 'N/A'}</p>
                     </div>
                   </div>
                 </div>
@@ -343,12 +384,12 @@ export default function KYCManagement() {
                     <div>
                       <p className="text-sm text-gray-500">ID Type</p>
                       <p className="font-medium text-gray-900">
-                        {selectedApp.kycData?.idType?.replace('_', ' ').toUpperCase()}
+                        {selectedApp.kycData?.idType?.replace('_', ' ').toUpperCase() || 'N/A'}
                       </p>
                     </div>
                     <div>
                       <p className="text-sm text-gray-500">ID Number</p>
-                      <p className="font-medium text-gray-900">{selectedApp.kycData?.idNumber}</p>
+                      <p className="font-medium text-gray-900">{selectedApp.kycData?.idNumber || 'N/A'}</p>
                     </div>
                     {selectedApp.kycData?.documentLinks && (
                       <div className="col-span-2">

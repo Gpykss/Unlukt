@@ -13,6 +13,7 @@
   },
   "main": "index.js",
   "dependencies": {
+    "agora-token": "^2.0.5",
     "axios": "^1.13.4",
     "busboy": "^1.6.0",
     "cors": "^2.8.6",

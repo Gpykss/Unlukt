@@ -250,7 +250,7 @@ export const sendMessage = async (conversationId, senderId, receiverId, messageT
     const currentUnread = conversationSnap.exists() ? conversationSnap.data()?.unreadCount?.[receiverId] || 0 : 0;
     
     await updateDoc(conversationRef, {
-      lastMessage: messageText,
+      lastMessage: String(messageText),
       lastMessageTime: serverTimestamp(),
       [`unreadCount.${receiverId}`]: currentUnread + 1,
       [`participantDetails.${senderId}`]: {
@@ -358,9 +358,15 @@ export const subscribeToConversations = (userId, callback) => {
           isOnline: freshUserData.isOnline || false
         };
         
+        const rawLastMessage = data.lastMessage;
+        const lastMessageText = typeof rawLastMessage === 'string' 
+          ? rawLastMessage 
+          : rawLastMessage?.text || '';
+
         conversations.push({
           id: docSnap.id,
           ...data,
+          lastMessage: lastMessageText,
           otherUser: {
             id: otherUserId,
             name: otherUserData.displayName,

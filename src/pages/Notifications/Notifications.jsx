@@ -1,18 +1,11 @@
-// src/pages/Notifications/Notifications.jsx - WITHOUT message tab
+// src/pages/Notifications/Notifications.jsx
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
-  ArrowLeft,
-  Heart,
-  MessageCircle,
-  UserPlus,
-  DollarSign,
-  Star,
-  AlertCircle,
-  CheckCheck,
-  Trash2,
-  Loader2
+  ArrowLeft, Heart, MessageCircle, UserPlus, DollarSign,
+  Star, AlertCircle, CheckCheck, Trash2, Loader2,
+  Video, Phone, RefreshCw
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -30,38 +23,45 @@ export default function Notifications() {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Subscribe to real-time notifications
   useEffect(() => {
-    if (!currentUser) {
-      navigate('/login');
-      return;
-    }
-
+    if (!currentUser) { navigate('/login'); return; }
     const unsubscribe = subscribeToNotifications(currentUser.uid, (newNotifications) => {
       setNotifications(newNotifications);
       setLoading(false);
     });
-
     return () => unsubscribe();
   }, [currentUser]);
 
   const getIcon = (type) => {
     switch (type) {
-      case 'like':
-        return <Heart className="w-5 h-5 text-red-500 fill-red-500" />;
-      case 'comment':
-        return <MessageCircle className="w-5 h-5 text-blue-500" />;
-      case 'follow':
-        return <UserPlus className="w-5 h-5 text-green-500" />;
-      case 'subscriber':
-        return <UserPlus className="w-5 h-5 text-purple-500" />;
-      case 'tip':
-        return <DollarSign className="w-5 h-5 text-yellow-500" />;
-      case 'system':
-        return <AlertCircle className="w-5 h-5 text-gray-500" />;
-      default:
-        return <Star className="w-5 h-5 text-rose-500" />;
+      case 'like':        return <Heart className="w-5 h-5 text-red-500 fill-red-500" />;
+      case 'comment':     return <MessageCircle className="w-5 h-5 text-blue-500" />;
+      case 'follow':      return <UserPlus className="w-5 h-5 text-green-500" />;
+      case 'subscriber':  return <UserPlus className="w-5 h-5 text-purple-500" />;
+      case 'tip':         return <DollarSign className="w-5 h-5 text-yellow-500" />;
+      case 'refund':      return <RefreshCw className="w-5 h-5 text-blue-500" />;
+      case 'call_booking':
+        return <Video className="w-5 h-5 text-rose-500" />;
+      case 'system':      return <AlertCircle className="w-5 h-5 text-gray-500" />;
+      default:            return <Star className="w-5 h-5 text-rose-500" />;
     }
+  };
+
+  const getCallAction = (notification) => {
+    // Only show join button if booking is still active (has bookingId)
+    if (notification.type !== 'call_booking' || !notification.bookingId) return null;
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          navigate(`/waiting-room/${notification.bookingId}`);
+        }}
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-xs font-bold transition flex-shrink-0"
+      >
+        <Video className="w-3.5 h-3.5" />
+        Join
+      </button>
+    );
   };
 
   const handleMarkAllAsRead = async () => {
@@ -69,7 +69,6 @@ export default function Notifications() {
       await markAllNotificationsAsRead(currentUser.uid);
     } catch (error) {
       console.error('Error marking all as read:', error);
-      alert('Failed to mark all as read');
     }
   };
 
@@ -78,26 +77,27 @@ export default function Notifications() {
       await deleteNotificationService(id);
     } catch (error) {
       console.error('Error deleting notification:', error);
-      alert('Failed to delete notification');
     }
   };
 
   const handleNotificationClick = async (notification) => {
-    // Mark as read
     if (!notification.read) {
-      try {
-        await markNotificationAsRead(notification.id);
-      } catch (error) {
-        console.error('Error marking as read:', error);
-      }
+      try { await markNotificationAsRead(notification.id); } catch {}
     }
 
     // Navigate based on type
-    if (notification.type === 'follow' && notification.actorUsername) {
-      navigate(`/creator/${notification.actorUsername}`);
-    } else if ((notification.type === 'like' || notification.type === 'comment') && notification.postId) {
-      // You can navigate to post detail page if you have one
-      // navigate(`/post/${notification.postId}`);
+    switch (notification.type) {
+      case 'call_booking':
+        if (notification.bookingId) navigate(`/waiting-room/${notification.bookingId}`);
+        break;
+      case 'follow':
+        if (notification.actorUsername) navigate(`/creator/${notification.actorUsername}`);
+        break;
+      case 'refund':
+        navigate('/wallet');
+        break;
+      default:
+        break;
     }
   };
 
@@ -111,36 +111,31 @@ export default function Notifications() {
 
   const formatTime = (timestamp) => {
     if (!timestamp) return 'Just now';
-    
     try {
       const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
       const now = new Date();
       const diff = now - date;
-      
       const minutes = Math.floor(diff / 60000);
       const hours = Math.floor(diff / 3600000);
       const days = Math.floor(diff / 86400000);
-      
       if (minutes < 1) return 'Just now';
       if (minutes < 60) return `${minutes}m ago`;
       if (hours < 24) return `${hours}h ago`;
       if (days < 7) return `${days}d ago`;
       return date.toLocaleDateString();
-    } catch (error) {
+    } catch {
       return 'Recently';
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 text-rose-500 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">Loading notifications...</p>
-        </div>
+  if (loading) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="text-center">
+        <Loader2 className="w-8 h-8 text-rose-500 animate-spin mx-auto mb-4" />
+        <p className="text-gray-600">Loading notifications...</p>
       </div>
-    );
-  }
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20 lg:pb-8">
@@ -149,10 +144,7 @@ export default function Notifications() {
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 sm:space-x-4">
-              <button
-                onClick={() => navigate('/feed')}
-                className="p-2 hover:bg-gray-100 rounded-lg transition"
-              >
+              <button onClick={() => navigate('/feed')} className="p-2 hover:bg-gray-100 rounded-lg transition">
                 <ArrowLeft className="w-5 h-5 text-gray-600" />
               </button>
               <div>
@@ -163,10 +155,8 @@ export default function Notifications() {
               </div>
             </div>
             {unreadCount > 0 && (
-              <button
-                onClick={handleMarkAllAsRead}
-                className="flex items-center space-x-1 sm:space-x-2 text-rose-500 hover:text-rose-600 font-semibold text-xs sm:text-sm transition"
-              >
+              <button onClick={handleMarkAllAsRead}
+                className="flex items-center space-x-1 sm:space-x-2 text-rose-500 hover:text-rose-600 font-semibold text-xs sm:text-sm transition">
                 <CheckCheck className="w-4 h-4 sm:w-5 sm:h-5" />
                 <span className="hidden sm:inline">Mark all read</span>
                 <span className="sm:hidden">Read</span>
@@ -177,19 +167,17 @@ export default function Notifications() {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
-        {/* Filter Tabs - REMOVED 'message' */}
+        {/* Filter Tabs */}
         <div className="bg-white rounded-xl sm:rounded-2xl border border-gray-200 p-1.5 sm:p-2 mb-4 sm:mb-6 flex flex-wrap gap-1.5 sm:gap-2 overflow-x-auto scrollbar-hide">
-          {['all', 'unread', 'like', 'comment', 'follow', 'subscriber', 'tip'].map((tab) => (
+          {['all', 'unread', 'call_booking', 'like', 'comment', 'follow', 'subscriber', 'tip', 'refund'].map((tab) => (
             <button
               key={tab}
               onClick={() => setFilter(tab)}
               className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm transition whitespace-nowrap ${
-                filter === tab
-                  ? 'bg-rose-50 text-rose-600'
-                  : 'text-gray-600 hover:bg-gray-50'
+                filter === tab ? 'bg-rose-50 text-rose-600' : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === 'call_booking' ? '📞 Calls' : tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
           ))}
         </div>
@@ -216,7 +204,7 @@ export default function Notifications() {
                 onClick={() => handleNotificationClick(notification)}
                 className={`p-3 sm:p-4 hover:bg-gray-50 transition cursor-pointer ${
                   !notification.read ? 'bg-rose-50/30' : ''
-                }`}
+                } ${notification.type === 'call_booking' && !notification.read ? 'bg-rose-50/60' : ''}`}
               >
                 <div className="flex items-start space-x-3 sm:space-x-4">
                   {/* Avatar/Icon */}
@@ -230,7 +218,9 @@ export default function Notifications() {
                         )}
                       </div>
                     ) : (
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gray-100 flex items-center justify-center">
+                      <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center ${
+                        notification.type === 'call_booking' ? 'bg-rose-100' : 'bg-gray-100'
+                      }`}>
                         {getIcon(notification.type)}
                       </div>
                     )}
@@ -264,18 +254,31 @@ export default function Notifications() {
                         </div>
                       )}
                     </div>
+
+                    {/* Join button inline for call bookings */}
+                    {notification.type === 'call_booking' && notification.bookingId && (
+                      <div className="mt-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/waiting-room/${notification.bookingId}`);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-xs font-bold transition"
+                        >
+                          <Video className="w-3.5 h-3.5" />
+                          Go to Waiting Room
+                        </button>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Actions */}
+                  {/* Unread dot + delete */}
                   <div className="flex items-center space-x-1 sm:space-x-2 flex-shrink-0">
                     {!notification.read && (
-                      <div className="w-2 h-2 bg-rose-500 rounded-full"></div>
+                      <div className="w-2 h-2 bg-rose-500 rounded-full" />
                     )}
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteNotification(notification.id);
-                      }}
+                      onClick={(e) => { e.stopPropagation(); handleDeleteNotification(notification.id); }}
                       className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition"
                     >
                       <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 hover:text-red-500" />

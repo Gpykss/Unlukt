@@ -17,7 +17,8 @@ import {
   Ban,
   AlertTriangle,
   Lock,
-  X, Image, Video
+  X, Image, Video,
+  Gift
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -40,6 +41,7 @@ import {
   isUserBlocked,
   subscribeToUserStatus
 } from '../../services/messageService';
+import TipModal from '../../components/Modals/TipModal'; 
 
 export default function Messages() {
   const navigate = useNavigate();
@@ -65,6 +67,7 @@ export default function Messages() {
   const [ppvPrice, setPPVPrice] = useState(12);
   const [sendingPPV, setSendingPPV] = useState(false);
   const [ppvMedia, setPPVMedia] = useState(null);
+  const [showTipModal, setShowTipModal] = useState(false);
 
   const messagesEndRef = useRef(null);
   const messageInputRef = useRef(null); 
@@ -312,8 +315,8 @@ export default function Messages() {
     let mediaType = null;
 
     if (ppvMedia) {
-      const result = await uploadToBunny(ppvMedia, 'ppv-messages');
-      mediaUrl = result.url;
+      const result = await uploadToBunny(ppvMedia, { folder: 'ppv-messages', contentType: 'media' });
+        mediaUrl = result.cdnUrl;
       mediaType = ppvMedia.type.startsWith('video') ? 'video' : 'image';
     }
 
@@ -437,8 +440,12 @@ export default function Messages() {
                   >
                     <div className="flex items-center space-x-3">
                       <div className="relative flex-shrink-0">
-                        <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-xl sm:text-2xl">
-                          {conversation.otherUser.avatar}
+                        <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-xl sm:text-2xl overflow-hidden">
+                          {conversation.otherUser.avatar?.startsWith('http') ? (
+                            <img src={conversation.otherUser.avatar} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{conversation.otherUser.avatar || '👤'}</span>
+                          )}
                         </div>
                         {conversation.otherUser.online && (
                           <div className="absolute bottom-0 right-0 w-3 h-3 sm:w-4 sm:h-4 bg-green-500 border-2 border-white rounded-full"></div>
@@ -553,8 +560,12 @@ export default function Messages() {
                       <ArrowLeft className="w-5 h-5 text-gray-600" />
                     </button>
                     <div className="relative">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-xl sm:text-2xl">
-                        {selectedChat.otherUser.avatar}
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-xl sm:text-2xl overflow-hidden">
+                        {selectedChat.otherUser.avatar?.startsWith('http') ? (
+                          <img src={selectedChat.otherUser.avatar} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <span>{selectedChat.otherUser.avatar || '👤'}</span>
+                        )}
                       </div>
                       {selectedChat.otherUser.online && (
                         <div className="absolute bottom-0 right-0 w-2.5 h-2.5 sm:w-3 sm:h-3 bg-green-500 border-2 border-white rounded-full"></div>
@@ -566,6 +577,22 @@ export default function Messages() {
                         {selectedChat.otherUser.online ? 'Active now' : 'Offline'}
                       </p>
                     </div>
+                  </div>
+
+                 {/* ✅Gift button  */}
+                    <div className="flex items-center space-x-2">
+                      {selectedChat && (
+                        <button
+                          onClick={() => {
+                            if (!currentUser) { navigate('/login'); return; }
+                            setShowTipModal(true);
+                          }}
+                          className="p-2 hover:bg-yellow-50 rounded-lg transition"
+                          title="Send a gift"
+                        >
+                          <Gift className="w-5 h-5 text-yellow-500" />
+                        </button>
+                      )}
                   </div>
 
                   {/* Chat Menu */}
@@ -689,20 +716,27 @@ export default function Messages() {
                         : 'bg-gray-100 text-gray-900'
                     }`}>
                      <p className="text-sm sm:text-base break-words">
-                      {(() => {
-                        // ✅ Handle multiple message formats
-                        if (typeof msg.text === 'string') {
-                          return msg.text;
-                        }
-                        if (msg.text && typeof msg.text === 'object') {
-                          return msg.text.text || JSON.stringify(msg.text);
-                        }
-                        if (msg.content) {
-                          return msg.content;
-                        }
-                        return '';
-                      })()}
-                    </p>
+                        {(() => {
+                          // ✅ Safely extract text from message
+                          if (!msg) return '';
+                          
+                          // If text is a string, return it
+                          if (typeof msg.text === 'string') return msg.text;
+                          
+                          // If text is an object with a text property
+                          if (msg.text && typeof msg.text === 'object' && msg.text.text) {
+                            return String(msg.text.text);
+                          }
+                          
+                          // Fallback to content field
+                          if (msg.content) return String(msg.content);
+                          
+                          // Last resort - stringify the object (for debugging)
+                          if (msg.text) return JSON.stringify(msg.text);
+                          
+                          return '';
+                        })()}
+                      </p>
                     </div>
                     <p className={`text-xs text-gray-400 mt-1 ${
                       msg.senderId === currentUser.uid ? 'text-right' : 'text-left'
@@ -857,6 +891,19 @@ export default function Messages() {
             </div>
           )}
           </AnimatePresence>
+
+                {/* ✅Tip Modal */}
+              {selectedChat && (
+                <TipModal
+                  isOpen={showTipModal}
+                  onClose={() => setShowTipModal(false)}
+                  creator={{
+                    uid: selectedChat.otherUser.id,
+                    name: selectedChat.otherUser.name,
+                    avatar: selectedChat.otherUser.avatar,
+                  }}
+                />
+              )}
     </div>
   );
 }

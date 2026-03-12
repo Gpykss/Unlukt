@@ -1,27 +1,12 @@
-// src/services/communityService.js - Complete Community Service
+// src/services/communityService.js
 
 import { 
-  collection, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  getDocs,
-  updateDoc,
-  deleteDoc,
-  query, 
-  where, 
-  orderBy,
-  limit,
-  increment,
-  serverTimestamp,
-  arrayUnion,
-  arrayRemove
+  collection, doc, setDoc, getDoc, getDocs,
+  updateDoc, deleteDoc, query, where, orderBy,
+  limit, increment, serverTimestamp, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
-/**
- * Create a new community
- */
 export const createCommunity = async (creatorId, communityData) => {
   try {
     const communityRef = doc(collection(db, 'communities'));
@@ -32,23 +17,17 @@ export const createCommunity = async (creatorId, communityData) => {
       description: communityData.description || '',
       coverImage: communityData.coverImage || null,
       price: communityData.price || 9.99,
+      oneTimePrice: communityData.oneTimePrice || null,
       memberCount: 0,
-      isPrivate: communityData.isPrivate !== false, // Default to private
+      isPrivate: communityData.isPrivate !== false,
       category: communityData.category || 'general',
       rules: communityData.rules || [],
+      membersCanPost: communityData.membersCanPost || false,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     };
-
     await setDoc(communityRef, community);
-
-    // Update user's communities count
-    const userRef = doc(db, 'users', creatorId);
-    await updateDoc(userRef, {
-      communitiesCount: increment(1)
-    });
-
-    console.log('✅ Community created:', communityRef.id);
+    await updateDoc(doc(db, 'users', creatorId), { communitiesCount: increment(1) });
     return { id: communityRef.id, ...community };
   } catch (error) {
     console.error('Error creating community:', error);
@@ -56,63 +35,47 @@ export const createCommunity = async (creatorId, communityData) => {
   }
 };
 
-/**
- * Get all communities
- */
 export const getCommunities = async (filters = {}) => {
   try {
     const communitiesRef = collection(db, 'communities');
-    let q = query(communitiesRef, orderBy('memberCount', 'desc'));
+    // No orderBy to avoid needing an index — sort in JS
+    const snapshot = await getDocs(communitiesRef);
+    let results = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    // Apply filters
     if (filters.category) {
-      q = query(communitiesRef, where('category', '==', filters.category));
+      results = results.filter(c => c.category === filters.category);
     }
-
-    if (filters.limit) {
-      q = query(q, limit(filters.limit));
-    }
-
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    // Sort by memberCount descending
+    results.sort((a, b) => (b.memberCount || 0) - (a.memberCount || 0));
+    if (filters.limit) results = results.slice(0, filters.limit);
+    return results;
   } catch (error) {
     console.error('Error getting communities:', error);
     return [];
   }
 };
 
-/**
- * Get a single community
- */
 export const getCommunity = async (communityId) => {
   try {
-    const communityRef = doc(db, 'communities', communityId);
-    const communityDoc = await getDoc(communityRef);
-
-    if (communityDoc.exists()) {
-      return {
-        id: communityDoc.id,
-        ...communityDoc.data()
-      };
-    }
-    return null;
+    const snap = await getDoc(doc(db, 'communities', communityId));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
   } catch (error) {
     console.error('Error getting community:', error);
     return null;
   }
 };
 
-/**
- * Join a community (subscribe)
- */
 export const joinCommunity = async (userId, communityId, subscriptionData = {}) => {
   try {
-    const memberRef = doc(collection(db, 'community_members'));
+    const memberRef = doc(db, 'community_members', `${userId}_${communityId}`);
+    // Check if already a member — don't duplicate or increment count
+    const existing = await getDoc(memberRef);
+    if (existing.exists()) {
+      console.log('Already a member, skipping join');
+      return existing.data();
+    }
     const member = {
-      id: memberRef.id,
+      id: `${userId}_${communityId}`,
       communityId,
       userId,
       role: 'member',
@@ -121,22 +84,9 @@ export const joinCommunity = async (userId, communityId, subscriptionData = {}) 
       subscriptionEnd: subscriptionData.subscriptionEnd || null,
       lastActive: serverTimestamp()
     };
-
     await setDoc(memberRef, member);
-
-    // Increment member count
-    const communityRef = doc(db, 'communities', communityId);
-    await updateDoc(communityRef, {
-      memberCount: increment(1)
-    });
-
-    // Update user's joined communities count
-    const userRef = doc(db, 'users', userId);
-    await updateDoc(userRef, {
-      communitiesJoined: increment(1)
-    });
-
-    console.log('✅ User joined community:', communityId);
+    await updateDoc(doc(db, 'communities', communityId), { memberCount: increment(1) });
+    await updateDoc(doc(db, 'users', userId), { communitiesJoined: increment(1) });
     return member;
   } catch (error) {
     console.error('Error joining community:', error);
@@ -144,97 +94,75 @@ export const joinCommunity = async (userId, communityId, subscriptionData = {}) 
   }
 };
 
-/**
- * Leave a community
- */
 export const leaveCommunity = async (userId, communityId) => {
   try {
-    const membersRef = collection(db, 'community_members');
-    const q = query(
-      membersRef,
-      where('userId', '==', userId),
-      where('communityId', '==', communityId)
-    );
-    const snapshot = await getDocs(q);
-
-    if (!snapshot.empty) {
-      await deleteDoc(snapshot.docs[0].ref);
-
-      // Decrement member count
-      const communityRef = doc(db, 'communities', communityId);
-      await updateDoc(communityRef, {
-        memberCount: increment(-1)
-      });
-
-      // Update user's joined communities count
-      const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, {
-        communitiesJoined: increment(-1)
-      });
-
-      console.log('✅ User left community:', communityId);
-      return true;
-    }
-    return false;
+    // Direct delete using deterministic ID
+    await deleteDoc(doc(db, 'community_members', `${userId}_${communityId}`));
+    await updateDoc(doc(db, 'communities', communityId), { memberCount: increment(-1) });
+    await updateDoc(doc(db, 'users', userId), { communitiesJoined: increment(-1) });
+    return true;
   } catch (error) {
     console.error('Error leaving community:', error);
     throw error;
   }
 };
 
-/**
- * Check if user is a member
- */
 export const isCommunityMember = async (userId, communityId) => {
   try {
-    const membersRef = collection(db, 'community_members');
-    const q = query(
-      membersRef,
-      where('userId', '==', userId),
-      where('communityId', '==', communityId),
-      where('subscriptionStatus', '==', 'active')
-    );
-    const snapshot = await getDocs(q);
-    return !snapshot.empty;
+    // Simple getDoc — no query, no composite index needed
+    const snap = await getDoc(doc(db, 'community_members', `${userId}_${communityId}`));
+    if (!snap.exists()) return false;
+    const data = snap.data();
+    // Check active + not expired
+    if (data.subscriptionStatus !== 'active') return false;
+    if (data.subscriptionEnd) {
+      const end = data.subscriptionEnd.toDate ? data.subscriptionEnd.toDate() : new Date(data.subscriptionEnd);
+      if (end < new Date()) return false;
+    }
+    return true;
   } catch (error) {
     console.error('Error checking membership:', error);
     return false;
   }
 };
 
-/**
- * Get community members
- */
 export const getCommunityMembers = async (communityId) => {
   try {
-    const membersRef = collection(db, 'community_members');
-    const q = query(
-      membersRef,
-      where('communityId', '==', communityId),
-      orderBy('joinedAt', 'desc')
-    );
-    const snapshot = await getDocs(q);
+    // Single where clause — no composite index needed
+    const snap = await getDocs(query(
+      collection(db, 'community_members'),
+      where('communityId', '==', communityId)
+    ));
+    // Sort in JS
+    const sorted = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const ta = a.joinedAt?.toDate?.()?.getTime?.() || 0;
+        const tb = b.joinedAt?.toDate?.()?.getTime?.() || 0;
+        return tb - ta;
+      });
 
-    // Get user info for each member
-    const members = await Promise.all(
-      snapshot.docs.map(async (docSnap) => {
-        const memberData = docSnap.data();
-        const userDoc = await getDoc(doc(db, 'users', memberData.userId));
-        const userData = userDoc.exists() ? userDoc.data() : {};
+    // Deduplicate by userId — old random-ID docs may coexist with new deterministic ones
+    const seenUsers = new Set();
+    const deduped = sorted.filter(m => {
+      if (seenUsers.has(m.userId)) return false;
+      seenUsers.add(m.userId);
+      return true;
+    });
 
-        return {
-          id: docSnap.id,
-          ...memberData,
-          user: {
-            id: memberData.userId,
-            name: userData.displayName || 'User',
-            username: userData.username || '',
-            avatar: userData.avatar || '👤'
-          }
-        };
-      })
-    );
-
+    const members = await Promise.all(deduped.map(async (memberData) => {
+      const userDoc = await getDoc(doc(db, 'users', memberData.userId));
+      const userData = userDoc.exists() ? userDoc.data() : {};
+      return {
+        ...memberData,
+        user: {
+          id: memberData.userId,
+          name: userData.displayName || 'User',
+          username: userData.username || '',
+          avatar: userData.profilePicture || userData.avatar || null
+        }
+      };
+    }));
     return members;
   } catch (error) {
     console.error('Error getting members:', error);
@@ -242,9 +170,6 @@ export const getCommunityMembers = async (communityId) => {
   }
 };
 
-/**
- * Create a community post
- */
 export const createCommunityPost = async (communityId, authorId, postData) => {
   try {
     const postRef = doc(collection(db, 'community_posts'));
@@ -257,12 +182,11 @@ export const createCommunityPost = async (communityId, authorId, postData) => {
       videos: postData.videos || [],
       isPinned: false,
       likeCount: 0,
+      likedBy: [],
       commentCount: 0,
       createdAt: serverTimestamp()
     };
-
     await setDoc(postRef, post);
-    console.log('✅ Community post created:', postRef.id);
     return post;
   } catch (error) {
     console.error('Error creating community post:', error);
@@ -270,42 +194,33 @@ export const createCommunityPost = async (communityId, authorId, postData) => {
   }
 };
 
-/**
- * Get community posts
- */
 export const getCommunityPosts = async (communityId) => {
   try {
-    const postsRef = collection(db, 'community_posts');
-    const q = query(
-      postsRef,
-      where('communityId', '==', communityId),
-      orderBy('createdAt', 'desc'),
-      limit(50)
-    );
-    const snapshot = await getDocs(q);
-
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    // Single where only — sort in JS to avoid composite index
+    const snap = await getDocs(query(
+      collection(db, 'community_posts'),
+      where('communityId', '==', communityId)
+    ));
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const ta = a.createdAt?.toDate?.()?.getTime?.() || 0;
+        const tb = b.createdAt?.toDate?.()?.getTime?.() || 0;
+        return tb - ta;
+      })
+      .slice(0, 50);
   } catch (error) {
     console.error('Error getting community posts:', error);
     return [];
   }
 };
 
-/**
- * Update community
- */
 export const updateCommunity = async (communityId, updates) => {
   try {
-    const communityRef = doc(db, 'communities', communityId);
-    await updateDoc(communityRef, {
+    await updateDoc(doc(db, 'communities', communityId), {
       ...updates,
       updatedAt: serverTimestamp()
     });
-
-    console.log('✅ Community updated:', communityId);
     return true;
   } catch (error) {
     console.error('Error updating community:', error);
@@ -313,27 +228,13 @@ export const updateCommunity = async (communityId, updates) => {
   }
 };
 
-/**
- * Delete community
- */
 export const deleteCommunity = async (communityId) => {
   try {
-    // Delete all members
-    const membersRef = collection(db, 'community_members');
-    const membersQuery = query(membersRef, where('communityId', '==', communityId));
-    const membersSnapshot = await getDocs(membersQuery);
-    await Promise.all(membersSnapshot.docs.map(doc => deleteDoc(doc.ref)));
-
-    // Delete all posts
-    const postsRef = collection(db, 'community_posts');
-    const postsQuery = query(postsRef, where('communityId', '==', communityId));
-    const postsSnapshot = await getDocs(postsQuery);
-    await Promise.all(postsSnapshot.docs.map(doc => deleteDoc(doc.ref)));
-
-    // Delete community
+    const membersSnap = await getDocs(query(collection(db, 'community_members'), where('communityId', '==', communityId)));
+    await Promise.all(membersSnap.docs.map(d => deleteDoc(d.ref)));
+    const postsSnap = await getDocs(query(collection(db, 'community_posts'), where('communityId', '==', communityId)));
+    await Promise.all(postsSnap.docs.map(d => deleteDoc(d.ref)));
     await deleteDoc(doc(db, 'communities', communityId));
-
-    console.log('✅ Community deleted:', communityId);
     return true;
   } catch (error) {
     console.error('Error deleting community:', error);
@@ -341,33 +242,24 @@ export const deleteCommunity = async (communityId) => {
   }
 };
 
-/**
- * Get user's communities
- */
 export const getUserCommunities = async (userId) => {
   try {
-    const membersRef = collection(db, 'community_members');
-    const q = query(
-      membersRef,
-      where('userId', '==', userId),
-      where('subscriptionStatus', '==', 'active')
-    );
-    const snapshot = await getDocs(q);
+    // Single where — no composite index
+    const snap = await getDocs(query(
+      collection(db, 'community_members'),
+      where('userId', '==', userId)
+    ));
+    const active = snap.docs
+      .map(d => d.data())
+      .filter(d => d.subscriptionStatus === 'active');
 
-    // Get full community data
     const communities = await Promise.all(
-      snapshot.docs.map(async (docSnap) => {
-        const memberData = docSnap.data();
+      active.map(async (memberData) => {
         const community = await getCommunity(memberData.communityId);
-        return {
-          ...community,
-          membershipId: docSnap.id,
-          role: memberData.role,
-          joinedAt: memberData.joinedAt
-        };
+        if (!community) return null;
+        return { ...community, membershipId: memberData.id, role: memberData.role, joinedAt: memberData.joinedAt };
       })
     );
-
     return communities.filter(Boolean);
   } catch (error) {
     console.error('Error getting user communities:', error);
@@ -375,25 +267,70 @@ export const getUserCommunities = async (userId) => {
   }
 };
 
-/**
- * Get communities created by user
- */
 export const getCreatorCommunities = async (creatorId) => {
   try {
-    const communitiesRef = collection(db, 'communities');
-    const q = query(
-      communitiesRef,
-      where('creatorId', '==', creatorId),
-      orderBy('createdAt', 'desc')
-    );
-    const snapshot = await getDocs(q);
-
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    // Single where — sort in JS
+    const snap = await getDocs(query(
+      collection(db, 'communities'),
+      where('creatorId', '==', creatorId)
+    ));
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const ta = a.createdAt?.toDate?.()?.getTime?.() || 0;
+        const tb = b.createdAt?.toDate?.()?.getTime?.() || 0;
+        return tb - ta;
+      });
   } catch (error) {
     console.error('Error getting creator communities:', error);
+    return [];
+  }
+};
+
+export const likeCommunityPost = async (postId, userId) => {
+  try {
+    const postRef = doc(db, 'community_posts', postId);
+    const postSnap = await getDoc(postRef);
+    if (!postSnap.exists()) throw new Error('Post not found');
+    const likedBy = postSnap.data().likedBy || [];
+    if (likedBy.includes(userId)) {
+      await updateDoc(postRef, { likeCount: increment(-1), likedBy: arrayRemove(userId) });
+      return false;
+    } else {
+      await updateDoc(postRef, { likeCount: increment(1), likedBy: arrayUnion(userId) });
+      return true;
+    }
+  } catch (error) {
+    console.error('Error liking post:', error);
+    throw error;
+  }
+};
+
+export const addCommunityPostComment = async (postId, userId, commentText) => {
+  try {
+    const commentRef = doc(collection(db, 'community_posts', postId, 'comments'));
+    const comment = { id: commentRef.id, postId, userId, text: commentText, createdAt: serverTimestamp() };
+    await setDoc(commentRef, comment);
+    await updateDoc(doc(db, 'community_posts', postId), { commentCount: increment(1) });
+    return comment;
+  } catch (error) {
+    console.error('Error adding comment:', error);
+    throw error;
+  }
+};
+
+export const getCommunityPostComments = async (postId) => {
+  try {
+    const snap = await getDocs(collection(db, 'community_posts', postId, 'comments'));
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const ta = a.createdAt?.toDate?.()?.getTime?.() || 0;
+        const tb = b.createdAt?.toDate?.()?.getTime?.() || 0;
+        return tb - ta;
+      });
+  } catch (error) {
+    console.error('Error getting comments:', error);
     return [];
   }
 };

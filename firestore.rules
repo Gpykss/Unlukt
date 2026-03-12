@@ -2,7 +2,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper functions
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -28,70 +27,125 @@ service cloud.firestore {
              get(/databases/$(database)/documents/subscriptions/$(request.auth.uid + '_' + creatorId)).data.expiresAt > request.time;
     }
 
-    // ========== USERS ==========
     match /users/{userId} {
-      allow read: if true; // Public profiles
+      allow read: if true;
       allow create: if isOwner(userId);
-      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+      allow update: if (isOwner(userId) || isAdmin()) ||
+                       (isOwner(userId) && 
+                        request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['isOnline', 'lastSeen']));
+    }
+
+    match /creator_tiers/{creatorId} {
+      allow read: if true;
+      allow write: if isOwner(creatorId);
+    }
+
+    // ✅ Fixed: allow any authenticated user to read (needed for canMessage subscription check)
+    match /subscriptions/{subscriptionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
-    // ========== CREATOR TIERS ==========
-    match /creator_tiers/{creatorId} {
-      allow read: if true; // Anyone can see tier pricing
-      allow write: if isOwner(creatorId) && isCreator();
+    match /posts/{postId} {
+      allow read: if isAuthenticated();
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isOwner(resource.data.userId) || isAdmin();
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+      
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isAuthenticated();
+        allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+        allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      }
     }
 
-    // ========== SUBSCRIPTIONS ==========
-    match /subscriptions/{subscriptionId} {
+    match /comments/{commentId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isOwner(resource.data.userId) || isAdmin();
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    match /follows/{followId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.followerId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.followerId == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /likes/{likeId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow update: if false;
+    }
+
+    // ✅ Fixed: owner can write (needed for wallet deductions)
+    match /wallets/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    // ✅ Fixed: any authenticated user can write (needed for refunds)
+    match /user_balances/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isAuthenticated();
+    }
+
+    match /transactions/{transactionId} {
       allow read: if isAuthenticated() && (
         resource.data.userId == request.auth.uid || 
         resource.data.creatorId == request.auth.uid ||
         isAdmin()
       );
-      allow create: if isAuthenticated() && 
-                       request.resource.data.userId == request.auth.uid;
-      allow update: if isAdmin(); // Only admin/system can update status
+      allow create: if isAuthenticated();
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
-    // ========== POSTS ==========
-    match /posts/{postId} {
-      // Anyone can read free posts, subscribers can read paid posts
-      allow read: if resource.data.type == 'free' || 
-                     hasActiveSubscription(resource.data.userId) ||
-                     isOwner(resource.data.userId) ||
-                     isAdmin();
-      allow create: if isAuthenticated() && isCreator() && 
-                       request.resource.data.userId == request.auth.uid;
-      allow update: if isOwner(resource.data.userId) || isAdmin();
-      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    // ✅ New: wallet_transactions (used by deductFromWallet)
+    match /wallet_transactions/{txId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isAuthenticated();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
 
-    // ========== UNLOCKED CONTENT ==========
-    match /unlocked_content/{unlockId} {
-      allow read: if isAuthenticated() && 
-                     resource.data.userId == request.auth.uid;
-      allow create: if isAuthenticated() && 
-                       request.resource.data.userId == request.auth.uid;
-      allow update, delete: if false; // Immutable
+    match /earnings/{earningId} {
+      allow read: if isAuthenticated() && (
+        resource.data.creatorId == request.auth.uid || isAdmin()
+      );
+      allow write: if isAdmin();
     }
 
-    // ========== CREATOR AVAILABILITY ==========
+    match /unlocked_content/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+
     match /creator_availability/{creatorId} {
-      allow read: if true; // Anyone can see creator availability
-      allow write: if isOwner(creatorId) && isCreator();
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.uid == creatorId;
     }
 
-    // ========== VIDEO CALLS ==========
     match /video_calls/{callId} {
       allow read: if isAuthenticated() && (
         resource.data.fanId == request.auth.uid || 
         resource.data.creatorId == request.auth.uid ||
         isAdmin()
       );
-      allow create: if isAuthenticated() && 
-                       request.resource.data.fanId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.fanId == request.auth.uid;
       allow update: if isAuthenticated() && (
         resource.data.fanId == request.auth.uid || 
         resource.data.creatorId == request.auth.uid ||
@@ -100,135 +154,147 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // ========== CONVERSATIONS ==========
     match /conversations/{conversationId} {
-      allow read: if isAuthenticated() && 
-                     request.auth.uid in resource.data.participants;
-      allow create: if isAuthenticated() && 
-                       request.auth.uid in request.resource.data.participants;
-      allow update: if isAuthenticated() && 
-                       request.auth.uid in resource.data.participants;
+      allow read: if isAuthenticated() && request.auth.uid in resource.data.participants;
+      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.participants;
+      allow update: if isAuthenticated() && request.auth.uid in resource.data.participants;
       allow delete: if isAdmin();
 
-      // Messages subcollection
       match /messages/{messageId} {
         function isParticipant() {
           return request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
         }
-        
-        function hasUnlocked() {
-          return !resource.data.isPPV || 
-                 request.auth.uid in resource.data.unlockedBy ||
-                 resource.data.senderId == request.auth.uid;
-        }
-
-        allow read: if isAuthenticated() && isParticipant() && hasUnlocked();
-        allow create: if isAuthenticated() && isParticipant() && 
-                         request.resource.data.senderId == request.auth.uid;
-        allow update: if isAuthenticated() && isParticipant(); // For read receipts, unlocks
+        allow read: if isAuthenticated() && isParticipant();
+        allow create: if isAuthenticated() && isParticipant() && request.resource.data.senderId == request.auth.uid;
+        allow update: if isAuthenticated() && isParticipant();
         allow delete: if isAuthenticated() && resource.data.senderId == request.auth.uid;
       }
     }
 
-    // ========== PPV UNLOCKS ==========
     match /ppv_unlocks/{unlockId} {
       allow read: if isAuthenticated() && (
         resource.data.userId == request.auth.uid || 
         resource.data.creatorId == request.auth.uid ||
         isAdmin()
       );
-      allow create: if isAuthenticated() && 
-                       request.resource.data.userId == request.auth.uid;
-      allow update: if isAdmin(); // Only system updates status
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
-    // ========== CRYPTO PAYMENTS ==========
     match /crypto_payments/{paymentId} {
       allow read: if isAuthenticated() && (
         resource.data.userId == request.auth.uid || 
         resource.data.creatorId == request.auth.uid ||
         isAdmin()
       );
-      allow create: if isAuthenticated() && 
-                       request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid || // User uploads proof
-        isAdmin() // Admin verifies
-      );
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow delete: if isAdmin();
     }
 
-    // ========== COMMUNITIES ==========
     match /communities/{communityId} {
-      allow read: if true; // Public discovery
+      allow read: if true;
       allow create: if isAuthenticated() && isCreator();
-      allow update: if isAuthenticated() && 
-                       resource.data.creatorId == request.auth.uid;
-      allow delete: if isAuthenticated() && 
-                       resource.data.creatorId == request.auth.uid || isAdmin();
+      allow update: if isAuthenticated() && resource.data.creatorId == request.auth.uid;
+      allow delete: if isAuthenticated() && (resource.data.creatorId == request.auth.uid || isAdmin());
     }
 
-    // ========== COMMUNITY MEMBERS ==========
     match /community_members/{memberId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && 
-                       request.resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && (
         resource.data.userId == request.auth.uid ||
         get(/databases/$(database)/documents/communities/$(resource.data.communityId)).data.creatorId == request.auth.uid ||
         isAdmin()
       );
-      allow delete: if isAuthenticated() && 
-                       resource.data.userId == request.auth.uid || isAdmin();
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
-    // ========== COMMUNITY POSTS ==========
     match /community_posts/{postId} {
       function isCommunityMember(communityId) {
         return exists(/databases/$(database)/documents/community_members/$(request.auth.uid + '_' + communityId)) &&
                get(/databases/$(database)/documents/community_members/$(request.auth.uid + '_' + communityId)).data.subscriptionStatus == 'active';
       }
-
+      function isCommunityOwner(communityId) {
+        return get(/databases/$(database)/documents/communities/$(communityId)).data.creatorId == request.auth.uid;
+      }
+      function membersCanPost(communityId) {
+        return get(/databases/$(database)/documents/communities/$(communityId)).data.membersCanPost == true;
+      }
       allow read: if isAuthenticated() && (
         isCommunityMember(resource.data.communityId) ||
-        get(/databases/$(database)/documents/communities/$(resource.data.communityId)).data.creatorId == request.auth.uid ||
+        isCommunityOwner(resource.data.communityId) ||
         isAdmin()
       );
-      allow create: if isAuthenticated() && 
-                       isCommunityMember(request.resource.data.communityId);
-      allow update, delete: if isAuthenticated() && 
-                               resource.data.userId == request.auth.uid || isAdmin();
+      allow create: if isAuthenticated() && (
+        isCommunityOwner(request.resource.data.communityId) ||
+        (isCommunityMember(request.resource.data.communityId) && membersCanPost(request.resource.data.communityId))
+      );
+      allow update, delete: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || 
+        isCommunityOwner(resource.data.communityId) ||
+        isAdmin()
+      );
     }
 
-    // ========== NOTIFICATIONS ==========
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated() && 
-                     resource.data.userId == request.auth.uid;
-      allow create: if true; // System creates notifications
-      allow update: if isOwner(resource.data.userId); // Mark as read
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if true;
+      allow update: if isOwner(resource.data.userId);
       allow delete: if isOwner(resource.data.userId) || isAdmin();
     }
 
-    // ========== CREATOR BALANCES ==========
     match /creator_balances/{creatorId} {
       allow read: if isOwner(creatorId) || isAdmin();
-      allow write: if isAdmin(); // Only system updates balances
-    }
-
-    // ========== PAYOUT REQUESTS ==========
-    match /payout_requests/{requestId} {
-      allow read: if isAuthenticated() && (
-        resource.data.creatorId == request.auth.uid || 
-        isAdmin()
-      );
-      allow create: if isAuthenticated() && isCreator() &&
-                       request.resource.data.creatorId == request.auth.uid;
-      allow update: if isAdmin(); // Only admin processes payouts
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() || isAdmin();
       allow delete: if isAdmin();
     }
 
-    // ========== DEFAULT DENY ==========
+    // ✅ New: pending_releases (used by call booking)
+    match /pending_releases/{docId} {
+      allow read: if isAuthenticated() && (
+        resource.data.creatorId == request.auth.uid || isAdmin()
+      );
+      allow create: if isAuthenticated();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /payout_requests/{requestId} {
+      allow read: if isAuthenticated() && (
+        resource.data.creatorId == request.auth.uid || isAdmin()
+      );
+      allow create: if isAuthenticated() && request.resource.data.creatorId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /blocks/{blockId} {
+      allow read: if isAuthenticated() && (
+        resource.data.blockerId == request.auth.uid ||
+        resource.data.blockedId == request.auth.uid
+      );
+      allow create: if isAuthenticated() && request.resource.data.blockerId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.blockerId == request.auth.uid;
+    }
+
+    match /call_bookings/{bookingId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
