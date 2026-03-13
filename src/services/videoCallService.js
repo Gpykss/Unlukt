@@ -49,10 +49,6 @@ export const updateCreatorAvailability = async (creatorId, data) => {
   }
 };
 
-/**
- * Called when entering the call room — works for BOTH user and creator.
- * No longer blocks if status is already 'in_progress' (so both can enter).
- */
 export const startVideoCall = async (bookingId, userId) => {
   try {
     const bookingRef = doc(db, 'call_bookings', bookingId);
@@ -66,7 +62,6 @@ export const startVideoCall = async (bookingId, userId) => {
 
     if (!isCreator && !isUser) throw new Error('You are not part of this call');
 
-    // Allow joining if confirmed or already in_progress (both parties need to join)
     if (booking.status !== 'confirmed' && booking.status !== 'in_progress') {
       throw new Error(`Cannot join call with status: ${booking.status}`);
     }
@@ -87,9 +82,6 @@ export const startVideoCall = async (bookingId, userId) => {
   }
 };
 
-/**
- * Returns the booked duration in seconds so the call timer is accurate.
- */
 export const getCallDurationSeconds = async (bookingId) => {
   try {
     const bookingDoc = await getDoc(doc(db, 'call_bookings', bookingId));
@@ -101,9 +93,6 @@ export const getCallDurationSeconds = async (bookingId) => {
   }
 };
 
-/**
- * Called when the call ends — marks booking completed, releases pending balance.
- */
 export const endVideoCall = async (bookingId) => {
   try {
     const bookingRef = doc(db, 'call_bookings', bookingId);
@@ -119,17 +108,22 @@ export const endVideoCall = async (bookingId) => {
       updatedAt: serverTimestamp(),
     });
 
-    // Release creator's pending balance → available
+    // ✅ Release creator's pending → available using increment(), no getDoc needed
     if (!booking.creatorPaid && booking.creatorEarning) {
       const creatorBalRef = doc(db, 'creator_balances', booking.creatorId);
-      const balSnap = await getDoc(creatorBalRef);
-      if (balSnap.exists()) {
-        const current = balSnap.data();
-        const pending = Math.max(0, (current.pendingBalance || 0) - booking.creatorEarning);
-        const available = (current.availableBalance || 0) + booking.creatorEarning;
+      try {
         await updateDoc(creatorBalRef, {
-          pendingBalance: pending,
-          availableBalance: available,
+          pendingBalance: increment(-booking.creatorEarning),
+          availableBalance: increment(booking.creatorEarning),
+          updatedAt: serverTimestamp(),
+        });
+      } catch {
+        await setDoc(creatorBalRef, {
+          creatorId: booking.creatorId,
+          availableBalance: booking.creatorEarning,
+          pendingBalance: 0,
+          totalEarnings: booking.creatorEarning,
+          createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       }
@@ -143,17 +137,10 @@ export const endVideoCall = async (bookingId) => {
   }
 };
 
-/**
- * Refunds the user when no call was initiated within 1 hour of scheduled time.
- * - Adds price back to user's wallet balance
- * - Deducts creator's pending balance (they didn't complete the call)
- * - Marks booking as 'refunded'
- */
 export const refundBooking = async (bookingId, bookingData) => {
   try {
     const bookingRef = doc(db, 'call_bookings', bookingId);
 
-    // Re-fetch to get latest status and prevent double-refund
     const snap = await getDoc(bookingRef);
     if (!snap.exists()) throw new Error('Booking not found');
     const latest = snap.data();
@@ -167,16 +154,14 @@ export const refundBooking = async (bookingId, bookingData) => {
     const creatorId = latest.creatorId || bookingData?.creatorId;
     const creatorEarning = latest.creatorEarning || bookingData?.creatorEarning || 0;
 
-    // 1. Return funds to user wallet
+    // 1. ✅ Return funds to user wallet using increment(), no getDoc needed
     const userBalRef = doc(db, 'user_balances', userId);
-    const userBalSnap = await getDoc(userBalRef);
-    if (userBalSnap.exists()) {
-      const currentBal = Number(userBalSnap.data().balance || 0);
+    try {
       await updateDoc(userBalRef, {
-        balance: currentBal + price,
+        balance: increment(price),
         updatedAt: serverTimestamp(),
       });
-    } else {
+    } catch {
       await setDoc(userBalRef, {
         userId,
         balance: price,
@@ -185,7 +170,7 @@ export const refundBooking = async (bookingId, bookingData) => {
       });
     }
 
-    // 2. Create refund transaction record
+    // 2. Refund transaction record
     await addDoc(collection(db, 'transactions'), {
       userId,
       amount: price,
@@ -195,23 +180,22 @@ export const refundBooking = async (bookingId, bookingData) => {
       createdAt: serverTimestamp(),
     });
 
-    // 3. Reverse creator's pending balance (they never completed the call)
+    // 3. ✅ Reverse creator's pending balance using increment(), no getDoc needed
     if (creatorEarning > 0) {
       const creatorBalRef = doc(db, 'creator_balances', creatorId);
-      const creatorBalSnap = await getDoc(creatorBalRef);
-      if (creatorBalSnap.exists()) {
-        const current = creatorBalSnap.data();
-        const newPending = Math.max(0, (current.pendingBalance || 0) - creatorEarning);
-        const newTotal = Math.max(0, (current.totalEarnings || 0) - creatorEarning);
+      try {
         await updateDoc(creatorBalRef, {
-          pendingBalance: newPending,
-          totalEarnings: newTotal,
+          pendingBalance: increment(-creatorEarning),
+          totalEarnings: increment(-creatorEarning),
           updatedAt: serverTimestamp(),
         });
+      } catch {
+        // Doc doesn't exist, nothing to reverse
+        logger.info('Creator balance doc not found, skipping reversal');
       }
     }
 
-    // 4. Notify user of refund
+    // 4. Notify user
     await addDoc(collection(db, 'notifications'), {
       userId,
       type: 'refund',
