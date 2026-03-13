@@ -22,8 +22,8 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { currentUser, userProfile } = useAuth();
 
-  const [balance, setBalance]           = useState(null);
-  const [stats, setStats]               = useState(null);
+  const [balance, setBalance]               = useState(null);
+  const [stats, setStats]                   = useState(null);
   const [loadingBalance, setLoadingBalance] = useState(true);
   const [loadingStats, setLoadingStats]     = useState(true);
   const [recentActivity, setRecentActivity] = useState([]);
@@ -34,8 +34,17 @@ export default function Dashboard() {
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [upcomingCalls, setUpcomingCalls]   = useState([]);
   const [loadingCalls, setLoadingCalls]     = useState(true);
+  // ✅ Fan active calls
+  const [activeFanCalls, setActiveFanCalls] = useState([]);
+  const [loadingFanCalls, setLoadingFanCalls] = useState(true);
 
   useEffect(() => { checkIfCreator(); }, [currentUser, userProfile]);
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchActiveFanCalls(); // ✅ always fetch for fans
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     if (isCreator && currentUser) {
@@ -173,6 +182,7 @@ export default function Dashboard() {
     } catch { setEarningsData([]); }
   };
 
+  // ✅ Creator: fetch upcoming calls they need to join
   const fetchUpcomingCalls = async () => {
     try {
       setLoadingCalls(true);
@@ -187,16 +197,16 @@ export default function Dashboard() {
         snap.docs.map(async (d) => {
           const data = { id: d.id, ...d.data() };
           const scheduled = data.scheduledAt?.toDate?.() || new Date(data.scheduledAt);
-          // Only show calls within last hour (still joinable) or upcoming
-          const expiresAt = new Date(scheduled.getTime() + 60 * 60 * 1000);
-          if (now > expiresAt) return null; // expired
+          // ✅ Expiry = scheduled + call duration (not hardcoded 1hr)
+          const durationMs = (data.duration || 30) * 60 * 1000;
+          const expiresAt = new Date(scheduled.getTime() + durationMs);
+          if (now > expiresAt) return null;
 
-          // Load fan profile
           const userDoc = await getDoc(doc(db, 'users', data.userId));
           const fan = userDoc.exists() ? userDoc.data() : {};
 
           const minsUntil = Math.floor((scheduled - now) / 60000);
-          const canJoin = minsUntil <= 5; // open 5 min early
+          const canJoin = minsUntil <= 5;
 
           return {
             id: data.id,
@@ -216,17 +226,68 @@ export default function Dashboard() {
         })
       );
 
-      // Filter nulls and sort by scheduled time
-      const valid = calls
-        .filter(Boolean)
-        .sort((a, b) => a.scheduled - b.scheduled);
-
+      const valid = calls.filter(Boolean).sort((a, b) => a.scheduled - b.scheduled);
       setUpcomingCalls(valid);
     } catch (e) {
       console.error('Upcoming calls error:', e);
       setUpcomingCalls([]);
     } finally {
       setLoadingCalls(false);
+    }
+  };
+
+  // ✅ Fan: fetch active calls they booked that haven't expired yet
+  const fetchActiveFanCalls = async () => {
+    try {
+      setLoadingFanCalls(true);
+      const snap = await getDocs(query(
+        collection(db, 'call_bookings'),
+        where('userId', '==', currentUser.uid),
+        where('status', 'in', ['confirmed', 'in_progress'])
+      ));
+
+      const now = new Date();
+      const calls = await Promise.all(
+        snap.docs.map(async (d) => {
+          const data = { id: d.id, ...d.data() };
+          const scheduled = data.scheduledAt?.toDate?.() || new Date(data.scheduledAt);
+          // ✅ Expiry = scheduled + call duration
+          const durationMs = (data.duration || 30) * 60 * 1000;
+          const expiresAt = new Date(scheduled.getTime() + durationMs);
+          if (now > expiresAt) return null;
+
+          const creatorDoc = await getDoc(doc(db, 'users', data.creatorId));
+          const creator = creatorDoc.exists() ? creatorDoc.data() : {};
+
+          const minsUntil = Math.floor((scheduled - now) / 60000);
+          const canJoin = minsUntil <= 5;
+
+          return {
+            id: data.id,
+            type: data.type,
+            scheduled,
+            duration: data.duration,
+            price: data.price,
+            status: data.status,
+            canJoin,
+            minsUntil,
+            expiresAt,
+            creator: {
+              name: creator.displayName || 'Creator',
+              username: creator.username || '',
+              avatar: creator.profilePicture || creator.avatar || null,
+            },
+          };
+        })
+      );
+
+      const valid = calls.filter(Boolean).sort((a, b) => a.scheduled - b.scheduled);
+      setActiveFanCalls(valid);
+    } catch (e) {
+      console.error('Fan calls error:', e);
+      setActiveFanCalls([]);
+    } finally {
+      setLoadingFanCalls(false);
     }
   };
 
@@ -258,24 +319,82 @@ export default function Dashboard() {
     </div>
   );
 
+  // ✅ Fan view — show active calls instead of creator dashboard
   if (!isCreator) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-        className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
-        <div className="w-20 h-20 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <Lock className="w-10 h-10 text-rose-500" />
-        </div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Creator Dashboard</h2>
-        <p className="text-gray-600 mb-6">Complete creator verification to access analytics and earnings.</p>
-        <div className="space-y-3">
-          <button onClick={() => navigate('/become-creator')}
-            className="w-full bg-rose-500 hover:bg-rose-600 text-white py-3 rounded-lg font-semibold transition">
-            Become a Creator
-          </button>
-          <button onClick={() => navigate('/feed')}
-            className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-lg font-semibold transition">
-            Back to Feed
-          </button>
+        className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
+
+        {/* Active calls for fan */}
+        {!loadingFanCalls && activeFanCalls.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-base font-bold text-gray-900 flex items-center gap-2 mb-3">
+              <Phone className="w-5 h-5 text-rose-500" />
+              Your Active Calls
+              <span className="bg-rose-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                {activeFanCalls.length}
+              </span>
+            </h2>
+            <div className="space-y-3">
+              {activeFanCalls.map((call) => (
+                <div key={call.id}
+                  className={`rounded-2xl border p-4 flex items-center justify-between gap-3 ${
+                    call.canJoin ? 'bg-green-50 border-green-300' : 'bg-white border-gray-200'
+                  }`}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-100 to-pink-200 flex items-center justify-center overflow-hidden flex-shrink-0">
+                      {call.creator.avatar
+                        ? <img src={call.creator.avatar} alt="" className="w-full h-full object-cover" />
+                        : <span className="text-base">👤</span>}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1">
+                        {call.type === 'video'
+                          ? <Video className="w-3.5 h-3.5 text-rose-500" />
+                          : <Phone className="w-3.5 h-3.5 text-purple-500" />}
+                        <p className="font-bold text-gray-900 text-sm truncate">{call.creator.name}</p>
+                      </div>
+                      <p className="text-xs text-gray-500">{call.duration} min · ${call.price?.toFixed(2)}</p>
+                      <p className={`text-xs font-semibold mt-0.5 ${call.canJoin ? 'text-green-600' : 'text-gray-500'}`}>
+                        {call.canJoin ? '🟢 Ready to join' : `⏰ ${formatScheduled(call.scheduled)}`}
+                      </p>
+                    </div>
+                  </div>
+                  {call.canJoin ? (
+                    <button
+                      onClick={() => navigate(`/waiting-room/${call.id}`)}
+                      className="flex-shrink-0 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold text-sm transition flex items-center gap-1">
+                      {call.type === 'video' ? <Video className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
+                      Join
+                    </button>
+                  ) : (
+                    <div className="flex-shrink-0 px-3 py-2 bg-gray-100 text-gray-400 rounded-xl text-xs font-semibold text-center">
+                      <Clock className="w-4 h-4 mx-auto mb-0.5" />
+                      {call.minsUntil > 5 ? `${call.minsUntil - 5}m` : 'Soon'}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="text-center">
+          <div className="w-20 h-20 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Lock className="w-10 h-10 text-rose-500" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Creator Dashboard</h2>
+          <p className="text-gray-600 mb-6">Complete creator verification to access analytics and earnings.</p>
+          <div className="space-y-3">
+            <button onClick={() => navigate('/become-creator')}
+              className="w-full bg-rose-500 hover:bg-rose-600 text-white py-3 rounded-lg font-semibold transition">
+              Become a Creator
+            </button>
+            <button onClick={() => navigate('/feed')}
+              className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-lg font-semibold transition">
+              Back to Feed
+            </button>
+          </div>
         </div>
       </motion.div>
     </div>
@@ -309,13 +428,61 @@ export default function Dashboard() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
 
-        {/* ── Upcoming Calls Banner ── */}
+        {/* ✅ Fan's active booked calls — shown at top for creators too if they have any */}
+        {!loadingFanCalls && activeFanCalls.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6 space-y-3">
+            <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+              <Phone className="w-5 h-5 text-blue-500" />
+              Your Booked Calls
+              <span className="bg-blue-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                {activeFanCalls.length}
+              </span>
+            </h2>
+            {activeFanCalls.map((call) => (
+              <div key={call.id}
+                className={`rounded-2xl border p-4 flex items-center justify-between gap-4 ${
+                  call.canJoin ? 'bg-blue-50 border-blue-300 shadow-sm' : 'bg-white border-gray-200'
+                }`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-100 to-indigo-200 flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {call.creator.avatar
+                      ? <img src={call.creator.avatar} alt="" className="w-full h-full object-cover" />
+                      : <span className="text-lg">👤</span>}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      {call.type === 'video'
+                        ? <Video className="w-4 h-4 text-rose-500 flex-shrink-0" />
+                        : <Phone className="w-4 h-4 text-purple-500 flex-shrink-0" />}
+                      <p className="font-bold text-gray-900 text-sm truncate">{call.creator.name}</p>
+                    </div>
+                    <p className="text-xs text-gray-500">{call.duration} min · ${call.price?.toFixed(2)}</p>
+                    <p className={`text-xs font-semibold mt-0.5 ${call.canJoin ? 'text-blue-600' : 'text-gray-500'}`}>
+                      {call.canJoin ? '🟢 Ready to join' : `⏰ ${formatScheduled(call.scheduled)}`}
+                    </p>
+                  </div>
+                </div>
+                {call.canJoin ? (
+                  <button
+                    onClick={() => navigate(`/waiting-room/${call.id}`)}
+                    className="flex-shrink-0 px-5 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-bold text-sm transition shadow-md flex items-center gap-2">
+                    {call.type === 'video' ? <Video className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
+                    Rejoin
+                  </button>
+                ) : (
+                  <div className="flex-shrink-0 px-4 py-2 bg-gray-100 text-gray-400 rounded-xl text-xs font-semibold text-center">
+                    <Clock className="w-4 h-4 mx-auto mb-0.5" />
+                    {call.minsUntil > 5 ? `${call.minsUntil - 5}m` : 'Soon'}
+                  </div>
+                )}
+              </div>
+            ))}
+          </motion.div>
+        )}
+
+        {/* ── Creator Upcoming Calls Banner ── */}
         {!loadingCalls && upcomingCalls.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6 space-y-3"
-          >
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6 space-y-3">
             <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
               <Calendar className="w-5 h-5 text-rose-500" />
               Upcoming Calls
@@ -324,15 +491,10 @@ export default function Dashboard() {
               </span>
             </h2>
             {upcomingCalls.map((call) => (
-              <div
-                key={call.id}
+              <div key={call.id}
                 className={`rounded-2xl border p-4 flex items-center justify-between gap-4 ${
-                  call.canJoin
-                    ? 'bg-green-50 border-green-300 shadow-sm shadow-green-100'
-                    : 'bg-white border-gray-200'
-                }`}
-              >
-                {/* Left: avatar + info */}
+                  call.canJoin ? 'bg-green-50 border-green-300 shadow-sm shadow-green-100' : 'bg-white border-gray-200'
+                }`}>
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-12 h-12 rounded-full bg-gradient-to-br from-rose-100 to-pink-200 flex items-center justify-center overflow-hidden flex-shrink-0">
                     {call.fan.avatar
@@ -344,25 +506,18 @@ export default function Dashboard() {
                       {call.type === 'video'
                         ? <Video className="w-4 h-4 text-rose-500 flex-shrink-0" />
                         : <Phone className="w-4 h-4 text-purple-500 flex-shrink-0" />}
-                      <p className="font-bold text-gray-900 text-sm truncate">
-                        {call.fan.name}
-                      </p>
+                      <p className="font-bold text-gray-900 text-sm truncate">{call.fan.name}</p>
                     </div>
-                    <p className="text-xs text-gray-500">
-                      {call.duration} min · ${call.price?.toFixed(2)}
-                    </p>
+                    <p className="text-xs text-gray-500">{call.duration} min · ${call.price?.toFixed(2)}</p>
                     <p className={`text-xs font-semibold mt-0.5 ${call.canJoin ? 'text-green-600' : 'text-gray-500'}`}>
                       {call.canJoin ? '🟢 Ready to join' : `⏰ ${formatScheduled(call.scheduled)}`}
                     </p>
                   </div>
                 </div>
-
-                {/* Right: join button */}
                 {call.canJoin ? (
                   <button
                     onClick={() => navigate(`/waiting-room/${call.id}`)}
-                    className="flex-shrink-0 px-5 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold text-sm transition shadow-md flex items-center gap-2"
-                  >
+                    className="flex-shrink-0 px-5 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold text-sm transition shadow-md flex items-center gap-2">
                     {call.type === 'video' ? <Video className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
                     Join Now
                   </button>
@@ -379,7 +534,6 @@ export default function Dashboard() {
 
         {/* Stats Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6">
-          {/* Total Earnings */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
             className="bg-white rounded-2xl p-4 sm:p-6 border border-gray-200 shadow-sm">
             <div className="flex items-center justify-between mb-3">
@@ -396,7 +550,6 @@ export default function Dashboard() {
             </p>
           </motion.div>
 
-          {/* Subscribers */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
             className="bg-white rounded-2xl p-4 sm:p-6 border border-gray-200 shadow-sm">
             <div className="flex items-center justify-between mb-3">
@@ -412,7 +565,6 @@ export default function Dashboard() {
             <p className="text-gray-500 text-xs mt-1">Active</p>
           </motion.div>
 
-          {/* Total Posts */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
             className="bg-white rounded-2xl p-4 sm:p-6 border border-gray-200 shadow-sm">
             <div className="flex items-center justify-between mb-3">
@@ -427,7 +579,6 @@ export default function Dashboard() {
             <p className="text-gray-500 text-xs mt-1">Published</p>
           </motion.div>
 
-          {/* Total Likes */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
             className="bg-white rounded-2xl p-4 sm:p-6 border border-gray-200 shadow-sm">
             <div className="flex items-center justify-between mb-3">
@@ -444,9 +595,7 @@ export default function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Revenue + Top Posts */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Revenue Chart */}
             <div className="bg-white rounded-2xl p-5 sm:p-6 border border-gray-200 shadow-sm">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-lg font-bold text-gray-900">Revenue Overview</h2>
@@ -471,7 +620,6 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Top Posts */}
             <div className="bg-white rounded-2xl p-5 sm:p-6 border border-gray-200 shadow-sm">
               <h2 className="text-lg font-bold text-gray-900 mb-4">Top Posts</h2>
               {topPosts.length === 0 ? (
@@ -503,9 +651,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Right sidebar */}
           <div className="space-y-6">
-            {/* Recent Activity */}
             <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm">
               <h2 className="text-lg font-bold text-gray-900 mb-4">Recent Activity</h2>
               {recentActivity.length === 0 ? (
@@ -536,7 +682,6 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* Quick Actions */}
             <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm">
               <h2 className="text-lg font-bold text-gray-900 mb-4">Quick Actions</h2>
               <div className="space-y-2">
@@ -545,13 +690,11 @@ export default function Dashboard() {
                   <div className="p-2 bg-rose-100 rounded-lg"><Upload className="w-5 h-5 text-rose-500" /></div>
                   <span className="font-semibold text-gray-900">Upload Content</span>
                 </button>
-
                 <button onClick={() => navigate('/analytics')}
                   className="w-full flex items-center space-x-3 p-3 bg-gray-50 hover:bg-gray-100 rounded-xl transition">
                   <div className="p-2 bg-blue-100 rounded-lg"><BarChart3 className="w-5 h-5 text-blue-500" /></div>
                   <span className="font-semibold text-gray-900">View Analytics</span>
                 </button>
-
                 <button onClick={() => setShowWithdrawModal(true)}
                   className="w-full flex items-center space-x-3 p-3 bg-gray-50 hover:bg-gray-100 rounded-xl transition">
                   <div className="p-2 bg-green-100 rounded-lg"><DollarSign className="w-5 h-5 text-green-500" /></div>
@@ -562,7 +705,6 @@ export default function Dashboard() {
                     )}
                   </div>
                 </button>
-
                 <button onClick={() => navigate('/settings')}
                   className="w-full flex items-center space-x-3 p-3 bg-gray-50 hover:bg-gray-100 rounded-xl transition">
                   <div className="p-2 bg-gray-200 rounded-lg"><Settings className="w-5 h-5 text-gray-600" /></div>
@@ -571,7 +713,6 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Pending balance info */}
             {!loadingBalance && balance?.pending > 0 && (
               <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
                 <Clock className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
@@ -585,7 +726,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Withdraw Modal */}
       <WithdrawModal
         isOpen={showWithdrawModal}
         onClose={() => { setShowWithdrawModal(false); fetchCreatorBalance(); }}
