@@ -45,6 +45,7 @@ import VideoCallRoom from './pages/VideoCall/VideoCallRoom';
 import VoiceCallRoom from './pages/VideoCall/VoiceCallRoom';
 import BookVideoCall from './pages/VideoCall/BookVideoCall';
 import BookVoiceCall from './pages/VideoCall/BookVoiceCall';
+import MyCalls from './pages/MyCalls/MyCalls';
 import CallWaitingRoom from './pages/VideoCall/CallWaitingRoom';
 import CallSummary from './pages/VideoCall/CallSummary';
 
@@ -118,6 +119,7 @@ function AppContent() {
           <Route path="/new-post" element={<ProtectedRoute><NewPost /></ProtectedRoute>} />
           <Route path="/edit-profile" element={<ProtectedRoute><EditProfile /></ProtectedRoute>} />
           <Route path="/become-creator" element={<ProtectedRoute><BecomeCreator /></ProtectedRoute>} />
+          <Route path="/my-calls" element={<MyCalls />} />
 
           {/* Communities */}
           <Route path="/communities" element={<ProtectedRoute><Communities /></ProtectedRoute>} />

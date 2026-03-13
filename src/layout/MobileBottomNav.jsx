@@ -1,10 +1,13 @@
-// src/layout/MobileBottomNav.jsx - FIXED: ONE LINE + RESPONSIVE + CENTERED
+// src/layout/MobileBottomNav.jsx
 
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, MessageCircle, Plus, Wallet, User,Users  } from 'lucide-react';
+import { Home, MessageCircle, Plus, Wallet, User, Phone } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useUnreadMessages } from '../hooks/useUnreadMessages';
+import { useEffect, useState } from 'react';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../config/firebase';
 
 export default function MobileBottomNav() {
   const navigate = useNavigate();
@@ -12,8 +15,37 @@ export default function MobileBottomNav() {
   const { currentUser } = useAuth();
   const { isCreator, profile } = useUserProfile();
   const { unreadCount } = useUnreadMessages();
+  const [activeCallCount, setActiveCallCount] = useState(0);
 
   const isActive = (path) => location.pathname === path;
+
+  // ✅ For non-creators: check for active/joinable calls to show badge
+  useEffect(() => {
+    if (!currentUser || isCreator) return;
+    const checkActiveCalls = async () => {
+      try {
+        const snap = await getDocs(query(
+          collection(db, 'call_bookings'),
+          where('userId', '==', currentUser.uid),
+          where('status', 'in', ['confirmed', 'in_progress'])
+        ));
+        const now = new Date();
+        let count = 0;
+        snap.docs.forEach(d => {
+          const data = d.data();
+          const scheduled = data.scheduledAt?.toDate?.() || new Date(data.scheduledAt);
+          const durationMs = (data.duration || 30) * 60 * 1000;
+          const expiresAt = new Date(scheduled.getTime() + durationMs);
+          const minsUntil = Math.floor((scheduled - now) / 60000);
+          if (now < expiresAt && minsUntil <= 5) count++;
+        });
+        setActiveCallCount(count);
+      } catch (e) { console.error(e); }
+    };
+    checkActiveCalls();
+    const interval = setInterval(checkActiveCalls, 60000);
+    return () => clearInterval(interval);
+  }, [currentUser, isCreator]);
 
   const handleProfileClick = () => {
     if (profile?.username) {
@@ -31,28 +63,23 @@ export default function MobileBottomNav() {
 
   return (
     <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 shadow-lg">
-      {/* ✅ CENTERED CONTAINER WITH MAX WIDTH */}
       <div className="max-w-lg mx-auto px-2 sm:px-4">
         <div className="flex items-center justify-around py-2">
-          
+
           {/* Home */}
-          <button
-            onClick={() => navigate('/feed')}
+          <button onClick={() => navigate('/feed')}
             className={`flex flex-col items-center justify-center py-2 px-3 min-w-[60px] ${
               isActive('/feed') ? 'text-red-500' : 'text-gray-600'
-            }`}
-          >
+            }`}>
             <Home className={`w-6 h-6 ${isActive('/feed') ? 'fill-red-500' : ''}`} />
             <span className="text-xs font-medium mt-1">Home</span>
           </button>
 
           {/* Messages */}
-          <button
-            onClick={() => navigate('/messages')}
+          <button onClick={() => navigate('/messages')}
             className={`flex flex-col items-center justify-center py-2 px-3 min-w-[60px] relative ${
               isActive('/messages') ? 'text-red-500' : 'text-gray-600'
-            }`}
-          >
+            }`}>
             <div className="relative">
               <MessageCircle className={`w-6 h-6 ${isActive('/messages') ? 'fill-red-500' : ''}`} />
               {unreadCount > 0 && (
@@ -64,33 +91,40 @@ export default function MobileBottomNav() {
             <span className="text-xs font-medium mt-1">Messages</span>
           </button>
 
-          {/* Create Post (ONLY for Creators) */}
-          {isCreator && (
-            <button
-              onClick={() => navigate('/new-post')}
-              className="flex flex-col items-center justify-center px-3 min-w-[60px]"
-            >
+          {/* ✅ Creators: Create button | Non-creators: My Calls button */}
+          {isCreator ? (
+            <button onClick={() => navigate('/new-post')}
+              className="flex flex-col items-center justify-center px-3 min-w-[60px]">
               <div className="w-12 h-12 bg-gradient-to-r from-red-500 to-red-600 rounded-full flex items-center justify-center shadow-lg -mt-4 mb-1">
                 <Plus className="w-6 h-6 text-white" />
               </div>
               <span className="text-xs font-medium text-gray-600">Create</span>
             </button>
+          ) : (
+            <button onClick={() => navigate('/my-calls')}
+              className={`flex flex-col items-center justify-center py-2 px-3 min-w-[60px] relative ${
+                isActive('/my-calls') ? 'text-red-500' : 'text-gray-600'
+              }`}>
+              <div className="relative">
+                <Phone className={`w-6 h-6 ${isActive('/my-calls') ? 'fill-red-500' : ''}`} />
+                {activeCallCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
+                    {activeCallCount}
+                  </span>
+                )}
+              </div>
+              <span className="text-xs font-medium mt-1">Calls</span>
+            </button>
           )}
 
           {/* Profile */}
-          <button
-            onClick={handleProfileClick}
+          <button onClick={handleProfileClick}
             className={`flex flex-col items-center justify-center py-2 px-3 min-w-[60px] ${
               isOnOwnProfile() ? 'text-red-500' : 'text-gray-600'
-            }`}
-          >
+            }`}>
             {profile?.profilePicture ? (
               <div className="w-7 h-7 rounded-full overflow-hidden border-2 border-current">
-                <img 
-                  src={profile.profilePicture} 
-                  alt="Profile"
-                  className="w-full h-full object-cover"
-                />
+                <img src={profile.profilePicture} alt="Profile" className="w-full h-full object-cover" />
               </div>
             ) : (
               <User className={`w-6 h-6 ${isOnOwnProfile() ? 'fill-red-500' : ''}`} />
@@ -99,12 +133,10 @@ export default function MobileBottomNav() {
           </button>
 
           {/* Wallet */}
-          <button
-            onClick={() => navigate('/wallet')}
+          <button onClick={() => navigate('/wallet')}
             className={`flex flex-col items-center justify-center py-2 px-3 min-w-[60px] ${
               isActive('/wallet') ? 'text-red-500' : 'text-gray-600'
-            }`}
-          >
+            }`}>
             <Wallet className={`w-6 h-6 ${isActive('/wallet') ? 'fill-red-500' : ''}`} />
             <span className="text-xs font-medium mt-1">Wallet</span>
           </button>

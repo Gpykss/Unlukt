@@ -319,8 +319,13 @@ export default function Dashboard() {
     </div>
   );
 
-  // ✅ Fan view — show active calls instead of creator dashboard
-  if (!isCreator) return (
+  // ✅ Non-creators go to /my-calls
+  if (!isCreator) {
+    navigate('/my-calls');
+    return null;
+  }
+
+  if (false) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
         className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
