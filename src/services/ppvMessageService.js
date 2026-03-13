@@ -1,17 +1,13 @@
-// src/services/ppvMessageService.js - Pay-Per-View Messaging (wallet-based)
+// src/services/ppvMessageService.js
 
-import { doc, getDoc, setDoc, updateDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, addDoc, collection, serverTimestamp, arrayUnion, increment } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import logger from '../utils/logger';
 import { deductFromWallet } from './walletService';
 
-/**
- * Send a PPV (locked) message
- */
 export const sendPPVMessage = async (conversationId, senderId, messageData) => {
   try {
     const { content, price, mediaUrl, mediaType } = messageData;
-
     const unlockPrice = Math.max(1, Number(price) || 5);
 
     const messagesRef = collection(db, 'conversations', conversationId, 'messages');
@@ -26,7 +22,6 @@ export const sendPPVMessage = async (conversationId, senderId, messageData) => {
       createdAt: serverTimestamp(),
     });
 
-    // ✅ Save lastMessage as string
     await updateDoc(doc(db, 'conversations', conversationId), {
       lastMessage: '🔒 Locked message',
       lastMessageTime: serverTimestamp(),
@@ -41,16 +36,11 @@ export const sendPPVMessage = async (conversationId, senderId, messageData) => {
   }
 };
 
-/**
- * Check if user has unlocked a PPV message
- */
 export const hasUnlockedMessage = async (conversationId, messageId, userId) => {
   try {
     const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
     const messageDoc = await getDoc(messageRef);
-
     if (!messageDoc.exists()) return false;
-
     const message = messageDoc.data();
     if (message.senderId === userId) return true;
     return message.unlockedBy?.includes(userId) || false;
@@ -60,9 +50,6 @@ export const hasUnlockedMessage = async (conversationId, messageId, userId) => {
   }
 };
 
-/**
- * Unlock a PPV message using wallet balance — instant unlock
- */
 export const unlockPPVMessage = async (conversationId, messageId, userId) => {
   try {
     const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
@@ -75,7 +62,7 @@ export const unlockPPVMessage = async (conversationId, messageId, userId) => {
     if (!message.isPPV) throw new Error('Message is not locked');
     if (message.unlockedBy?.includes(userId)) throw new Error('Already unlocked');
 
-    // Deduct from wallet
+    // 1. Deduct from wallet first
     await deductFromWallet(userId, message.unlockPrice, 'PPV message unlock', {
       contentType: 'ppv_message',
       contentId: messageId,
@@ -83,24 +70,23 @@ export const unlockPPVMessage = async (conversationId, messageId, userId) => {
       conversationId,
     });
 
-    // Instantly unlock
+    // 2. Unlock the message
     await updateDoc(messageRef, {
-      unlockedBy: [...(message.unlockedBy || []), userId],
+      unlockedBy: arrayUnion(userId),
       updatedAt: serverTimestamp(),
     });
 
-    // Credit creator 80%
+    // 3. ✅ Credit creator using increment() — no getDoc needed, avoids permission error
     const creatorEarning = message.unlockPrice * 0.80;
     const creatorBalRef = doc(db, 'creator_balances', message.senderId);
-    const creatorSnap = await getDoc(creatorBalRef);
-
-    if (creatorSnap.exists()) {
+    try {
       await updateDoc(creatorBalRef, {
-        pendingBalance: (creatorSnap.data().pendingBalance || 0) + creatorEarning,
-        totalEarnings: (creatorSnap.data().totalEarnings || 0) + creatorEarning,
+        pendingBalance: increment(creatorEarning),
+        totalEarnings: increment(creatorEarning),
         updatedAt: serverTimestamp(),
       });
-    } else {
+    } catch {
+      // Doc doesn't exist yet — create it
       await setDoc(creatorBalRef, {
         creatorId: message.senderId,
         availableBalance: 0,
@@ -111,7 +97,7 @@ export const unlockPPVMessage = async (conversationId, messageId, userId) => {
       });
     }
 
-    logger.success('PPV message unlocked instantly:', messageId);
+    logger.success('PPV message unlocked:', messageId);
     return { success: true, unlocked: true };
   } catch (error) {
     logger.error('Error unlocking PPV message:', error);
@@ -119,18 +105,10 @@ export const unlockPPVMessage = async (conversationId, messageId, userId) => {
   }
 };
 
-/**
- * Get message preview (for locked messages)
- */
 export const getMessagePreview = (message) => {
   if (!message.isPPV) return message.content;
-
   const hasMedia = message.mediaUrl && message.mediaType && message.mediaType !== 'text';
-
-  if (hasMedia) {
-    return `🔒 Unlock to view ${message.mediaType} — $${message.unlockPrice}`;
-  }
-
+  if (hasMedia) return `🔒 Unlock to view ${message.mediaType} — $${message.unlockPrice}`;
   const preview = message.content?.substring(0, 20) || '';
   return `🔒 ${preview}... — Unlock for $${message.unlockPrice}`;
 };

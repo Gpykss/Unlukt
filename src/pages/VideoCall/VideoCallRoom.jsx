@@ -21,12 +21,13 @@ export default function VideoCallRoom() {
 
   const localVideoRef = useRef();
   const remoteVideoRef = useRef();
+  const initRef = useRef(false); // ✅ prevent double-init in StrictMode
 
   const [loading, setLoading] = useState(true);
   const [inCall, setInCall] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
   const [videoOff, setVideoOff] = useState(false);
-  const [timeRemaining, setTimeRemaining] = useState(null); // set after booking loaded
+  const [timeRemaining, setTimeRemaining] = useState(null);
   const [watermarkPos, setWatermarkPos] = useState(getRandomWatermarkPosition());
   const [error, setError] = useState(null);
 
@@ -38,6 +39,8 @@ export default function VideoCallRoom() {
   });
 
   useEffect(() => {
+    if (initRef.current) return;
+    initRef.current = true;
     initCall();
     return () => { cleanup(); };
   }, []);
@@ -49,7 +52,7 @@ export default function VideoCallRoom() {
     }
   }, [inCall]);
 
-  // Timer — only starts once timeRemaining is set and call is in progress
+  // Timer — only starts once inCall is true
   useEffect(() => {
     if (!inCall || timeRemaining === null || timeRemaining <= 0) return;
     const timer = setInterval(() => {
@@ -69,23 +72,43 @@ export default function VideoCallRoom() {
     try {
       setLoading(true);
 
-      // 1. Get booked duration first
+      // 1. Get booked duration
       const durationSecs = await getCallDurationSeconds(bookingId);
       setTimeRemaining(durationSecs);
 
-      // 2. Mark as in_progress (works for both user and creator)
+      // 2. Mark as in_progress
       await startVideoCall(bookingId, currentUser.uid);
 
       // 3. Join Agora channel
       const channelName = `video_${bookingId}`;
-      await joinChannel(channelName, null, currentUser.uid, true);
+      await joinChannel(channelName, null, currentUser.uid, true, bookingId);
       playLocalVideo(localVideoRef.current);
 
       const client = getClient();
       client.on('user-published', async (user, mediaType) => {
         await client.subscribe(user, mediaType);
-        if (mediaType === 'video') playRemoteMedia(user, 'video', remoteVideoRef.current);
-        if (mediaType === 'audio') playRemoteMedia(user, 'audio');
+        if (mediaType === 'video') {
+          // Always re-play — handles republish after network blip or camera toggle
+          const tryPlay = () => {
+            if (remoteVideoRef.current) {
+              remoteVideoRef.current.innerHTML = '';
+              playRemoteMedia(user, 'video', remoteVideoRef.current);
+            } else {
+              setTimeout(tryPlay, 200);
+            }
+          };
+          tryPlay();
+        }
+        if (mediaType === 'audio') {
+          playRemoteMedia(user, 'audio');
+        }
+      });
+
+      // Handle track unpublished — clear video element so it doesn't show frozen frame
+      client.on('user-unpublished', (user, mediaType) => {
+        if (mediaType === 'video' && remoteVideoRef.current) {
+          remoteVideoRef.current.innerHTML = '';
+        }
       });
 
       setInCall(true);
