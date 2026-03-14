@@ -94,6 +94,17 @@ function PermissionGate({ isVideo, onGranted, onSkip }) {
           )}
         </AnimatePresence>
 
+        {/* ✅ Internet warning */}
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 mb-5 text-left">
+          <p className="text-amber-400 text-sm font-semibold mb-2">📶 Before you join</p>
+          <ul className="text-gray-400 text-xs space-y-1.5">
+            <li>• Make sure you have a <b className="text-white">strong, stable internet connection</b></li>
+            <li>• WiFi is preferred over mobile data</li>
+            <li>• Close other apps using your camera or mic</li>
+            <li>• Find a quiet, well-lit place before starting</li>
+          </ul>
+        </div>
+
         <button
           onClick={handleRequest}
           disabled={checking}
@@ -178,7 +189,9 @@ export default function CallWaitingRoom() {
 
       if (minsUntil > 5) { setStatus('too_early'); return; }
 
-      const expiresAt = new Date(scheduled.getTime() + 60 * 60 * 1000);
+      // ✅ Use call duration not hardcoded 1hr
+      const durationMs = (data.duration || 30) * 60 * 1000;
+      const expiresAt = new Date(scheduled.getTime() + durationMs);
       if (new Date() > expiresAt) {
         await handleExpiredRefund(data);
         return;
@@ -359,7 +372,7 @@ export default function CallWaitingRoom() {
           <CheckCircle className="w-8 h-8 text-blue-400" />
         </div>
         <h2 className="text-2xl font-bold text-white mb-2">Refund Issued</h2>
-        <p className="text-gray-400 mb-2">The call wasn't started within 1 hour of the scheduled time.</p>
+        <p className="text-gray-400 mb-2">The call wasn't started within the scheduled {booking?.duration || 30} minutes.</p>
         <p className="text-green-400 font-bold text-xl mb-6">${booking?.price?.toFixed(2)} returned to your wallet</p>
         <button onClick={() => navigate('/wallet')} className="w-full py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-semibold transition mb-3">
           View Wallet
@@ -488,7 +501,7 @@ export default function CallWaitingRoom() {
             <p className={`text-sm font-semibold ${refundCountdown < 300 ? 'text-red-400' : 'text-amber-400'}`}>
               ⏳ Auto-refund if call doesn't start: {formatCountdown(refundCountdown)}
             </p>
-            <p className="text-xs text-gray-500 mt-1">Both must join within 1 hour of scheduled time</p>
+            <p className="text-xs text-gray-500 mt-1">Both must join within {booking?.duration || 30} min of scheduled time</p>
           </div>
         )}
 

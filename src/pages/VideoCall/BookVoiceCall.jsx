@@ -2,12 +2,12 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Phone, Clock, Calendar, CheckCircle, Loader2, User, Wallet, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Phone, Clock, CheckCircle, Loader2, User, Wallet, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { db } from '../../config/firebase';
-import { doc, collection, addDoc, serverTimestamp, increment, setDoc, updateDoc, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, serverTimestamp, increment, setDoc, updateDoc, query, where, getDocs } from 'firebase/firestore';
 import { getWalletBalance, deductFromWallet } from '../../services/walletService';
-import { MINIMUM_VOICE_PRICE } from '../../services/videoCallService';
+import { MINIMUM_VOICE_PRICE, CALL_DURATIONS, MIN_BOOKING_LEAD_MINS } from '../../services/videoCallService';
 
 const PLATFORM_FEE = 0.15;
 
@@ -29,12 +29,6 @@ export default function BookVoiceCall() {
   const [error, setError] = useState('');
   const [now, setNow] = useState(new Date());
 
-  const durations = [
-    { mins: 30, label: '30 min' },
-    { mins: 60, label: '1 hour' },
-    { mins: 90, label: '1.5 hours' },
-  ];
-
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(t);
@@ -44,14 +38,9 @@ export default function BookVoiceCall() {
 
   const loadData = async () => {
     try {
-      const { getDoc, doc: firestoreDoc } = await import('firebase/firestore');
-      const userDoc = await firestoreDoc(db, 'users', creatorId);
-      const snap = await getDoc(userDoc);
+      const snap = await getDoc(doc(db, 'users', creatorId));
       if (snap.exists()) setCreator({ id: snap.id, ...snap.data() });
-      if (currentUser) {
-        const bal = await getWalletBalance(currentUser.uid);
-        setWalletBalance(bal);
-      }
+      if (currentUser) setWalletBalance(await getWalletBalance(currentUser.uid));
     } catch (err) {
       console.error('Error loading:', err);
     } finally {
@@ -60,33 +49,33 @@ export default function BookVoiceCall() {
   };
 
   const getPrice = () => {
-    const basePrice = Math.max(MINIMUM_VOICE_PRICE, creator?.voiceCallPrice || MINIMUM_VOICE_PRICE);
-    return parseFloat(((basePrice * selectedDuration) / 30).toFixed(2));
+    const base = Math.max(MINIMUM_VOICE_PRICE, creator?.voiceCallPrice || MINIMUM_VOICE_PRICE);
+    return parseFloat(((base * selectedDuration) / 30).toFixed(2));
   };
 
+  const getMinDateTime = () => new Date(Date.now() + MIN_BOOKING_LEAD_MINS * 60 * 1000);
+
   const checkUserActiveBooking = async () => {
-    const q = query(
+    const snap = await getDocs(query(
       collection(db, 'call_bookings'),
       where('userId', '==', currentUser.uid),
       where('status', 'in', ['confirmed', 'in_progress'])
-    );
-    const snap = await getDocs(q);
+    ));
     for (const d of snap.docs) {
       const data = d.data();
       const scheduled = data.scheduledAt?.toDate?.() || new Date(data.scheduledAt);
-      const expiresAt = new Date(scheduled.getTime() + 60 * 60 * 1000);
+      const expiresAt = new Date(scheduled.getTime() + (data.duration || 30) * 60 * 1000);
       if (new Date() < expiresAt) return { id: d.id, ...data, scheduledAtDate: scheduled };
     }
     return null;
   };
 
   const checkCreatorConflict = async (selectedScheduled) => {
-    const q = query(
+    const snap = await getDocs(query(
       collection(db, 'call_bookings'),
       where('creatorId', '==', creatorId),
       where('status', 'in', ['confirmed', 'in_progress'])
-    );
-    const snap = await getDocs(q);
+    ));
     for (const d of snap.docs) {
       const data = d.data();
       const existing = data.scheduledAt?.toDate?.() || new Date(data.scheduledAt);
@@ -102,53 +91,55 @@ export default function BookVoiceCall() {
     if (!scheduledDate || !scheduledTime) { setError('Please select a date and time'); return; }
 
     const scheduled = new Date(`${scheduledDate}T${scheduledTime}`);
-    if (scheduled < new Date()) { setError('Please select a future date and time'); return; }
+    const minAllowed = getMinDateTime();
+    if (scheduled < minAllowed) {
+      setError(`Please schedule at least ${MIN_BOOKING_LEAD_MINS} minutes from now`);
+      return;
+    }
 
     const price = getPrice();
-    if (walletBalance < price) { setError(`Insufficient balance ($${walletBalance.toFixed(2)}). Need $${price.toFixed(2)}.`); return; }
+    if (walletBalance < price) {
+      setError(`Insufficient balance ($${walletBalance.toFixed(2)}). Need $${price.toFixed(2)}.`);
+      return;
+    }
 
     try {
       setBooking(true);
 
       const activeBooking = await checkUserActiveBooking();
       if (activeBooking) {
-        setError(`You already have an active booking scheduled for ${activeBooking.scheduledAtDate.toLocaleString()}.`);
+        setError(`You already have an active booking for ${activeBooking.scheduledAtDate.toLocaleString()}.`);
         setBooking(false);
         return;
       }
 
       const conflict = await checkCreatorConflict(scheduled);
       if (conflict) {
-        setError(`This creator is already booked around ${conflict.toLocaleString()}. Please choose a different time.`);
+        setError(`Creator is already booked around ${conflict.toLocaleString()}. Choose a different time.`);
         setBooking(false);
         return;
       }
 
       const creatorEarning = price * (1 - PLATFORM_FEE);
 
-      // 1. Deduct from user wallet
       await deductFromWallet(currentUser.uid, price, 'Voice call booking', {
-        contentType: 'voice_call',
-        creatorId: creator.id,
+        contentType: 'voice_call', creatorId: creator.id,
       });
 
-      // 2. Create booking doc
       const bookingRef = await addDoc(collection(db, 'call_bookings'), {
         type: 'voice',
         creatorId: creator.id,
         userId: currentUser.uid,
         duration: selectedDuration,
-        price,
-        creatorEarning,
+        price, creatorEarning,
         platformFee: price * PLATFORM_FEE,
         scheduledAt: scheduled,
-        note,
-        status: 'confirmed',
+        note, status: 'confirmed',
         creatorPaid: false,
+        userEnded: false, creatorEnded: false,
         createdAt: serverTimestamp(),
       });
 
-      // 3. ✅ Credit creator using increment() — no getDoc needed
       const month = new Date().toLocaleString('default', { month: 'short' });
       const creatorBalRef = doc(db, 'creator_balances', creator.id);
       try {
@@ -160,33 +151,37 @@ export default function BookVoiceCall() {
         });
       } catch {
         await setDoc(creatorBalRef, {
-          creatorId: creator.id,
-          availableBalance: 0,
-          pendingBalance: creatorEarning,
-          totalEarnings: creatorEarning,
+          creatorId: creator.id, availableBalance: 0,
+          pendingBalance: creatorEarning, totalEarnings: creatorEarning,
           monthlyEarnings: { [month]: creatorEarning },
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
+          createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
         });
       }
 
-      // 4. Schedule pending release
       await addDoc(collection(db, 'pending_releases'), {
-        creatorId: creator.id,
-        amount: creatorEarning,
+        creatorId: creator.id, amount: creatorEarning,
         bookingId: bookingRef.id,
         releaseAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        released: false,
-        createdAt: serverTimestamp(),
+        released: false, createdAt: serverTimestamp(),
       });
 
-      // 5. Notify creator
+      // ✅ Notify creator immediately
       await addDoc(collection(db, 'notifications'), {
         userId: creator.id,
         type: 'call_booking',
-        message: `New voice call booked for ${scheduled.toLocaleString()}`,
+        message: `New voice call booked for ${scheduled.toLocaleString()} (${selectedDuration} min)`,
         bookingId: bookingRef.id,
-        read: false,
+        read: false, createdAt: serverTimestamp(),
+      });
+
+      // ✅ 5-min reminder for both parties
+      await addDoc(collection(db, 'scheduled_notifications'), {
+        userIds: [currentUser.uid, creator.id],
+        type: 'call_reminder',
+        message: `Your ${selectedDuration}-min voice call starts in 5 minutes! Join the waiting room now.`,
+        bookingId: bookingRef.id,
+        sendAt: new Date(scheduled.getTime() - 5 * 60 * 1000),
+        sent: false,
         createdAt: serverTimestamp(),
       });
 
@@ -209,16 +204,16 @@ export default function BookVoiceCall() {
   if (booked) {
     const canJoin = scheduledAt && now >= new Date(scheduledAt.getTime() - 5 * 60 * 1000);
     const timeUntil = scheduledAt ? Math.max(0, Math.floor((scheduledAt - now) / 60000)) : 0;
-
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-          className="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-xl border border-gray-100">
+          className="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-xl">
           <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="w-10 h-10 text-green-500" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Booking Confirmed!</h2>
           <p className="text-gray-600 mb-1">Scheduled for <b>{scheduledAt?.toLocaleString()}</b></p>
+          <p className="text-sm text-gray-500 mb-2">You'll get a reminder 5 minutes before.</p>
           <p className="text-sm text-gray-500 mb-6">Remaining balance: <b>${walletBalance.toFixed(2)}</b></p>
           {canJoin ? (
             <button onClick={() => navigate(`/waiting-room/${booked}`)}
@@ -230,9 +225,9 @@ export default function BookVoiceCall() {
               <Clock className="w-4 h-4 inline mr-2" />Join available in {timeUntil} min
             </div>
           )}
-          <button onClick={() => navigate('/dashboard')}
+          <button onClick={() => navigate('/my-calls')}
             className="w-full py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-semibold transition text-sm">
-            Go to Dashboard
+            View My Calls
           </button>
         </motion.div>
       </div>
@@ -241,12 +236,14 @@ export default function BookVoiceCall() {
 
   const price = getPrice();
   const canAfford = walletBalance >= price;
+  const minDateTime = getMinDateTime();
+  const minDate = minDateTime.toISOString().split('T')[0];
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center space-x-4">
-          <button onClick={() => navigate(-1)} className="p-2 hover:bg-gray-100 rounded-full transition">
+          <button onClick={() => navigate(-1)} className="p-2 hover:bg-gray-100 rounded-full">
             <ArrowLeft className="w-5 h-5 text-gray-700" />
           </button>
           <h1 className="text-lg font-bold text-gray-900">Book Voice Call</h1>
@@ -273,7 +270,7 @@ export default function BookVoiceCall() {
           <div className="bg-white rounded-2xl border border-gray-200 p-5 flex items-center space-x-4">
             <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-100 to-indigo-100 overflow-hidden flex items-center justify-center">
               {creator.profilePicture
-                ? <img src={creator.profilePicture} alt={creator.displayName} className="w-full h-full object-cover" />
+                ? <img src={creator.profilePicture} alt="" className="w-full h-full object-cover" />
                 : <User className="w-8 h-8 text-purple-400" />}
             </div>
             <div>
@@ -287,14 +284,13 @@ export default function BookVoiceCall() {
           </div>
         )}
 
+        {/* Duration — 4 options */}
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
-          <label className="block text-sm font-semibold text-gray-700 mb-3 flex items-center space-x-2">
-            <Clock className="w-4 h-4" /><span>Call Duration</span>
-          </label>
-          <div className="grid grid-cols-3 gap-3">
-            {durations.map(({ mins, label }) => (
+          <label className="block text-sm font-semibold text-gray-700 mb-3">Call Duration</label>
+          <div className="grid grid-cols-4 gap-2">
+            {CALL_DURATIONS.map(({ mins, label }) => (
               <button key={mins} onClick={() => setSelectedDuration(mins)}
-                className={`py-3 rounded-xl font-semibold transition border-2 ${
+                className={`py-3 rounded-xl font-semibold transition border-2 text-sm ${
                   selectedDuration === mins ? 'border-purple-500 bg-purple-50 text-purple-600' : 'border-gray-200 text-gray-700 hover:border-gray-300'
                 }`}>
                 {label}
@@ -304,19 +300,19 @@ export default function BookVoiceCall() {
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
-          <label className="block text-sm font-semibold text-gray-700 mb-3 flex items-center space-x-2">
-            <Calendar className="w-4 h-4" /><span>Schedule</span>
-          </label>
+          <label className="block text-sm font-semibold text-gray-700 mb-1">Schedule</label>
+          <p className="text-xs text-gray-400 mb-3">Minimum {MIN_BOOKING_LEAD_MINS} minutes from now</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Date</label>
-              <input type="date" value={scheduledDate} min={new Date().toISOString().split('T')[0]}
+              <input type="date" value={scheduledDate} min={minDate}
                 onChange={e => setScheduledDate(e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-purple-500 text-sm" />
             </div>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Time</label>
-              <input type="time" value={scheduledTime} onChange={e => setScheduledTime(e.target.value)}
+              <input type="time" value={scheduledTime}
+                onChange={e => setScheduledTime(e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-purple-500 text-sm" />
             </div>
           </div>

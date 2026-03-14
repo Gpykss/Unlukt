@@ -1,15 +1,43 @@
 // src/pages/VideoCall/VoiceCallRoom.jsx
-
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Mic, MicOff, Phone, Loader2, AlertCircle, User, RefreshCw } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Mic, MicOff, Phone, Loader2, AlertCircle, User, RefreshCw, ChevronUp, Wifi, Flag, LogOut } from 'lucide-react';
 import {
   joinChannel, leaveChannel, toggleMicrophone, playRemoteMedia, getClient
 } from '../../services/agoraService';
-import { startVideoCall, endVideoCall, getCallDurationSeconds } from '../../services/videoCallService';
+import { startVideoCall, endVideoCall, getCallDurationSeconds, END_CALL_REASONS } from '../../services/videoCallService';
 import { useAuth } from '../../hooks/useAuth';
 import logger from '../../utils/logger';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../../config/firebase';
+
+const END_OPTIONS = [
+  {
+    reason: END_CALL_REASONS.ENDED,
+    label: 'End Call',
+    sub: 'Call is finished for both',
+    icon: LogOut,
+    color: 'text-red-400',
+    bg: 'hover:bg-red-500/20',
+  },
+  {
+    reason: END_CALL_REASONS.TECHNICAL,
+    label: 'Technical Issue',
+    sub: "I'll rejoin shortly — call stays open",
+    icon: Wifi,
+    color: 'text-amber-400',
+    bg: 'hover:bg-amber-500/20',
+  },
+  {
+    reason: END_CALL_REASONS.REPORT,
+    label: 'Report & End',
+    sub: 'Misconduct or scam — ends call',
+    icon: Flag,
+    color: 'text-orange-400',
+    bg: 'hover:bg-orange-500/20',
+  },
+];
 
 export default function VoiceCallRoom() {
   const { bookingId } = useParams();
@@ -17,6 +45,7 @@ export default function VoiceCallRoom() {
   const { currentUser } = useAuth();
 
   const initRef = useRef(false);
+  const endedRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [inCall, setInCall] = useState(false);
@@ -25,6 +54,8 @@ export default function VoiceCallRoom() {
   const [remoteConnected, setRemoteConnected] = useState(false);
   const [error, setError] = useState(null);
   const [isPermissionError, setIsPermissionError] = useState(false);
+  const [showEndMenu, setShowEndMenu] = useState(false);
+  const [ending, setEnding] = useState(false);
 
   useEffect(() => {
     if (initRef.current) return;
@@ -37,11 +68,24 @@ export default function VoiceCallRoom() {
     if (!inCall || timeRemaining === null || timeRemaining <= 0) return;
     const timer = setInterval(() => {
       setTimeRemaining(prev => {
-        if (prev <= 1) { clearInterval(timer); handleEndCall(); return 0; }
+        if (prev <= 1) { clearInterval(timer); handleEndCall(END_CALL_REASONS.ENDED); return 0; }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(timer);
+  }, [inCall]);
+
+  // ✅ Listen for when both ended
+  useEffect(() => {
+    if (!inCall) return;
+    const unsub = onSnapshot(doc(db, 'call_bookings', bookingId), (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.data();
+      if (data.status === 'completed' && endedRef.current) {
+        navigate(`/call-summary/${bookingId}`);
+      }
+    });
+    return () => unsub();
   }, [inCall]);
 
   const initCall = async () => {
@@ -52,7 +96,6 @@ export default function VoiceCallRoom() {
 
       const durationSecs = await getCallDurationSeconds(bookingId);
       setTimeRemaining(durationSecs);
-
       await startVideoCall(bookingId, currentUser.uid);
 
       const channelName = `voice_${bookingId}`;
@@ -61,10 +104,7 @@ export default function VoiceCallRoom() {
       const client = getClient();
       client.on('user-published', async (user, mediaType) => {
         await client.subscribe(user, mediaType);
-        if (mediaType === 'audio') {
-          playRemoteMedia(user, 'audio');
-          setRemoteConnected(true);
-        }
+        if (mediaType === 'audio') { playRemoteMedia(user, 'audio'); setRemoteConnected(true); }
       });
       client.on('user-unpublished', () => setRemoteConnected(false));
 
@@ -72,7 +112,6 @@ export default function VoiceCallRoom() {
       setLoading(false);
     } catch (err) {
       logger.error('Error initializing voice call:', err);
-      // ✅ Detect permission errors for better UX
       const isPermErr = err.message?.includes('denied') || err.message?.includes('permission') || err.message?.includes('microphone');
       setIsPermissionError(isPermErr);
       setError(err.message);
@@ -80,15 +119,29 @@ export default function VoiceCallRoom() {
     }
   };
 
-  const handleMicToggle = async () => {
-    await toggleMicrophone(!micMuted);
-    setMicMuted(!micMuted);
-  };
+  const handleEndCall = async (reason) => {
+    if (ending) return;
+    setEnding(true);
+    setShowEndMenu(false);
 
-  const handleEndCall = async () => {
-    try { await endVideoCall(bookingId); await cleanup(); }
-    catch (err) { logger.error('Error ending call:', err); await cleanup(); }
-    finally { navigate(`/call-summary/${bookingId}`); }
+    if (reason === END_CALL_REASONS.TECHNICAL) {
+      try {
+        await endVideoCall(bookingId, currentUser.uid, reason);
+        await cleanup();
+      } catch (e) { logger.error(e); }
+      navigate('/my-calls');
+      return;
+    }
+
+    endedRef.current = true;
+    try {
+      await endVideoCall(bookingId, currentUser.uid, reason);
+      await cleanup();
+    } catch (err) {
+      logger.error('Error ending call:', err);
+      await cleanup();
+    }
+    navigate(`/call-summary/${bookingId}`);
   };
 
   const cleanup = async () => {
@@ -119,7 +172,6 @@ export default function VoiceCallRoom() {
           {isPermissionError ? 'Microphone Access Required' : 'Connection Failed'}
         </h2>
         <p className="text-blue-200 mb-6 text-sm leading-relaxed">{error}</p>
-
         {isPermissionError && (
           <div className="bg-white/10 rounded-xl p-4 mb-6 text-left text-sm text-blue-100 space-y-2">
             <p className="font-semibold text-white">How to fix:</p>
@@ -128,14 +180,10 @@ export default function VoiceCallRoom() {
             <p>3. Refresh the page and try again</p>
           </div>
         )}
-
         <div className="space-y-3">
-          <button
-            onClick={() => { initRef.current = false; initCall(); setLoading(true); }}
-            className="w-full px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl transition flex items-center justify-center space-x-2"
-          >
-            <RefreshCw className="w-5 h-5" />
-            <span>Try Again</span>
+          <button onClick={() => { initRef.current = false; setLoading(true); initCall(); }}
+            className="w-full px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl transition flex items-center justify-center space-x-2">
+            <RefreshCw className="w-5 h-5" /><span>Try Again</span>
           </button>
           <button onClick={() => navigate('/dashboard')} className="w-full px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl transition">
             Back to Dashboard
@@ -167,9 +215,7 @@ export default function VoiceCallRoom() {
 
         <div className="mb-4">
           <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold ${
-            remoteConnected
-              ? 'bg-green-500/20 text-green-300 border border-green-500/50'
-              : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/50'
+            remoteConnected ? 'bg-green-500/20 text-green-300 border border-green-500/50' : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/50'
           }`}>
             <span className={`w-2 h-2 rounded-full mr-2 ${remoteConnected ? 'bg-green-400 animate-pulse' : 'bg-yellow-400 animate-pulse'}`} />
             {remoteConnected ? 'Connected' : 'Waiting...'}
@@ -181,17 +227,52 @@ export default function VoiceCallRoom() {
         </div>
 
         <div className="flex items-center justify-center space-x-6 mb-8">
-          <button onClick={handleMicToggle}
-            className={`w-16 h-16 rounded-full flex items-center justify-center transition transform hover:scale-110 shadow-xl ${
-              micMuted ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'
-            }`}>
+          <button onClick={async () => { await toggleMicrophone(!micMuted); setMicMuted(!micMuted); }}
+            className={`w-16 h-16 rounded-full flex items-center justify-center transition transform hover:scale-110 shadow-xl ${micMuted ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'}`}>
             {micMuted ? <MicOff className="w-8 h-8 text-white" /> : <Mic className="w-8 h-8 text-white" />}
           </button>
 
-          <button onClick={handleEndCall}
-            className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition transform hover:scale-110 shadow-2xl">
-            <Phone className="w-9 h-9 text-white rotate-135" />
-          </button>
+          {/* ✅ End call with dropdown */}
+          <div className="relative">
+            <button onClick={() => setShowEndMenu(v => !v)} disabled={ending}
+              className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition transform hover:scale-110 shadow-2xl relative">
+              {ending
+                ? <Loader2 className="w-9 h-9 text-white animate-spin" />
+                : <Phone className="w-9 h-9 text-white rotate-135" />}
+              {!ending && (
+                <span className="absolute -top-1 -right-1 w-6 h-6 bg-white rounded-full flex items-center justify-center">
+                  <ChevronUp className={`w-3.5 h-3.5 text-red-500 transition-transform ${showEndMenu ? 'rotate-180' : ''}`} />
+                </span>
+              )}
+            </button>
+
+            <AnimatePresence>
+              {showEndMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  className="absolute bottom-24 left-1/2 -translate-x-1/2 w-72 bg-gray-900/95 backdrop-blur-md border border-gray-700 rounded-2xl overflow-hidden shadow-2xl"
+                >
+                  <p className="text-xs text-gray-500 font-semibold px-4 pt-3 pb-2 uppercase tracking-wider">Why are you leaving?</p>
+                  {END_OPTIONS.map(({ reason, label, sub, icon: Icon, color, bg }) => (
+                    <button key={reason} onClick={() => handleEndCall(reason)}
+                      className={`w-full flex items-center space-x-3 px-4 py-3 transition ${bg}`}>
+                      <Icon className={`w-5 h-5 flex-shrink-0 ${color}`} />
+                      <div className="text-left">
+                        <p className={`font-semibold text-sm ${color}`}>{label}</p>
+                        <p className="text-xs text-gray-500">{sub}</p>
+                      </div>
+                    </button>
+                  ))}
+                  <button onClick={() => setShowEndMenu(false)}
+                    className="w-full py-3 text-xs text-gray-600 hover:text-gray-400 transition border-t border-gray-800">
+                    Cancel
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
 
         {isLowTime && (

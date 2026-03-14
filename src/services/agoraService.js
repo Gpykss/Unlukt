@@ -17,9 +17,6 @@ export const initializeAgoraClient = () => {
   return client;
 };
 
-/**
- * Wait for Firebase auth to be ready
- */
 const getAuthUser = () => {
   return new Promise((resolve, reject) => {
     if (auth.currentUser) { resolve(auth.currentUser); return; }
@@ -33,9 +30,6 @@ const getAuthUser = () => {
   });
 };
 
-/**
- * Fetch a token from your Cloud Function
- */
 const fetchAgoraToken = async (channelName, bookingId) => {
   const user = await getAuthUser();
   const idToken = await user.getIdToken(true);
@@ -64,17 +58,12 @@ const fetchAgoraToken = async (channelName, bookingId) => {
   return data;
 };
 
-/**
- * ✅ Request mic/camera permissions BEFORE joining
- * Returns { granted: true } or { granted: false, reason: string }
- */
 export const requestMediaPermissions = async (videoEnabled = true) => {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
       video: videoEnabled,
     });
-    // Release immediately — just needed the browser permission prompt
     stream.getTracks().forEach(t => t.stop());
     logger.info('Media permissions granted');
     return { granted: true };
@@ -93,9 +82,6 @@ export const requestMediaPermissions = async (videoEnabled = true) => {
   }
 };
 
-/**
- * Human-readable error message for permission failures
- */
 export const getPermissionErrorMessage = (reason, videoEnabled = true) => {
   const device = videoEnabled ? 'microphone and camera' : 'microphone';
   switch (reason) {
@@ -110,14 +96,10 @@ export const getPermissionErrorMessage = (reason, videoEnabled = true) => {
   }
 };
 
-/**
- * Join a call channel — requests permissions first, then fetches token
- */
 export const joinChannel = async (channelName, _tokenIgnored, uid, videoEnabled = true, bookingId = null) => {
   try {
     if (!client) initializeAgoraClient();
 
-    // ✅ Prevent double-join
     if (client.connectionState === 'CONNECTED' || client.connectionState === 'CONNECTING') {
       logger.warn('Client already connected — leaving first');
       await client.leave();
@@ -125,7 +107,6 @@ export const joinChannel = async (channelName, _tokenIgnored, uid, videoEnabled 
       if (localVideoTrack) { localVideoTrack.close(); localVideoTrack = null; }
     }
 
-    // ✅ Check permissions BEFORE doing anything else
     const perm = await requestMediaPermissions(videoEnabled);
     if (!perm.granted) {
       throw new Error(getPermissionErrorMessage(perm.reason, videoEnabled));
@@ -140,12 +121,28 @@ export const joinChannel = async (channelName, _tokenIgnored, uid, videoEnabled 
     const joinedUid = await client.join(appId, channelName, token, agoraUid);
     logger.info('Joined channel. UID:', joinedUid);
 
-    localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+    // ✅ Relaxed audio constraints — works on mobile
+    localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+      encoderConfig: 'music_standard',
+      AEC: true,
+      AGC: true,
+      ANS: true,
+    });
     await client.publish([localAudioTrack]);
     logger.info('Audio track published');
 
     if (videoEnabled) {
-      localVideoTrack = await AgoraRTC.createCameraVideoTrack();
+      // ✅ Use ideal/min instead of exact — mobile browsers reject strict constraints
+      localVideoTrack = await AgoraRTC.createCameraVideoTrack({
+        encoderConfig: {
+          width: { ideal: 640, min: 320 },
+          height: { ideal: 480, min: 240 },
+          frameRate: { ideal: 15, min: 5 },
+          bitrateMin: 200,
+          bitrateMax: 800,
+        },
+        optimizationMode: 'motion',
+      });
       await client.publish([localVideoTrack]);
       logger.info('Video track published');
     }
@@ -201,11 +198,24 @@ export const playRemoteMedia = (user, mediaType, videoElement = null) => {
   }
 };
 
+// ✅ Fixed — waits for track to exist before playing
 export const playLocalVideo = (videoElement) => {
-  if (localVideoTrack && videoElement) {
+  if (!videoElement) return;
+  if (localVideoTrack) {
     localVideoTrack.play(videoElement);
     logger.info('Playing local video preview');
+    return;
   }
+  // If track not ready yet, retry after short delay (mobile is slower)
+  const retry = setInterval(() => {
+    if (localVideoTrack) {
+      localVideoTrack.play(videoElement);
+      logger.info('Playing local video preview (delayed)');
+      clearInterval(retry);
+    }
+  }, 200);
+  // Give up after 5 seconds
+  setTimeout(() => clearInterval(retry), 5000);
 };
 
 export const getClient = () => {
