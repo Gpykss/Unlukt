@@ -256,6 +256,12 @@ export default function CallWaitingRoom() {
       if (d.status === 'refunded') { setStatus('refunded'); return; }
       if (d.status === 'completed' || d.status === 'ended') { setStatus('ended'); return; }
 
+      // ✅ Once call is in_progress both parties joined — stop refund timer
+      if (d.status === 'in_progress') {
+        if (refundTimerRef.current) clearInterval(refundTimerRef.current);
+        setRefundCountdown(null);
+      }
+
       const userJoined = d.waitingRoom?.userJoined;
       const creatorJoined = d.waitingRoom?.creatorJoined;
       const bothPresent = userJoined && creatorJoined;

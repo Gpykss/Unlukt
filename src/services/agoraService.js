@@ -177,9 +177,20 @@ export const toggleCamera = async (enabled) => {
 };
 
 export const switchCamera = async () => {
-  if (localVideoTrack) {
-    await localVideoTrack.switchDevice();
-    logger.info('Camera switched');
+  if (!localVideoTrack) return;
+  try {
+    // ✅ Get all video devices and cycle to the next one
+    const devices = await AgoraRTC.getDevices();
+    const cameras = devices.filter(d => d.kind === 'videoinput');
+    if (cameras.length < 2) return; // only one camera, nothing to switch to
+    const currentId = localVideoTrack.getTrackLabel();
+    const currentIndex = cameras.findIndex(c => c.label === currentId || c.deviceId === currentId);
+    const nextCamera = cameras[(currentIndex + 1) % cameras.length];
+    await localVideoTrack.setDevice(nextCamera.deviceId);
+    logger.info('Camera switched to:', nextCamera.label);
+  } catch (err) {
+    logger.error('switchCamera error:', err);
+    throw err;
   }
 };
 

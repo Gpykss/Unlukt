@@ -2,10 +2,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Video, VideoOff, Mic, MicOff, Phone, Loader2, AlertCircle, ChevronUp, Wifi, Flag, LogOut } from 'lucide-react';
+import { Video, VideoOff, Mic, MicOff, Phone, Loader2, AlertCircle, ChevronUp, Wifi, Flag, LogOut, FlipHorizontal } from 'lucide-react';
 import {
   joinChannel, leaveChannel, toggleMicrophone, toggleCamera,
-  playLocalVideo, playRemoteMedia, getClient
+  playLocalVideo, playRemoteMedia, getClient, switchCamera
 } from '../../services/agoraService';
 import { startVideoCall, endVideoCall, getCallDurationSeconds, END_CALL_REASONS } from '../../services/videoCallService';
 import { useAuth } from '../../hooks/useAuth';
@@ -61,6 +61,7 @@ export default function VideoCallRoom() {
   const [error, setError] = useState(null);
   const [showEndMenu, setShowEndMenu] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [isMobile] = useState(() => /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent));
 
   useScreenProtection([localVideoRef, remoteVideoRef], {
     onRecordingDetected: () => {
@@ -292,6 +293,14 @@ export default function VideoCallRoom() {
             className={`w-14 h-14 rounded-full flex items-center justify-center transition ${videoOff ? 'bg-red-500 hover:bg-red-600' : 'bg-gray-700 hover:bg-gray-600'}`}>
             {videoOff ? <VideoOff className="w-6 h-6 text-white" /> : <Video className="w-6 h-6 text-white" />}
           </button>
+
+          {/* ✅ Flip camera — mobile only */}
+          {isMobile && (
+            <button onClick={async () => { try { await switchCamera(); } catch(e) { logger.error('Flip camera error:', e); } }}
+              className="w-14 h-14 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition">
+              <FlipHorizontal className="w-6 h-6 text-white" />
+            </button>
+          )}
         </div>
       </div>
 
