@@ -121,13 +121,8 @@ export const joinChannel = async (channelName, _tokenIgnored, uid, videoEnabled 
     const joinedUid = await client.join(appId, channelName, token, agoraUid);
     logger.info('Joined channel. UID:', joinedUid);
 
-    // ✅ Relaxed audio constraints — works on mobile
-    localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
-      encoderConfig: 'music_standard',
-      AEC: true,
-      AGC: true,
-      ANS: true,
-    });
+    // ✅ No constraints — maximum device compatibility including mobile
+    localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
     await client.publish([localAudioTrack]);
     logger.info('Audio track published');
 
