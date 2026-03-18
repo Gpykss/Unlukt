@@ -388,7 +388,7 @@ export default function Messages() {
 
   return (
     // ✅ FIXED: Mobile height with proper overflow
-     <div className="fixed inset-0 bg-gray-50 pt-14 lg:pt-0 overflow-hidden">
+    <div className="fixed inset-0 bg-gray-50 pt-14 lg:pt-0 overflow-hidden" style={{ height: '100dvh' }}>
     <div className="h-full flex">
         {/* Conversations Sidebar */}
         <div className={`w-full md:w-96 bg-white border-r border-gray-200 flex flex-col ${
@@ -751,7 +751,7 @@ export default function Messages() {
               </div>
 
               {/* ✅ Message Input - Fixed at Bottom */}
-              <div className="p-3 sm:p-4 border-t border-gray-200 flex-shrink-0 bg-white">
+              <div className="p-3 sm:p-4 border-t border-gray-200 flex-shrink-0 bg-white sticky bottom-0">
                 <div className="flex items-center space-x-2 sm:space-x-3">
                   <div className="flex-1 relative">
                     <input
