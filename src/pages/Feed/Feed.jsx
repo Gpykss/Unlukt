@@ -2,18 +2,18 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Loader2, Users, Sparkles, ChevronRight, EyeOff, Eye } from 'lucide-react';
+import { Loader2, Users, Sparkles, ChevronRight, EyeOff, Eye, Crown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import PostCard from '../../components/feed/PostCard';
-import PostModal from '../../components/Modals/PostModal'; // ✅ fixed path casing
+import PostModal from '../../components/Modals/PostModal';
 
 import { getAllPosts } from '../../services/postService';
 import { getFollowingPosts } from '../../services/followService';
 import { useAuth } from '../../hooks/useAuth';
 import { useUserProfile } from '../../hooks/useUserProfile';
 
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 
 import { useContentSettings } from '../../hooks/useContentSettings';
@@ -29,10 +29,8 @@ export default function Feed() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // ✅ GLOBAL NSFW TOGGLE
   const { showNSFW, setShowNSFW } = useContentSettings();
 
-  // ✅ POST MODAL STATE
   const [selectedPost, setSelectedPost] = useState(null);
   const [showPostModal, setShowPostModal] = useState(false);
 
@@ -49,35 +47,56 @@ export default function Feed() {
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        loadPosts();
-      }
+      if (!document.hidden) loadPosts();
     };
-
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, currentUser]);
 
+  // ✅ UPDATED: fetch real subscriber + post counts, sort by subscribers first
   const loadTopCreators = async () => {
     try {
-      const usersRef = collection(db, 'users');
-      const usersSnapshot = await getDocs(usersRef);
-
+      const usersSnapshot = await getDocs(collection(db, 'users'));
       const creators = [];
       usersSnapshot.forEach((d) => {
         const userData = d.data();
         if (userData.kycStatus === 'approved') {
-          creators.push({
-            id: d.id,
-            ...userData,
-          });
+          creators.push({ id: d.id, ...userData });
         }
       });
 
-      creators.sort((a, b) => (b.followers || 0) - (a.followers || 0));
+      // Get active subscriber counts
+      const subsSnapshot = await getDocs(query(
+        collection(db, 'subscriptions'),
+        where('status', '==', 'active')
+      ));
+      const subCounts = {};
+      subsSnapshot.forEach((d) => {
+        const creatorId = d.data().creatorId;
+        if (creatorId) subCounts[creatorId] = (subCounts[creatorId] || 0) + 1;
+      });
+
+      // Get post counts
+      const postsSnapshot = await getDocs(collection(db, 'posts'));
+      const postCounts = {};
+      postsSnapshot.forEach((d) => {
+        const { userId, archived } = d.data();
+        if (userId && !archived) postCounts[userId] = (postCounts[userId] || 0) + 1;
+      });
+
+      creators.forEach((c) => {
+        c.subscriberCount = subCounts[c.id] || 0;
+        c.postCount = postCounts[c.id] || 0;
+      });
+
+      // Sort by subscribers first, then followers as tiebreaker
+      creators.sort((a, b) =>
+        b.subscriberCount !== a.subscriberCount
+          ? b.subscriberCount - a.subscriberCount
+          : (b.followers || 0) - (a.followers || 0)
+      );
+
       setTopCreators(creators);
     } catch (err) {
       console.error('Error loading top creators:', err);
@@ -89,30 +108,20 @@ export default function Feed() {
       const fortyEightHoursAgo = new Date();
       fortyEightHoursAgo.setHours(fortyEightHoursAgo.getHours() - 48);
 
-      const postsRef = collection(db, 'posts');
-      const postsSnapshot = await getDocs(postsRef);
-
+      const postsSnapshot = await getDocs(collection(db, 'posts'));
       const creatorPostCounts = {};
 
       postsSnapshot.forEach((d) => {
         const post = d.data();
-
         let postDate = null;
         if (post.createdAt) {
-          if (typeof post.createdAt.toDate === 'function') {
-            postDate = post.createdAt.toDate();
-          } else if (post.createdAt instanceof Date) {
-            postDate = post.createdAt;
-          } else if (typeof post.createdAt === 'number') {
-            postDate = new Date(post.createdAt);
-          } else if (post.createdAt.seconds) {
-            postDate = new Date(post.createdAt.seconds * 1000);
-          }
+          if (typeof post.createdAt.toDate === 'function') postDate = post.createdAt.toDate();
+          else if (post.createdAt instanceof Date) postDate = post.createdAt;
+          else if (typeof post.createdAt === 'number') postDate = new Date(post.createdAt);
+          else if (post.createdAt.seconds) postDate = new Date(post.createdAt.seconds * 1000);
         }
-
         if (postDate && postDate >= fortyEightHoursAgo) {
-          const userId = post.userId;
-          creatorPostCounts[userId] = (creatorPostCounts[userId] || 0) + 1;
+          creatorPostCounts[post.userId] = (creatorPostCounts[post.userId] || 0) + 1;
         }
       });
 
@@ -143,7 +152,6 @@ export default function Feed() {
         fetchedPosts = await getFollowingPosts(currentUser.uid, 20);
       } else {
         const trendingCreatorIds = await getTrendingCreatorIds();
-
         if (trendingCreatorIds.length > 0) {
           const allPosts = await getAllPosts(100);
           fetchedPosts = allPosts
@@ -154,9 +162,7 @@ export default function Feed() {
         }
       }
 
-      // Hide archived
-      const visiblePosts = fetchedPosts.filter((post) => !post.archived);
-      setPosts(visiblePosts);
+      setPosts(fetchedPosts.filter((post) => !post.archived));
     } catch (err) {
       console.error('Error loading posts:', err);
       setError('Failed to load posts. Please try again.');
@@ -169,40 +175,31 @@ export default function Feed() {
     setPosts((prev) => prev.filter((post) => post.id !== postId));
   };
 
-  // ✅ HANDLE POST CLICK - OPEN MODAL
   const handlePostClick = (post) => {
     const rating = (post?.contentRating || 'sfw').toLowerCase();
-
-    // block opening NSFW when toggle is off
     if (!showNSFW && rating === 'nsfw') {
       alert('NSFW is hidden. Turn on "Show NSFW" to view this content.');
       return;
     }
-
     setSelectedPost(post);
     setShowPostModal(true);
   };
 
-  // ✅ CLOSE MODAL
   const closePostModal = () => {
     setShowPostModal(false);
     setSelectedPost(null);
   };
 
-  // ✅ FILTERED POSTS (global nsfw toggle)
   const filteredPosts = useMemo(() => {
     if (showNSFW) return posts;
-
-    return posts.filter((p) => {
-      const rating = (p?.contentRating || 'sfw').toLowerCase(); // old posts default -> sfw
-      return rating !== 'nsfw';
-    });
+    return posts.filter((p) => (p?.contentRating || 'sfw').toLowerCase() !== 'nsfw');
   }, [posts, showNSFW]);
 
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-6 lg:px-6">
-        {/* Top Creators - Mobile Only */}
+
+        {/* ✅ Top Creators - Mobile Only - now with real stats */}
         <div className="lg:hidden mb-4 sm:mb-6">
           <div className="flex items-center justify-between mb-3 sm:mb-4">
             <h2 className="text-base sm:text-lg font-bold text-gray-900 flex items-center space-x-2">
@@ -224,28 +221,32 @@ export default function Feed() {
                 key={creator.id}
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                onClick={() =>
-                  navigate(`/creator/${creator.username?.replace('@', '') || creator.id}`)
-                }
+                onClick={() => navigate(`/creator/${creator.username?.replace('@', '') || creator.id}`)}
                 className="bg-white rounded-xl p-3 border border-gray-200 hover:border-red-300 hover:shadow-md transition cursor-pointer"
               >
-                <div className="w-full aspect-square mx-auto rounded-full bg-gradient-to-br from-red-100 to-pink-100 flex items-center justify-center text-2xl mb-2 overflow-hidden">
+                {/* Avatar */}
+                <div className="w-12 h-12 mx-auto rounded-full bg-gradient-to-br from-red-100 to-pink-100 flex items-center justify-center mb-2 overflow-hidden border-2 border-white shadow">
                   {creator.profilePicture ? (
-                    <img
-                      src={creator.profilePicture}
-                      alt={creator.displayName}
-                      className="w-full h-full object-cover"
-                    />
+                    <img src={creator.profilePicture} alt={creator.displayName} className="w-full h-full object-cover" />
                   ) : (
-                    <span>{creator.avatar || '👤'}</span>
+                    <span className="text-xl">{creator.avatar || '👤'}</span>
                   )}
                 </div>
-                <h3 className="font-semibold text-gray-900 text-xs text-center truncate">
+                {/* Name */}
+                <h3 className="font-bold text-gray-900 text-xs text-center truncate mb-1">
                   {creator.displayName || 'Anonymous'}
                 </h3>
-                <p className="text-xs text-gray-500 text-center">
-                  {creator.followers || 0} fans
-                </p>
+                {/* Stats */}
+                <div className="flex justify-between text-[10px] text-gray-500">
+                  <span className="flex items-center gap-0.5">
+                    <Crown className="w-2.5 h-2.5 text-rose-500" />
+                    {creator.subscriberCount}
+                  </span>
+                  <span className="flex items-center gap-0.5">
+                    <Users className="w-2.5 h-2.5 text-blue-400" />
+                    {creator.followers || 0}
+                  </span>
+                </div>
               </motion.div>
             ))}
           </div>
@@ -262,9 +263,7 @@ export default function Feed() {
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
                     className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-semibold transition ${
-                      activeTab === tab.id
-                        ? 'bg-red-500 text-white'
-                        : 'text-gray-600 hover:bg-gray-50'
+                      activeTab === tab.id ? 'bg-red-500 text-white' : 'text-gray-600 hover:bg-gray-50'
                     }`}
                   >
                     <Icon className="w-5 h-5" />
@@ -274,7 +273,7 @@ export default function Feed() {
               })}
             </div>
 
-            {/* ✅ NSFW Toggle */}
+            {/* NSFW Toggle */}
             <button
               type="button"
               onClick={() => setShowNSFW((v) => !v)}
@@ -290,8 +289,6 @@ export default function Feed() {
             </button>
           </div>
         </div>
-
-        
 
         {!showNSFW && (
           <motion.div
@@ -336,21 +333,16 @@ export default function Feed() {
                     <Sparkles className="w-8 h-8 text-gray-400" />
                   )}
                 </div>
-
                 <h3 className="text-xl font-bold text-gray-900 mb-2">
-                  {activeTab === 'following'
-                    ? 'No Posts from Followed Creators'
-                    : 'No Trending Posts Yet'}
+                  {activeTab === 'following' ? 'No Posts from Followed Creators' : 'No Trending Posts Yet'}
                 </h3>
-
                 <p className="text-gray-600 mb-6">
                   {activeTab === 'following'
                     ? 'Follow creators to see their content here'
                     : showNSFW
                       ? 'Check back soon for posts from trending creators'
-                      : `It looks like the available posts may be NSFW. Turn on "Show NSFW" or check back later.`}
+                      : 'It looks like the available posts may be NSFW. Turn on "Show NSFW" or check back later.'}
                 </p>
-
                 <button
                   onClick={() => navigate('/discover')}
                   className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold transition"
@@ -385,14 +377,13 @@ export default function Feed() {
         )}
       </div>
 
-      {/* ✅ POST MODAL */}
+      {/* POST MODAL */}
       <PostModal
         isOpen={showPostModal}
         onClose={closePostModal}
         post={selectedPost}
         onPostUpdate={(updatedPost) => {
           if (!selectedPost) return;
-
           if (updatedPost === null) {
             handlePostDeleted(selectedPost.id);
             closePostModal();
