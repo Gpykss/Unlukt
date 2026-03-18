@@ -388,7 +388,7 @@ export default function Messages() {
 
   return (
     // ✅ FIXED: Mobile height with proper overflow
-    <div className="fixed inset-0 bg-gray-50 pt-14 lg:pt-0 overflow-hidden" style={{ height: '100dvh' }}>
+    <div className="flex flex-col bg-gray-50 overflow-hidden" style={{ height: '100dvh' }}>
     <div className="h-full flex">
         {/* Conversations Sidebar */}
         <div className={`w-full md:w-96 bg-white border-r border-gray-200 flex flex-col ${

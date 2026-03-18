@@ -89,7 +89,7 @@ function AppContent() {
         showNav ? (isMessagesPage ? 'pt-14 lg:pt-0' : 'pt-14 pb-20 lg:pt-0 lg:pb-0') : '',
         showNav ? 'lg:ml-64' : '',
         showNav && showDiscoverSidebar ? 'xl:mr-80' : '',
-        isMessagesPage ? 'h-[100dvh]' : '',
+       
       ].filter(Boolean).join(' ')}>
         <Routes>
           {/* Public */}
