@@ -127,17 +127,14 @@ export const joinChannel = async (channelName, _tokenIgnored, uid, videoEnabled 
     logger.info('Audio track published');
 
     if (videoEnabled) {
-      // ✅ Use ideal/min instead of exact — mobile browsers reject strict constraints
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+      // ✅ Let Agora + browser auto-detect best quality for the device & network
       localVideoTrack = await AgoraRTC.createCameraVideoTrack({
-        encoderConfig: {
-          width: { ideal: 640, min: 320 },
-          height: { ideal: 480, min: 240 },
-          frameRate: { ideal: 15, min: 5 },
-          bitrateMin: 200,
-          bitrateMax: 800,
-        },
-        optimizationMode: 'motion',
+        optimizationMode: 'detail',
+        facingMode: isMobile ? 'user' : undefined,
       });
+      // ✅ Enable adaptive bitrate — Agora adjusts quality based on network
+      AgoraRTC.setParameter('ENABLE_ADAPTIVE_BITRATE_ON_MOBILE', true);
       await client.publish([localVideoTrack]);
       logger.info('Video track published');
     }
