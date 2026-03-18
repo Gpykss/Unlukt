@@ -117,7 +117,6 @@ export default function VideoCallRoom() {
 
       const channelName = `video_${bookingId}`;
       await joinChannel(channelName, null, currentUser.uid, true, bookingId);
-      playLocalVideo(localVideoRef.current);
 
       const client = getClient();
       client.on('user-published', async (user, mediaType) => {
@@ -139,6 +138,16 @@ export default function VideoCallRoom() {
 
       setInCall(true);
       setLoading(false);
+
+      // ✅ Play local preview — retry until ref is mounted
+      const tryPlay = () => {
+        if (localVideoRef.current) {
+          playLocalVideo(localVideoRef.current);
+        } else {
+          setTimeout(tryPlay, 200);
+        }
+      };
+      setTimeout(tryPlay, 100);
     } catch (err) {
       logger.error('Error initializing video call:', err);
       setError(err.message);
@@ -213,9 +222,9 @@ export default function VideoCallRoom() {
     <div className="min-h-screen bg-gray-900 relative overflow-hidden">
       <div ref={remoteVideoRef} className="absolute inset-0 bg-black" />
 
-      {/* Local PiP */}
+      {/* Local PiP — ref always mounted so preview can play */}
       <div className="absolute top-4 right-4 w-48 h-36 bg-gray-800 rounded-xl overflow-hidden shadow-2xl border-2 border-gray-700 z-10">
-        <div ref={localVideoRef} className="w-full h-full" />
+        <div ref={localVideoRef} className="w-full h-full" style={{ display: videoOff ? 'none' : 'block' }} />
         {videoOff && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
             <VideoOff className="w-8 h-8 text-gray-400" />
