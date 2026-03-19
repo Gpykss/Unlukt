@@ -88,7 +88,7 @@ function AppContent() {
       <div className={[
         showNav ? (isMessagesPage ? 'pt-14 lg:pt-0' : 'pt-14 pb-20 lg:pt-0 lg:pb-0') : '',
         showNav ? 'lg:ml-64' : '',
-        showNav && showDiscoverSidebar ? 'xl:mr-80' : '',
+        showNav && showDiscoverSidebar ? 'lg:mr-72' : '',
        
       ].filter(Boolean).join(' ')}>
         <Routes>
