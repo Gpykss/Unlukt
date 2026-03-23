@@ -81,16 +81,16 @@ function AppContent() {
   const isMessagesPage = path === '/messages';
 
   return (
-    <div className="app min-h-screen bg-gray-50">
+   <div className="app h-screen overflow-hidden bg-gray-50">
       {showNav && <MobileNavbar onMenuClick={() => setSidebarOpen(true)} />}
       {showNav && <GlobalSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
 
       <div className={[
-        showNav ? (isMessagesPage ? 'pt-14 lg:pt-0' : 'pt-14 pb-20 lg:pt-0 lg:pb-0') : '',
-        showNav ? 'lg:ml-64' : '',
-        showNav && showDiscoverSidebar ? 'lg:mr-72' : '',
-       
-      ].filter(Boolean).join(' ')}>
+      showNav ? (isMessagesPage ? 'pt-14 lg:pt-0' : 'pt-14 pb-20 lg:pt-0 lg:pb-0') : '',
+      showNav ? 'lg:ml-64' : '',
+      showNav && showDiscoverSidebar ? 'lg:mr-72' : '',
+      isMessagesPage ? 'overflow-hidden h-[calc(100dvh-56px)] lg:h-screen' : '',
+    ].filter(Boolean).join(' ')}>
         <Routes>
           {/* Public */}
           <Route path="/" element={<Landing />} />
