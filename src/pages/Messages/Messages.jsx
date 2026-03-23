@@ -143,16 +143,26 @@ export default function Messages() {
     const unsubscribe = subscribeToUserStatus(selectedChat.otherUser.id, (isOnline) => {
       setSelectedChat(prev => {
         if (!prev || prev.id !== selectedChat.id) return prev;
+        
         return {
           ...prev,
-          otherUser: { ...prev.otherUser, online: isOnline }
+          otherUser: {
+            ...prev.otherUser,
+            online: isOnline
+          }
         };
       });
       
       setConversations(prevConvos => 
         prevConvos.map(convo => 
           convo.otherUser?.id === selectedChat.otherUser.id
-            ? { ...convo, otherUser: { ...convo.otherUser, online: isOnline } }
+            ? {
+                ...convo,
+                otherUser: {
+                  ...convo.otherUser,
+                  online: isOnline
+                }
+              }
             : convo
         )
       );
@@ -187,6 +197,7 @@ export default function Messages() {
       };
       
       handleSelectChat(formattedConvo);
+      
     } catch (error) {
       console.error('Error starting conversation:', error);
       alert(error.message || 'Failed to start conversation');
@@ -215,13 +226,16 @@ export default function Messages() {
       );
 
       scrollToBottom();
+      
     } catch (error) {
       console.error('ERROR sending message:', error);
       alert(error.message || 'Failed to send message');
       setMessage(messageText);
     } finally {
       setSending(false);
-      setTimeout(() => { messageInputRef.current?.focus(); }, 0);
+      setTimeout(() => {
+        messageInputRef.current?.focus();
+      }, 0);
     }
   };
 
@@ -229,7 +243,10 @@ export default function Messages() {
     setSelectedChat(conversation);
     setShowMobileChat(true);
     setShowConversationMenu(null);
-    if (currentUser) markConversationAsRead(conversation.id, currentUser.uid);
+    
+    if (currentUser) {
+      markConversationAsRead(conversation.id, currentUser.uid);
+    }
   };
 
   const handleBackToList = () => {
@@ -291,59 +308,71 @@ export default function Messages() {
   };
 
   const handleSendPPV = async () => {
-    if (!ppvContent.trim() && !ppvMedia) return;
-    try {
-      setSendingPPV(true);
-      let mediaUrl = null;
-      let mediaType = null;
+  if (!ppvContent.trim() && !ppvMedia) return;
+  try {
+    setSendingPPV(true);
+    let mediaUrl = null;
+    let mediaType = null;
 
-      if (ppvMedia) {
-        const result = await uploadToBunny(ppvMedia, { folder: 'ppv-messages', contentType: 'media' });
+    if (ppvMedia) {
+      const result = await uploadToBunny(ppvMedia, { folder: 'ppv-messages', contentType: 'media' });
         mediaUrl = result.cdnUrl;
-        mediaType = ppvMedia.type.startsWith('video') ? 'video' : 'image';
-      }
-
-      await sendPPVMessage(selectedChat.id, currentUser.uid, {
-        content: ppvContent,
-        price: parseFloat(ppvPrice),
-        mediaUrl,
-        mediaType
-      });
-      setPPVContent('');
-      setPPVPrice(12);
-      setPPVMedia(null);
-      setShowPPVModal(false);
-    } catch (err) {
-      console.error('Error sending PPV:', err);
-      alert('Failed to send locked message');
-    } finally {
-      setSendingPPV(false);
+      mediaType = ppvMedia.type.startsWith('video') ? 'video' : 'image';
     }
-  };
+
+    await sendPPVMessage(selectedChat.id, currentUser.uid, {
+      content: ppvContent,
+      price: parseFloat(ppvPrice),
+      mediaUrl,
+      mediaType
+    });
+    setPPVContent('');
+    setPPVPrice(12);
+    setPPVMedia(null);
+    setShowPPVModal(false);
+  } catch (err) {
+    console.error('Error sending PPV:', err);
+    alert('Failed to send locked message');
+  } finally {
+    setSendingPPV(false);
+  }
+};
 
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
+    
     try {
       const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
       const now = new Date();
       const diff = now - date;
+      
       const minutes = Math.floor(diff / 60000);
       const hours = Math.floor(diff / 3600000);
       const days = Math.floor(diff / 86400000);
+      
       if (minutes < 1) return 'Just now';
       if (minutes < 60) return `${minutes}m ago`;
       if (hours < 24) return `${hours}h ago`;
       if (days < 7) return `${days}d ago`;
       return date.toLocaleDateString();
-    } catch (error) { return ''; }
+    } catch (error) {
+      return '';
+    }
   };
 
   const formatMessageTime = (timestamp) => {
     if (!timestamp) return '';
+    
     try {
       const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-      return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-    } catch (error) { return ''; }
+      return date.toLocaleTimeString('en-US', { 
+        hour: 'numeric', 
+        minute: '2-digit',
+        hour12: true 
+      });
+    } catch (error) {
+      return '';
+    }
   };
 
   if (loading) {
@@ -358,11 +387,9 @@ export default function Messages() {
   }
 
   return (
-    // ✅ FIX: use dvh and account for mobile top+bottom nav
-    <div className="flex flex-col bg-gray-50 overflow-hidden" style={{ height: '100dvh' }}>
-      {/* ✅ Inner wrapper: on mobile pad top 56px (navbar) + bottom 64px (bottom nav), desktop no padding */}
-      <div className="flex flex-1 overflow-hidden pt-14 pb-16 lg:pt-0 lg:pb-0">
-
+    // ✅ FIXED: Mobile height with proper overflow
+    <div className="flex flex-col bg-gray-50 overflow-hidden" style={{ height: '100dvh', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+    <div className="h-full flex min-h-0">
         {/* Conversations Sidebar */}
         <div className={`w-full md:w-96 bg-white border-r border-gray-200 flex flex-col ${
           showMobileChat ? 'hidden md:flex' : 'flex'
@@ -467,7 +494,10 @@ export default function Messages() {
                   <AnimatePresence>
                     {showConversationMenu === conversation.id && (
                       <>
-                        <div className="fixed inset-0 z-10" onClick={() => setShowConversationMenu(null)} />
+                        <div 
+                          className="fixed inset-0 z-10" 
+                          onClick={() => setShowConversationMenu(null)}
+                        />
                         <motion.div
                           initial={{ opacity: 0, scale: 0.95 }}
                           animate={{ opacity: 1, scale: 1 }}
@@ -479,14 +509,25 @@ export default function Messages() {
                             className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center space-x-3 text-gray-700 transition"
                           >
                             {conversation.muted ? (
-                              <><Bell className="w-4 h-4" /><span>Unmute</span></>
+                              <>
+                                <Bell className="w-4 h-4" />
+                                <span>Unmute</span>
+                              </>
                             ) : (
-                              <><BellOff className="w-4 h-4" /><span>Mute</span></>
+                              <>
+                                <BellOff className="w-4 h-4" />
+                                <span>Mute</span>
+                              </>
                             )}
                           </button>
+
                           <div className="border-t border-gray-200 my-1"></div>
+
                           <button
-                            onClick={() => { setShowDeleteModal(true); setShowConversationMenu(null); }}
+                            onClick={() => {
+                              setShowDeleteModal(true);
+                              setShowConversationMenu(null);
+                            }}
                             className="w-full px-4 py-3 text-left text-red-600 hover:bg-red-50 flex items-center space-x-3 transition"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -502,15 +543,20 @@ export default function Messages() {
           </div>
         </div>
 
-        {/* Chat Area */}
-        <div className={`flex-1 flex flex-col bg-white ${showMobileChat ? 'flex' : 'hidden md:flex'}`}>
+        {/* ✅ FIXED: Chat Area - Proper height and overflow */}
+          <div className={`flex-1 flex flex-col bg-white min-h-0 ${
+            showMobileChat ? 'flex' : 'hidden md:flex'
+          }`}>
           {selectedChat ? (
             <>
-              {/* Chat Header */}
+              {/* Chat Header - Fixed */}
               <div className="p-3 sm:p-4 border-b border-gray-200 flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
-                    <button onClick={handleBackToList} className="p-2 hover:bg-gray-100 rounded-lg transition md:hidden">
+                    <button
+                      onClick={handleBackToList}
+                      className="p-2 hover:bg-gray-100 rounded-lg transition md:hidden"
+                    >
                       <ArrowLeft className="w-5 h-5 text-gray-600" />
                     </button>
                     <div className="relative">
@@ -533,135 +579,180 @@ export default function Messages() {
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-2">
-                    {selectedChat && (
-                      <button
-                        onClick={() => { if (!currentUser) { navigate('/login'); return; } setShowTipModal(true); }}
-                        className="p-2 hover:bg-yellow-50 rounded-lg transition"
-                        title="Send a gift"
-                      >
-                        <Gift className="w-5 h-5 text-yellow-500" />
-                      </button>
-                    )}
+                 {/* ✅Gift button  */}
+                    <div className="flex items-center space-x-2">
+                      {selectedChat && (
+                        <button
+                          onClick={() => {
+                            if (!currentUser) { navigate('/login'); return; }
+                            setShowTipModal(true);
+                          }}
+                          className="p-2 hover:bg-yellow-50 rounded-lg transition"
+                          title="Send a gift"
+                        >
+                          <Gift className="w-5 h-5 text-yellow-500" />
+                        </button>
+                      )}
+                  </div>
 
-                    <div className="relative">
-                      <button onClick={() => setShowChatMenu(!showChatMenu)} className="p-2 hover:bg-gray-100 rounded-lg transition">
-                        <MoreVertical className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
-                      </button>
-                      <AnimatePresence>
-                        {showChatMenu && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={() => setShowChatMenu(false)} />
-                            <motion.div
-                              initial={{ opacity: 0, scale: 0.95 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.95 }}
-                              className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-20"
-                            >
-                              {isBlocked && (
-                                <>
-                                  <button
-                                    onClick={async () => {
-                                      try {
-                                        await unblockUser(currentUser.uid, selectedChat.otherUser.id);
-                                        setIsBlocked(false);
-                                        setShowChatMenu(false);
-                                        alert('User unblocked successfully!');
-                                      } catch (error) {
-                                        console.error('Error unblocking user:', error);
-                                        alert('Failed to unblock user');
-                                      }
-                                    }}
-                                    className="w-full px-4 py-3 text-left text-green-600 hover:bg-green-50 flex items-center space-x-3 transition font-semibold"
-                                  >
-                                    <AlertTriangle className="w-4 h-4" />
-                                    <span>Unblock User</span>
-                                  </button>
-                                  <div className="border-t border-gray-200 my-1"></div>
-                                </>
-                              )}
-                              <button
-                                onClick={() => { setShowClearModal(true); setShowChatMenu(false); }}
-                                className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center space-x-3 text-gray-700 transition"
-                              >
-                                <MessageSquareOff className="w-4 h-4" />
-                                <span>Clear Chat</span>
-                              </button>
-                              <div className="border-t border-gray-200 my-1"></div>
-                              {!isBlocked && (
+                  {/* Chat Menu */}
+                  <div className="relative">
+                    <button 
+                      onClick={() => setShowChatMenu(!showChatMenu)}
+                      className="p-2 hover:bg-gray-100 rounded-lg transition"
+                    >
+                      <MoreVertical className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
+                    </button>
+
+                    <AnimatePresence>
+                      {showChatMenu && (
+                        <>
+                          <div 
+                            className="fixed inset-0 z-10" 
+                            onClick={() => setShowChatMenu(false)}
+                          />
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-20"
+                          >
+                            {isBlocked && (
+                              <>
                                 <button
-                                  onClick={() => { setShowBlockModal(true); setShowChatMenu(false); }}
-                                  className="w-full px-4 py-3 text-left text-red-600 hover:bg-red-50 flex items-center space-x-3 transition"
+                                  onClick={async () => {
+                                    try {
+                                      await unblockUser(currentUser.uid, selectedChat.otherUser.id);
+                                      setIsBlocked(false);
+                                      setShowChatMenu(false);
+                                      alert('User unblocked successfully!');
+                                    } catch (error) {
+                                      console.error('Error unblocking user:', error);
+                                      alert('Failed to unblock user');
+                                    }
+                                  }}
+                                  className="w-full px-4 py-3 text-left text-green-600 hover:bg-green-50 flex items-center space-x-3 transition font-semibold"
                                 >
-                                  <Ban className="w-4 h-4" />
-                                  <span>Block User</span>
+                                  <AlertTriangle className="w-4 h-4" />
+                                  <span>Unblock User</span>
                                 </button>
-                              )}
-                            </motion.div>
-                          </>
-                        )}
-                      </AnimatePresence>
-                    </div>
+                                <div className="border-t border-gray-200 my-1"></div>
+                              </>
+                            )}
+
+                            <button
+                              onClick={() => {
+                                setShowClearModal(true);
+                                setShowChatMenu(false);
+                              }}
+                              className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center space-x-3 text-gray-700 transition"
+                            >
+                              <MessageSquareOff className="w-4 h-4" />
+                              <span>Clear Chat</span>
+                            </button>
+
+                            <div className="border-t border-gray-200 my-1"></div>
+
+                            {!isBlocked && (
+                              <button
+                                onClick={() => {
+                                  setShowBlockModal(true);
+                                  setShowChatMenu(false);
+                                }}
+                                className="w-full px-4 py-3 text-left text-red-600 hover:bg-red-50 flex items-center space-x-3 transition"
+                              >
+                                <Ban className="w-4 h-4" />
+                                <span>Block User</span>
+                              </button>
+                            )}
+                          </motion.div>
+                        </>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </div>
 
+                {/* Blocked Warning */}
                 {isBlocked && (
                   <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 mt-3 rounded">
                     <div className="flex items-start">
                       <AlertTriangle className="w-5 h-5 text-yellow-600 mr-3 flex-shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-sm font-semibold text-yellow-800">This user is blocked</p>
-                        <p className="text-xs text-yellow-700 mt-1">You cannot send or receive messages. Unblock from the menu to continue.</p>
+                        <p className="text-sm font-semibold text-yellow-800">
+                          This user is blocked
+                        </p>
+                        <p className="text-xs text-yellow-700 mt-1">
+                          You cannot send or receive messages. Unblock from the menu to continue.
+                        </p>
                       </div>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Messages - scrollable */}
-              <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 space-y-2 sm:space-y-3 md:space-y-4">
-                {messages.map((msg) => (
-                  msg.isPPV ? (
-                    <PPVMessageCard
-                      key={msg.id}
-                      message={msg}
-                      conversationId={selectedChat.id}
-                      onUnlock={(payment) => { window.open(payment.paymentUrl, '_blank'); }}
-                    />
-                  ) : (
-                    <motion.div
-                      key={msg.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className={`flex ${msg.senderId === currentUser.uid ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div className="max-w-[85%] sm:max-w-[75%] md:max-w-xs lg:max-w-md">
-                        <div className={`rounded-2xl px-3 sm:px-4 py-2 sm:py-3 ${
-                          msg.senderId === currentUser.uid ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-900'
-                        }`}>
-                          <p className="text-sm sm:text-base break-words">
-                            {(() => {
-                              if (!msg) return '';
-                              if (typeof msg.text === 'string') return msg.text;
-                              if (msg.text && typeof msg.text === 'object' && msg.text.text) return String(msg.text.text);
-                              if (msg.content) return String(msg.content);
-                              if (msg.text) return JSON.stringify(msg.text);
-                              return '';
-                            })()}
-                          </p>
-                        </div>
-                        <p className={`text-xs text-gray-400 mt-1 ${msg.senderId === currentUser.uid ? 'text-right' : 'text-left'}`}>
-                          {formatMessageTime(msg.createdAt)}
-                        </p>
-                      </div>
-                    </motion.div>
-                  )
-                ))}
+              {/* ✅ Messages - ONLY THIS SCROLLS */}
+              <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 pb-36 md:pb-6 space-y-2 sm:space-y-3 md:space-y-4">
+              {messages.map((msg) => (
+              msg.isPPV ? (
+                <PPVMessageCard
+                  key={msg.id}
+                  message={msg}
+                  conversationId={selectedChat.id}
+                  onUnlock={(payment) => {
+                    window.open(payment.paymentUrl, '_blank');
+                  }}
+                />
+              ) : (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`flex ${msg.senderId === currentUser.uid ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div className="max-w-[85%] sm:max-w-[75%] md:max-w-xs lg:max-w-md">
+                    <div className={`rounded-2xl px-3 sm:px-4 py-2 sm:py-3 ${
+                      msg.senderId === currentUser.uid
+                        ? 'bg-rose-500 text-white'
+                        : 'bg-gray-100 text-gray-900'
+                    }`}>
+                     <p className="text-sm sm:text-base break-words">
+                        {(() => {
+                          // ✅ Safely extract text from message
+                          if (!msg) return '';
+                          
+                          // If text is a string, return it
+                          if (typeof msg.text === 'string') return msg.text;
+                          
+                          // If text is an object with a text property
+                          if (msg.text && typeof msg.text === 'object' && msg.text.text) {
+                            return String(msg.text.text);
+                          }
+                          
+                          // Fallback to content field
+                          if (msg.content) return String(msg.content);
+                          
+                          // Last resort - stringify the object (for debugging)
+                          if (msg.text) return JSON.stringify(msg.text);
+                          
+                          return '';
+                        })()}
+                      </p>
+                    </div>
+                    <p className={`text-xs text-gray-400 mt-1 ${
+                      msg.senderId === currentUser.uid ? 'text-right' : 'text-left'
+                    }`}>
+                      {formatMessageTime(msg.createdAt)}
+                    </p>
+                  </div>
+                </motion.div>
+              )
+            ))}
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* ✅ Message Input */}
-              <div className="p-3 sm:p-4 border-t border-gray-200 flex-shrink-0 bg-white">
+              {/* ✅ Message Input - Fixed at Bottom */}
+             <div className="p-3 sm:p-4 border-t border-gray-200 flex-shrink-0 bg-white z-10 fixed left-0 right-0 md:static md:bottom-auto md:left-auto md:right-auto"
+                style={{ bottom: '65px', paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
                 <div className="flex items-center space-x-2 sm:space-x-3">
                   <div className="flex-1 relative">
                     <input
@@ -719,82 +810,101 @@ export default function Messages() {
             </div>
           )}
         </div>
-
-      </div>{/* end inner wrapper */}
+      </div>
 
       {/* PPV Modal */}
-      <AnimatePresence>
-        {showPPVModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
-            <motion.div
-              initial={{ opacity: 0, y: 50 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 50 }}
-              className="bg-white rounded-2xl p-6 w-full max-w-md"
-            >
-              <h3 className="text-lg font-bold text-gray-900 mb-4">🔒 Send Locked Message</h3>
-              <textarea
-                value={ppvContent}
-                onChange={(e) => setPPVContent(e.target.value)}
-                placeholder="Message content (blurred until unlocked)..."
-                rows={3}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 resize-none text-sm mb-3"
-              />
-              <div className="mb-4">
-                {ppvMedia ? (
-                  <div className="relative rounded-xl overflow-hidden border border-gray-200">
-                    {ppvMedia.type.startsWith('video') ? (
-                      <video src={URL.createObjectURL(ppvMedia)} className="w-full max-h-40 object-cover" />
-                    ) : (
-                      <img src={URL.createObjectURL(ppvMedia)} className="w-full max-h-40 object-cover" />
-                    )}
-                    <button onClick={() => setPPVMedia(null)} className="absolute top-2 right-2 bg-black/50 text-white rounded-full p-1">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <label className="flex items-center justify-center space-x-2 w-full py-3 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:border-rose-300 transition">
-                    <input type="file" accept="image/*,video/*" onChange={(e) => setPPVMedia(e.target.files?.[0] || null)} className="hidden" />
-                    <Image className="w-5 h-5 text-gray-400" />
-                    <span className="text-sm text-gray-500">Add photo or video</span>
-                  </label>
-                )}
-              </div>
-              <div className="flex items-center space-x-3 mb-4">
-                <label className="text-sm font-semibold text-gray-700">Unlock Price ($)</label>
-                <input
-                  type="number" min="12" value={ppvPrice}
-                  onChange={(e) => setPPVPrice(e.target.value)}
-                  className="w-24 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500 text-sm"
+          <AnimatePresence>
+            {showPPVModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
+              <motion.div
+                initial={{ opacity: 0, y: 50 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 50 }}
+                className="bg-white rounded-2xl p-6 w-full max-w-md"
+              >
+                <h3 className="text-lg font-bold text-gray-900 mb-4">🔒 Send Locked Message</h3>
+                
+                <textarea
+                  value={ppvContent}
+                  onChange={(e) => setPPVContent(e.target.value)}
+                  placeholder="Message content (blurred until unlocked)..."
+                  rows={3}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 resize-none text-sm mb-3"
                 />
-              </div>
-              <div className="flex space-x-3">
-                <button onClick={() => { setShowPPVModal(false); setPPVMedia(null); }} className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl font-semibold transition">Cancel</button>
-                <button
-                  onClick={handleSendPPV}
-                  disabled={(!ppvContent.trim() && !ppvMedia) || sendingPPV}
-                  className="flex-1 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-semibold transition disabled:opacity-50"
-                >
-                  {sendingPPV ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Send Locked'}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
-      {/* Tip Modal */}
-      {selectedChat && (
-        <TipModal
-          isOpen={showTipModal}
-          onClose={() => setShowTipModal(false)}
-          creator={{
-            uid: selectedChat.otherUser.id,
-            name: selectedChat.otherUser.name,
-            avatar: selectedChat.otherUser.avatar,
-          }}
-        />
-      )}
+                {/* Media Upload */}
+                <div className="mb-4">
+                  {ppvMedia ? (
+                    <div className="relative rounded-xl overflow-hidden border border-gray-200">
+                      {ppvMedia.type.startsWith('video') ? (
+                        <video src={URL.createObjectURL(ppvMedia)} className="w-full max-h-40 object-cover" />
+                      ) : (
+                        <img src={URL.createObjectURL(ppvMedia)} className="w-full max-h-40 object-cover" />
+                      )}
+                      <button
+                        onClick={() => setPPVMedia(null)}
+                        className="absolute top-2 right-2 bg-black/50 text-white rounded-full p-1"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex items-center justify-center space-x-2 w-full py-3 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:border-rose-300 transition">
+                      <input
+                        type="file"
+                        accept="image/*,video/*"
+                        onChange={(e) => setPPVMedia(e.target.files?.[0] || null)}
+                        className="hidden"
+                      />
+                      <Image className="w-5 h-5 text-gray-400" />
+                      <span className="text-sm text-gray-500">Add photo or video</span>
+                    </label>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-3 mb-4">
+                  <label className="text-sm font-semibold text-gray-700">Unlock Price ($)</label>
+                  <input
+                    type="number"
+                    min="12"
+                    value={ppvPrice}
+                    onChange={(e) => setPPVPrice(e.target.value)}
+                    className="w-24 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500 text-sm"
+                  />
+                </div>
+
+                <div className="flex space-x-3">
+                  <button
+                    onClick={() => { setShowPPVModal(false); setPPVMedia(null); }}
+                    className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl font-semibold transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSendPPV}
+                    disabled={(!ppvContent.trim() && !ppvMedia) || sendingPPV}
+                    className="flex-1 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-semibold transition disabled:opacity-50"
+                  >
+                    {sendingPPV ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Send Locked'}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+          </AnimatePresence>
+
+                {/* ✅Tip Modal */}
+              {selectedChat && (
+                <TipModal
+                  isOpen={showTipModal}
+                  onClose={() => setShowTipModal(false)}
+                  creator={{
+                    uid: selectedChat.otherUser.id,
+                    name: selectedChat.otherUser.name,
+                    avatar: selectedChat.otherUser.avatar,
+                  }}
+                />
+              )}
     </div>
   );
 }
