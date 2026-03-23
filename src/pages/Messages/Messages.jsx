@@ -391,8 +391,8 @@ export default function Messages() {
 
   return (
     // ✅ FIXED: Mobile height with proper overflow
-    <div className="flex flex-col bg-gray-50 overflow-hidden" style={{ height: '100dvh', paddingBottom: 'env(safe-area-inset-bottom)' }}>
-    <div className="h-full flex min-h-0">
+    <div className="flex flex-col bg-gray-50 overflow-hidden" style={{ height: '100dvh', maxHeight: '100dvh' }}>
+    <div className="flex min-h-0" style={{ height: '100%', overflow: 'hidden' }}>
         {/* Conversations Sidebar */}
         <div className={`w-full md:w-96 bg-white border-r border-gray-200 flex flex-col ${
           showMobileChat ? 'hidden md:flex' : 'flex'
