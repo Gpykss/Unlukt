@@ -694,7 +694,7 @@ export default function Messages() {
               </div>
 
               {/* ✅ Messages - ONLY THIS SCROLLS */}
-              <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 pb-36 md:pb-6 space-y-2 sm:space-y-3 md:space-y-4">
+              <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 pb-24 md:pb-6space-y-2 sm:space-y-3 md:space-y-4">
               {messages.map((msg) => (
               msg.isPPV ? (
                 <PPVMessageCard
@@ -754,8 +754,8 @@ export default function Messages() {
               </div>
 
               {/* ✅ Message Input - Fixed at Bottom */}
-             <div className="p-3 sm:p-4 border-t border-gray-200 flex-shrink-0 bg-white z-10 fixed left-0 right-0 md:static md:bottom-auto md:left-auto md:right-auto"
-                style={{ bottom: '65px', paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+            <div className="p-3 sm:p-4 border-t border-gray-200 flex-shrink-0 bg-white z-10 fixed left-0 right-0 md:static md:bottom-auto md:left-auto md:right-auto shadow-[0_-2px_10px_rgba(0,0,0,0.06)]"
+               style={{ bottom: window.innerWidth < 768 ? '70px' : undefined, paddingBottom: '0.5rem' }}>
                 <div className="flex items-center space-x-2 sm:space-x-3">
                   <div className="flex-1 relative">
                     <input

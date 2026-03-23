@@ -81,7 +81,7 @@ function AppContent() {
   const isMessagesPage = path === '/messages';
 
   return (
-   <div className="app h-screen overflow-hidden bg-gray-50">
+   <div className="app min-h-screen bg-gray-50">
       {showNav && <MobileNavbar onMenuClick={() => setSidebarOpen(true)} />}
       {showNav && <GlobalSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
 
