@@ -84,7 +84,10 @@ export default function Messages() {
 
   useEffect(() => {
     if (!sending && selectedChat && messageInputRef.current) {
-      messageInputRef.current.focus();
+      // Only auto-focus on desktop, not mobile
+      if (window.innerWidth >= 768) {
+        messageInputRef.current.focus();
+      }
     }
   }, [sending, selectedChat]);
 
