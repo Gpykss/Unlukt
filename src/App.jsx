@@ -81,16 +81,16 @@ function AppContent() {
   const isMessagesPage = path === '/messages';
 
   return (
-   <div className="app min-h-screen bg-gray-50">
-      {showNav && <MobileNavbar onMenuClick={() => setSidebarOpen(true)} />}
-      {showNav && <GlobalSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
+    <div className="app bg-gray-50" style={{ height: '100dvh', overflow: isMessagesPage ? 'hidden' : 'auto' }}>
+    {showNav && <MobileNavbar onMenuClick={() => setSidebarOpen(true)} />}
+    {showNav && <GlobalSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
 
-      <div className={[
-        showNav ? (isMessagesPage ? 'pt-14 lg:pt-0' : 'pt-14 pb-20 lg:pt-0 lg:pb-0') : '',
-        showNav ? 'lg:ml-64' : '',
-        showNav && showDiscoverSidebar ? 'lg:mr-72' : '',
-        isMessagesPage ? 'overflow-hidden h-[calc(100dvh-56px)] lg:h-screen' : 'overflow-y-auto',
-      ].filter(Boolean).join(' ')}>
+    <div className={[
+      showNav ? (isMessagesPage ? 'pt-14 lg:pt-0' : 'pt-14 pb-20 lg:pt-0 lg:pb-0') : '',
+      showNav ? 'lg:ml-64' : '',
+      showNav && showDiscoverSidebar ? 'lg:mr-72' : '',
+      isMessagesPage ? 'h-[calc(100dvh-56px)] lg:h-screen overflow-hidden' : '',
+    ].filter(Boolean).join(' ')}>
         <Routes>
           {/* Public */}
           <Route path="/" element={<Landing />} />

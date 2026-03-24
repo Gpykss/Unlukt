@@ -18,7 +18,8 @@ import {
   AlertTriangle,
   Lock,
   X, Image, Video,
-  Gift
+  Gift,
+  PhoneCall
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -390,9 +391,8 @@ export default function Messages() {
   }
 
   return (
-    // ✅ FIXED: Mobile height with proper overflow
-    <div className="flex flex-col bg-gray-50 overflow-hidden h-full">
-    <div className="flex min-h-0" style={{ height: '100%', overflow: 'hidden' }}>
+    <div className="flex flex-col bg-white overflow-hidden" style={{ height: '100%' }}>
+    <div className="flex overflow-hidden" style={{ flex: 1, minHeight: 0 }}>
         {/* Conversations Sidebar */}
         <div className={`w-full md:w-96 bg-white border-r border-gray-200 flex flex-col ${
           showMobileChat ? 'hidden md:flex' : 'flex'
@@ -546,13 +546,13 @@ export default function Messages() {
           </div>
         </div>
 
-        {/* ✅ FIXED: Chat Area - Proper height and overflow */}
-          <div className={`flex-1 flex flex-col bg-white min-h-0 ${
-            showMobileChat ? 'flex' : 'hidden md:flex'
-          }`}>
+        {/* Chat Area */}
+        <div className={`flex-1 flex flex-col bg-white min-h-0 ${
+          showMobileChat ? 'flex' : 'hidden md:flex'
+        }`}>
           {selectedChat ? (
             <>
-              {/* Chat Header - Fixed */}
+              {/* Chat Header */}
               <div className="p-3 sm:p-4 border-b border-gray-200 flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
@@ -582,20 +582,20 @@ export default function Messages() {
                     </div>
                   </div>
 
-                 {/* ✅Gift button  */}
-                    <div className="flex items-center space-x-2">
-                      {selectedChat && (
-                        <button
-                          onClick={() => {
-                            if (!currentUser) { navigate('/login'); return; }
-                            setShowTipModal(true);
-                          }}
-                          className="p-2 hover:bg-yellow-50 rounded-lg transition"
-                          title="Send a gift"
-                        >
-                          <Gift className="w-5 h-5 text-yellow-500" />
-                        </button>
-                      )}
+                  {/* Gift button */}
+                  <div className="flex items-center space-x-2">
+                    {selectedChat && (
+                      <button
+                        onClick={() => {
+                          if (!currentUser) { navigate('/login'); return; }
+                          setShowTipModal(true);
+                        }}
+                        className="p-2 hover:bg-yellow-50 rounded-lg transition"
+                        title="Send a gift"
+                      >
+                        <Gift className="w-5 h-5 text-yellow-500" />
+                      </button>
+                    )}
                   </div>
 
                   {/* Chat Menu */}
@@ -620,29 +620,21 @@ export default function Messages() {
                             exit={{ opacity: 0, scale: 0.95 }}
                             className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-20"
                           >
-                            {isBlocked && (
-                              <>
-                                <button
-                                  onClick={async () => {
-                                    try {
-                                      await unblockUser(currentUser.uid, selectedChat.otherUser.id);
-                                      setIsBlocked(false);
-                                      setShowChatMenu(false);
-                                      alert('User unblocked successfully!');
-                                    } catch (error) {
-                                      console.error('Error unblocking user:', error);
-                                      alert('Failed to unblock user');
-                                    }
-                                  }}
-                                  className="w-full px-4 py-3 text-left text-green-600 hover:bg-green-50 flex items-center space-x-3 transition font-semibold"
-                                >
-                                  <AlertTriangle className="w-4 h-4" />
-                                  <span>Unblock User</span>
-                                </button>
-                                <div className="border-t border-gray-200 my-1"></div>
-                              </>
-                            )}
+                            {/* Book a Call */}
+                            <button
+                              onClick={() => {
+                                navigate(`/book-video-call/${selectedChat.otherUser.id}`);
+                                setShowChatMenu(false);
+                              }}
+                              className="w-full px-4 py-3 text-left hover:bg-blue-50 flex items-center space-x-3 text-blue-600 transition"
+                            >
+                              <PhoneCall className="w-4 h-4" />
+                              <span>Book a Call</span>
+                            </button>
 
+                            <div className="border-t border-gray-200 my-1"></div>
+
+                            {/* Clear Chat */}
                             <button
                               onClick={() => {
                                 setShowClearModal(true);
@@ -656,7 +648,25 @@ export default function Messages() {
 
                             <div className="border-t border-gray-200 my-1"></div>
 
-                            {!isBlocked && (
+                            {/* Block / Unblock */}
+                            {isBlocked ? (
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await unblockUser(currentUser.uid, selectedChat.otherUser.id);
+                                    setIsBlocked(false);
+                                    setShowChatMenu(false);
+                                  } catch (error) {
+                                    console.error('Error unblocking user:', error);
+                                    alert('Failed to unblock user');
+                                  }
+                                }}
+                                className="w-full px-4 py-3 text-left text-green-600 hover:bg-green-50 flex items-center space-x-3 transition font-semibold"
+                              >
+                                <AlertTriangle className="w-4 h-4" />
+                                <span>Unblock User</span>
+                              </button>
+                            ) : (
                               <button
                                 onClick={() => {
                                   setShowBlockModal(true);
@@ -693,69 +703,59 @@ export default function Messages() {
                 )}
               </div>
 
-              {/* ✅ Messages - ONLY THIS SCROLLS */}
-              <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 pb-24 md:pb-6space-y-2 sm:space-y-3 md:space-y-4">
-              {messages.map((msg) => (
-              msg.isPPV ? (
-                <PPVMessageCard
-                  key={msg.id}
-                  message={msg}
-                  conversationId={selectedChat.id}
-                  onUnlock={(payment) => {
-                    window.open(payment.paymentUrl, '_blank');
-                  }}
-                />
-              ) : (
-                <motion.div
-                  key={msg.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`flex ${msg.senderId === currentUser.uid ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div className="max-w-[85%] sm:max-w-[75%] md:max-w-xs lg:max-w-md">
-                    <div className={`rounded-2xl px-3 sm:px-4 py-2 sm:py-3 ${
-                      msg.senderId === currentUser.uid
-                        ? 'bg-rose-500 text-white'
-                        : 'bg-gray-100 text-gray-900'
-                    }`}>
-                     <p className="text-sm sm:text-base break-words">
-                        {(() => {
-                          // ✅ Safely extract text from message
-                          if (!msg) return '';
-                          
-                          // If text is a string, return it
-                          if (typeof msg.text === 'string') return msg.text;
-                          
-                          // If text is an object with a text property
-                          if (msg.text && typeof msg.text === 'object' && msg.text.text) {
-                            return String(msg.text.text);
-                          }
-                          
-                          // Fallback to content field
-                          if (msg.content) return String(msg.content);
-                          
-                          // Last resort - stringify the object (for debugging)
-                          if (msg.text) return JSON.stringify(msg.text);
-                          
-                          return '';
-                        })()}
-                      </p>
-                    </div>
-                    <p className={`text-xs text-gray-400 mt-1 ${
-                      msg.senderId === currentUser.uid ? 'text-right' : 'text-left'
-                    }`}>
-                      {formatMessageTime(msg.createdAt)}
-                    </p>
-                  </div>
-                </motion.div>
-              )
-            ))}
+              {/* Messages - ONLY THIS SCROLLS */}
+              <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 pb-24 md:pb-6 space-y-2 sm:space-y-3 md:space-y-4">
+                {messages.map((msg) => (
+                  msg.isPPV ? (
+                    <PPVMessageCard
+                      key={msg.id}
+                      message={msg}
+                      conversationId={selectedChat.id}
+                      onUnlock={(payment) => {
+                        window.open(payment.paymentUrl, '_blank');
+                      }}
+                    />
+                  ) : (
+                    <motion.div
+                      key={msg.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`flex ${msg.senderId === currentUser.uid ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div className="max-w-[85%] sm:max-w-[75%] md:max-w-xs lg:max-w-md">
+                        <div className={`rounded-2xl px-3 sm:px-4 py-2 sm:py-3 ${
+                          msg.senderId === currentUser.uid
+                            ? 'bg-rose-500 text-white'
+                            : 'bg-gray-100 text-gray-900'
+                        }`}>
+                          <p className="text-sm sm:text-base break-words">
+                            {(() => {
+                              if (!msg) return '';
+                              if (typeof msg.text === 'string') return msg.text;
+                              if (msg.text && typeof msg.text === 'object' && msg.text.text) {
+                                return String(msg.text.text);
+                              }
+                              if (msg.content) return String(msg.content);
+                              if (msg.text) return JSON.stringify(msg.text);
+                              return '';
+                            })()}
+                          </p>
+                        </div>
+                        <p className={`text-xs text-gray-400 mt-1 ${
+                          msg.senderId === currentUser.uid ? 'text-right' : 'text-left'
+                        }`}>
+                          {formatMessageTime(msg.createdAt)}
+                        </p>
+                      </div>
+                    </motion.div>
+                  )
+                ))}
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* ✅ Message Input - Fixed at Bottom */}
-            <div className="p-3 sm:p-4 border-t border-gray-200 flex-shrink-0 bg-white z-10 fixed left-0 right-0 md:static md:bottom-auto md:left-auto md:right-auto shadow-[0_-2px_10px_rgba(0,0,0,0.06)]"
-               style={{ bottom: window.innerWidth < 768 ? '70px' : undefined, paddingBottom: '0.5rem' }}>
+              {/* Message Input - Fixed at Bottom */}
+              <div className="p-3 sm:p-4 border-t border-gray-200 flex-shrink-0 bg-white z-10 fixed left-0 right-0 md:static md:bottom-auto md:left-auto md:right-auto shadow-[0_-2px_10px_rgba(0,0,0,0.06)]"
+                style={{ bottom: window.innerWidth < 768 ? '70px' : undefined, paddingBottom: '0.5rem' }}>
                 <div className="flex items-center space-x-2 sm:space-x-3">
                   <div className="flex-1 relative">
                     <input
@@ -815,99 +815,173 @@ export default function Messages() {
         </div>
       </div>
 
-      {/* PPV Modal */}
-          <AnimatePresence>
-            {showPPVModal && (
-            <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
-              <motion.div
-                initial={{ opacity: 0, y: 50 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 50 }}
-                className="bg-white rounded-2xl p-6 w-full max-w-md"
+      {/* ✅ Clear Chat Modal */}
+      {showClearModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Clear Chat</h3>
+            <p className="text-gray-500 text-sm mb-6">This will delete all messages in this conversation. This cannot be undone.</p>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setShowClearModal(false)}
+                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl font-semibold transition"
               >
-                <h3 className="text-lg font-bold text-gray-900 mb-4">🔒 Send Locked Message</h3>
-                
-                <textarea
-                  value={ppvContent}
-                  onChange={(e) => setPPVContent(e.target.value)}
-                  placeholder="Message content (blurred until unlocked)..."
-                  rows={3}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 resize-none text-sm mb-3"
-                />
-
-                {/* Media Upload */}
-                <div className="mb-4">
-                  {ppvMedia ? (
-                    <div className="relative rounded-xl overflow-hidden border border-gray-200">
-                      {ppvMedia.type.startsWith('video') ? (
-                        <video src={URL.createObjectURL(ppvMedia)} className="w-full max-h-40 object-cover" />
-                      ) : (
-                        <img src={URL.createObjectURL(ppvMedia)} className="w-full max-h-40 object-cover" />
-                      )}
-                      <button
-                        onClick={() => setPPVMedia(null)}
-                        className="absolute top-2 right-2 bg-black/50 text-white rounded-full p-1"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    <label className="flex items-center justify-center space-x-2 w-full py-3 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:border-rose-300 transition">
-                      <input
-                        type="file"
-                        accept="image/*,video/*"
-                        onChange={(e) => setPPVMedia(e.target.files?.[0] || null)}
-                        className="hidden"
-                      />
-                      <Image className="w-5 h-5 text-gray-400" />
-                      <span className="text-sm text-gray-500">Add photo or video</span>
-                    </label>
-                  )}
-                </div>
-
-                <div className="flex items-center space-x-3 mb-4">
-                  <label className="text-sm font-semibold text-gray-700">Unlock Price ($)</label>
-                  <input
-                    type="number"
-                    min="12"
-                    value={ppvPrice}
-                    onChange={(e) => setPPVPrice(e.target.value)}
-                    className="w-24 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500 text-sm"
-                  />
-                </div>
-
-                <div className="flex space-x-3">
-                  <button
-                    onClick={() => { setShowPPVModal(false); setPPVMedia(null); }}
-                    className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl font-semibold transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSendPPV}
-                    disabled={(!ppvContent.trim() && !ppvMedia) || sendingPPV}
-                    className="flex-1 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-semibold transition disabled:opacity-50"
-                  >
-                    {sendingPPV ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Send Locked'}
-                  </button>
-                </div>
-              </motion.div>
+                Cancel
+              </button>
+              <button
+                onClick={handleClearChat}
+                className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-semibold transition"
+              >
+                Clear
+              </button>
             </div>
-          )}
-          </AnimatePresence>
+          </div>
+        </div>
+      )}
 
-                {/* ✅Tip Modal */}
-              {selectedChat && (
-                <TipModal
-                  isOpen={showTipModal}
-                  onClose={() => setShowTipModal(false)}
-                  creator={{
-                    uid: selectedChat.otherUser.id,
-                    name: selectedChat.otherUser.name,
-                    avatar: selectedChat.otherUser.avatar,
-                  }}
+      {/* ✅ Block User Modal */}
+      {showBlockModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Block User</h3>
+            <p className="text-gray-500 text-sm mb-6">
+              You won't be able to send or receive messages from <span className="font-semibold text-gray-700">{selectedChat?.otherUser?.name}</span>.
+            </p>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setShowBlockModal(false)}
+                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl font-semibold transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBlockUser}
+                className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-semibold transition"
+              >
+                Block
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ Delete Conversation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Delete Conversation</h3>
+            <p className="text-gray-500 text-sm mb-6">This will permanently delete this conversation. This cannot be undone.</p>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl font-semibold transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteConversation(selectedChat?.id)}
+                className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-semibold transition"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PPV Modal */}
+      <AnimatePresence>
+        {showPPVModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 50 }}
+              className="bg-white rounded-2xl p-6 w-full max-w-md"
+            >
+              <h3 className="text-lg font-bold text-gray-900 mb-4">🔒 Send Locked Message</h3>
+              
+              <textarea
+                value={ppvContent}
+                onChange={(e) => setPPVContent(e.target.value)}
+                placeholder="Message content (blurred until unlocked)..."
+                rows={3}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 resize-none text-sm mb-3"
+              />
+
+              {/* Media Upload */}
+              <div className="mb-4">
+                {ppvMedia ? (
+                  <div className="relative rounded-xl overflow-hidden border border-gray-200">
+                    {ppvMedia.type.startsWith('video') ? (
+                      <video src={URL.createObjectURL(ppvMedia)} className="w-full max-h-40 object-cover" />
+                    ) : (
+                      <img src={URL.createObjectURL(ppvMedia)} className="w-full max-h-40 object-cover" />
+                    )}
+                    <button
+                      onClick={() => setPPVMedia(null)}
+                      className="absolute top-2 right-2 bg-black/50 text-white rounded-full p-1"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex items-center justify-center space-x-2 w-full py-3 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:border-rose-300 transition">
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      onChange={(e) => setPPVMedia(e.target.files?.[0] || null)}
+                      className="hidden"
+                    />
+                    <Image className="w-5 h-5 text-gray-400" />
+                    <span className="text-sm text-gray-500">Add photo or video</span>
+                  </label>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-3 mb-4">
+                <label className="text-sm font-semibold text-gray-700">Unlock Price ($)</label>
+                <input
+                  type="number"
+                  min="12"
+                  value={ppvPrice}
+                  onChange={(e) => setPPVPrice(e.target.value)}
+                  className="w-24 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500 text-sm"
                 />
-              )}
+              </div>
+
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => { setShowPPVModal(false); setPPVMedia(null); }}
+                  className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl font-semibold transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSendPPV}
+                  disabled={(!ppvContent.trim() && !ppvMedia) || sendingPPV}
+                  className="flex-1 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-semibold transition disabled:opacity-50"
+                >
+                  {sendingPPV ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Send Locked'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Tip Modal */}
+      {selectedChat && (
+        <TipModal
+          isOpen={showTipModal}
+          onClose={() => setShowTipModal(false)}
+          creator={{
+            uid: selectedChat.otherUser.id,
+            name: selectedChat.otherUser.name,
+            avatar: selectedChat.otherUser.avatar,
+          }}
+        />
+      )}
     </div>
   );
 }
