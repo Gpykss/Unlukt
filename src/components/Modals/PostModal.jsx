@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, Heart, MessageCircle, Send, MoreVertical, Trash2,
-  Pin, Archive, RotateCcw, EyeOff, Eye, Lock, Gift, Loader2, Crown
+  Pin, Archive, RotateCcw, EyeOff, Eye, Lock, Gift, Loader2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -90,6 +90,8 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
     : null;
   const showWatermark = !isLocked && !nsfwHidden && !!imageUrl && !!viewerUsername && !isOwnPost;
 
+  const isVideo = /\.(mp4|mov|avi|webm|mkv)$/i.test(imageUrl || '') || post?.images?.[0]?.type === 'video';
+
   useEffect(() => {
     if (!post) return;
     setLikesCount(post.likes || 0);
@@ -100,6 +102,7 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
 
   useEffect(() => {
     if (post?.userId) {
+      setPostCreator(null);
       getUserProfile(post.userId).then(setPostCreator).catch(console.error);
     }
   }, [post?.userId]);
@@ -107,6 +110,7 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
   useEffect(() => {
     if (isOpen && post?.id) {
       setComments([]);
+      setComment('');
       loadComments();
     }
   }, [isOpen, post?.id]);
@@ -129,12 +133,16 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
       setLoadingComments(true);
       const fetched = await getPostComments(post.id);
       setComments(fetched || []);
-    } catch (e) { console.error(e); setComments([]); }
-    finally { setLoadingComments(false); }
+    } catch (e) {
+      console.error('Error loading comments:', e);
+      setComments([]);
+    } finally {
+      setLoadingComments(false);
+    }
   };
 
-  const handleLike = async (e) => {
-    e?.stopPropagation();
+  // ✅ FIXED: no event param needed, works when called from button onClick
+  const handleLike = async () => {
     if (nsfwHidden || isLocked || !currentUser) return;
     try {
       if (isLiked) {
@@ -146,22 +154,29 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
         setIsLiked(true);
         setLikesCount(p => p + 1);
       }
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error('Like error:', e); }
   };
 
+  // ✅ FIXED: proper async/await with better error handling
   const handleCommentSubmit = async (e) => {
     e?.preventDefault();
     e?.stopPropagation();
-    if (nsfwHidden || isLocked || !currentUser || !comment.trim()) return;
+    if (nsfwHidden || isLocked || !currentUser || !comment.trim() || postingComment) return;
+    const text = comment.trim();
     try {
       setPostingComment(true);
-      const newComment = await addComment(post.id, currentUser.uid, comment.trim(), profile);
+      setComment(''); // clear immediately for better UX
+      const newComment = await addComment(post.id, currentUser.uid, text, profile);
       setComments(prev => [...prev, newComment]);
       setCommentsCount(p => p + 1);
-      setComment('');
       setTimeout(() => commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-    } catch (e) { alert('Failed to post comment'); }
-    finally { setPostingComment(false); }
+    } catch (e) {
+      console.error('Comment error:', e);
+      setComment(text); // restore if failed
+      alert('Failed to post comment: ' + (e.message || 'Unknown error'));
+    } finally {
+      setPostingComment(false);
+    }
   };
 
   const handleDelete = async () => {
@@ -213,24 +228,24 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
   return (
     <>
       <AnimatePresence>
-        {/* Backdrop */}
+        {/* Backdrop — paddingBottom keeps card above mobile nav */}
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          style={{ paddingBottom: '80px' }}
+          style={{ paddingBottom: 'max(80px, env(safe-area-inset-bottom) + 64px)' }}
           onClick={onClose}
         >
-          {/* Card — same style as CommunityPostCard */}
+          {/* Card */}
           <motion.div
             initial={{ opacity: 0, scale: 0.96, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 16 }}
             transition={{ type: 'spring', damping: 28, stiffness: 320 }}
             onClick={e => e.stopPropagation()}
-            className="bg-white rounded-2xl border border-gray-200 overflow-hidden w-full shadow-2xl"
-            style={{ maxWidth: 480, maxHeight: 'calc(100dvh - 120px)', display: 'flex', flexDirection: 'column' }}
+            className="bg-white rounded-2xl border border-gray-200 shadow-2xl w-full overflow-hidden flex flex-col"
+            style={{ maxWidth: 520, maxHeight: 'calc(100dvh - 160px)' }}
           >
 
-            {/* ── Author header — same as CommunityPostCard ── */}
+            {/* ── Author header ── */}
             <div className="flex items-center justify-between px-4 pt-4 pb-3 flex-shrink-0">
               <div
                 className="flex items-center space-x-3 cursor-pointer hover:opacity-80 transition"
@@ -271,7 +286,7 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                   </button>
                 )}
 
-                {/* Menu */}
+                {/* Owner menu */}
                 {isOwnPost && (
                   <div className="relative">
                     <button onClick={() => setShowMenu(!showMenu)} className="p-1.5 hover:bg-gray-100 rounded-full transition">
@@ -324,13 +339,17 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
               {/* Caption */}
               {post.content && !isLocked && (
                 <p className="px-4 pb-3 text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">
-                  {post.content}
+                  {post.content.split(/(\s+)/).map((word, i) =>
+                    /^(https?:\/\/|www\.)\S+/.test(word)
+                      ? <a key={i} href={word.startsWith('http') ? word : `https://${word}`} target="_blank" rel="noopener noreferrer" className="text-rose-500 underline break-all">{word}</a>
+                      : word
+                  )}
                 </p>
               )}
 
-              {/* Media — same style as community: natural height, no crop */}
+              {/* Media */}
               {imageUrl && (
-                <div className="relative px-4 pb-3">
+                <div className="px-4 pb-3">
                   {nsfwHidden ? (
                     <div className="rounded-xl bg-gray-900 h-40 flex flex-col items-center justify-center text-white space-y-2">
                       <EyeOff className="w-8 h-8 opacity-50" />
@@ -352,16 +371,21 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                     </div>
                   ) : (
                     <div className="rounded-xl overflow-hidden bg-gray-100 relative">
-                      {/\.(mp4|mov|avi|webm|mkv)$/i.test(imageUrl) || post?.images?.[0]?.type === 'video' ? (
+                      {/* ✅ FIXED: video with proper attributes */}
+                      {isVideo ? (
                         <video
-                          src={imageUrl} controls playsInline preload="metadata"
+                          src={imageUrl}
+                          controls
+                          playsInline
+                          preload="metadata"
                           className="w-full h-auto"
-                          style={{ maxHeight: 400 }}
+                          style={{ maxHeight: 400, display: 'block' }}
                           onClick={e => e.stopPropagation()}
                         />
                       ) : (
                         <img
-                          src={imageUrl} alt="Post"
+                          src={imageUrl}
+                          alt="Post"
                           className="w-full h-auto object-contain"
                           style={{ maxHeight: 400 }}
                         />
@@ -372,9 +396,10 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                 </div>
               )}
 
-              {/* ── Reaction bar — same as CommunityPostCard ── */}
+              {/* Reaction bar */}
               <div className="px-4 py-2.5 flex items-center justify-between border-t border-gray-50">
                 <div className="flex items-center space-x-4">
+                  {/* ✅ FIXED: onClick calls handleLike directly, no event param */}
                   <button
                     onClick={handleLike}
                     disabled={nsfwHidden || isLocked}
@@ -399,9 +424,10 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                 )}
               </div>
 
-              {/* ── Comments — same style as CommunityPostCard ── */}
+              {/* Comments section */}
               <div className="border-t border-gray-100">
-                {/* Comment input — same as community */}
+
+                {/* ✅ FIXED: comment input — font-size 16px prevents iOS zoom */}
                 {currentUser && !isLocked && (
                   <div className="flex items-center space-x-2 px-4 py-3 border-b border-gray-50">
                     <div className="w-7 h-7 rounded-full bg-gradient-to-br from-rose-100 to-pink-200 flex-shrink-0 overflow-hidden flex items-center justify-center text-xs">
@@ -413,10 +439,16 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                       type="text"
                       value={comment}
                       onChange={e => setComment(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCommentSubmit(e); } }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleCommentSubmit(e);
+                        }
+                      }}
                       placeholder="Write a comment..."
                       disabled={postingComment || nsfwHidden}
                       className="flex-1 bg-gray-100 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300 transition"
+                      // ✅ FIXED: 16px prevents iOS keyboard zoom
                       style={{ fontSize: '16px' }}
                       onClick={e => e.stopPropagation()}
                     />
@@ -425,7 +457,9 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                       disabled={postingComment || !comment.trim() || nsfwHidden}
                       className="p-1.5 text-rose-500 hover:text-rose-600 disabled:opacity-40 transition flex-shrink-0"
                     >
-                      {postingComment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                      {postingComment
+                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                        : <Send className="w-4 h-4" />}
                     </button>
                   </div>
                 )}
@@ -447,7 +481,7 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                             : <span>{c.userName?.charAt(0)?.toUpperCase() || 'U'}</span>}
                         </div>
                         <div className="flex-1 bg-gray-50 rounded-2xl px-3 py-2">
-                          <div className="flex items-center gap-2 mb-0.5">
+                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                             <span className="font-semibold text-gray-800 text-xs">{c.userName || 'User'}</span>
                             <span className="text-gray-400 text-[10px]">{timeAgo(c.createdAt)}</span>
                           </div>
