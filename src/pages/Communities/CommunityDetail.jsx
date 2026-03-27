@@ -35,13 +35,11 @@ export default function CommunityDetail() {
   const [isMember, setIsMember] = useState(false);
   const [activeTab, setActiveTab] = useState('posts');
 
-  // Sticky post bar
   const [postContent, setPostContent] = useState('');
   const [postMedia, setPostMedia] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [posting, setPosting] = useState(false);
 
-  // Join modal
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [joinType, setJoinType] = useState('monthly');
   const [joining, setJoining] = useState(false);
@@ -49,7 +47,7 @@ export default function CommunityDetail() {
   const [walletBalance, setWalletBalance] = useState(0);
 
   const isOwner = community && currentUser && community.creatorId === currentUser.uid;
-  const isFree = community?.isPrivate === false; // public = no payment needed
+  const isFree = community?.isPrivate === false;
   const canPost = isOwner || (isMember && community?.membersCanPost === true);
   const canView = isOwner || isMember || isFree;
 
@@ -70,7 +68,6 @@ export default function CommunityDetail() {
         setIsMember(memberStatus);
         setWalletBalance(bal);
 
-        // Load posts/members for: owner, members, OR public communities
         if (memberStatus || communityData.creatorId === currentUser.uid || communityData.isPrivate === false) {
           const [postsData, membersData] = await Promise.all([
             getCommunityPosts(communityId),
@@ -163,7 +160,6 @@ export default function CommunityDetail() {
       setPosts(postsData);
       setPostContent('');
       setPostMedia([]);
-      // Reset textarea height
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
     } catch (e) {
       alert('Failed to post: ' + e.message);
@@ -180,68 +176,107 @@ export default function CommunityDetail() {
 
   if (!community) return null;
 
+  // ✅ FIXED: use members.length as live count
+  const memberCount = members.length || community.memberCount || 0;
+
   return (
-    // ✅ Extra bottom padding when sticky bar is visible
     <div className={`min-h-screen bg-gray-50 ${canPost && activeTab === 'posts' ? 'pb-36 lg:pb-24' : 'pb-20 lg:pb-8'}`}>
 
       {/* ── Sticky Header ── */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-20">
         <div className="max-w-3xl mx-auto">
-          <div className="relative h-40 sm:h-48 bg-gradient-to-br from-rose-200 via-pink-200 to-purple-200">
-            {community.coverImage && <img src={community.coverImage} alt="" className="w-full h-full object-cover" />}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-            <button onClick={() => navigate('/communities')} className="absolute top-4 left-4 p-2 bg-black/40 backdrop-blur-sm rounded-full text-white hover:bg-black/60 transition">
+
+          {/* ✅ FIXED: Banner — lighter overlay so image/content is visible */}
+          <div className="relative h-44 sm:h-56 overflow-hidden bg-gradient-to-br from-rose-300 via-pink-300 to-purple-300">
+            {community.coverImage && (
+              <img src={community.coverImage} alt="" className="w-full h-full object-cover" />
+            )}
+            {/* ✅ FIXED: lighter gradient overlay — was from-black/60, now from-black/40 */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent" />
+
+            <button
+              onClick={() => navigate('/communities')}
+              className="absolute top-4 left-4 p-2 bg-black/40 backdrop-blur-sm rounded-full text-white hover:bg-black/60 transition"
+            >
               <ArrowLeft className="w-5 h-5" />
             </button>
+
             {isOwner && (
-              <button onClick={() => navigate(`/community/${communityId}/settings`)} className="absolute top-4 right-4 p-2 bg-black/40 backdrop-blur-sm rounded-full text-white hover:bg-black/60 transition">
+              <button
+                onClick={() => navigate(`/community/${communityId}/settings`)}
+                className="absolute top-4 right-4 p-2 bg-black/40 backdrop-blur-sm rounded-full text-white hover:bg-black/60 transition"
+              >
                 <Settings className="w-5 h-5" />
               </button>
             )}
+
             <div className="absolute bottom-4 left-4 right-16">
               <div className="flex items-center space-x-2 mb-1">
-                {community.isPrivate ? <Lock className="w-4 h-4 text-white/80" /> : <Globe className="w-4 h-4 text-white/80" />}
-                <span className="text-white/80 text-xs font-medium uppercase tracking-wide">{community.category}</span>
+                {community.isPrivate
+                  ? <Lock className="w-4 h-4 text-white" />
+                  : <Globe className="w-4 h-4 text-white" />}
+                <span className="text-white text-xs font-semibold uppercase tracking-wide capitalize">
+                  {community.category}
+                </span>
               </div>
-              <h1 className="text-2xl font-bold text-white leading-tight">{community.name}</h1>
-              <span className="text-white/80 text-sm flex items-center space-x-1 mt-1">
-                <Users className="w-3.5 h-3.5" /><span>{community.memberCount || 0} members</span>
+              <h1 className="text-2xl font-bold text-white leading-tight drop-shadow-md">
+                {community.name}
+              </h1>
+              {/* ✅ FIXED: always show memberCount using live members.length */}
+              <span className="text-white text-sm flex items-center space-x-1 mt-1 drop-shadow">
+                <Users className="w-3.5 h-3.5" />
+                <span>{memberCount} {memberCount === 1 ? 'member' : 'members'}</span>
               </span>
             </div>
           </div>
 
-          <div className="px-4 py-3 flex items-center justify-between">
-            <p className="text-sm text-gray-600 line-clamp-1 flex-1 mr-4">{community.description}</p>
+          {/* Sub-header: description + join button */}
+          <div className="px-4 py-3 flex items-center justify-between gap-3">
+            <p className="text-sm text-gray-600 line-clamp-2 flex-1">{community.description}</p>
             {!isOwner && (
               isMember
-                ? <div className="flex items-center space-x-2">
+                ? <div className="flex items-center space-x-2 flex-shrink-0">
                     <span className="px-3 py-1.5 bg-green-100 text-green-700 rounded-xl text-sm font-semibold flex items-center space-x-1">
                       <CheckCircle className="w-4 h-4" /><span>Joined</span>
                     </span>
-                    <button onClick={handleLeave} className="px-3 py-1.5 bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-500 rounded-xl text-xs font-medium transition whitespace-nowrap">Leave</button>
+                    <button
+                      onClick={handleLeave}
+                      className="px-3 py-1.5 bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-500 rounded-xl text-xs font-medium transition whitespace-nowrap"
+                    >
+                      Leave
+                    </button>
                   </div>
                 : isFree
-                  ? <button onClick={async () => {
-                      try {
-                        await joinCommunity(currentUser.uid, communityId, {});
-                        setIsMember(true);
-                        const [p, m] = await Promise.all([getCommunityPosts(communityId), getCommunityMembers(communityId)]);
-                        setPosts(p); setMembers(m);
-                      } catch(e) { alert('Failed to join: ' + e.message); }
-                    }} className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl text-sm font-semibold transition whitespace-nowrap flex items-center space-x-1">
+                  ? <button
+                      onClick={async () => {
+                        try {
+                          await joinCommunity(currentUser.uid, communityId, {});
+                          setIsMember(true);
+                          const [p, m] = await Promise.all([getCommunityPosts(communityId), getCommunityMembers(communityId)]);
+                          setPosts(p); setMembers(m);
+                        } catch (e) { alert('Failed to join: ' + e.message); }
+                      }}
+                      className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl text-sm font-semibold transition flex-shrink-0 flex items-center space-x-1"
+                    >
                       <UserPlus className="w-4 h-4" /><span>Join Free</span>
                     </button>
-                  : <button onClick={() => setShowJoinModal(true)} className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-sm font-semibold transition whitespace-nowrap flex items-center space-x-1">
-                      <UserPlus className="w-4 h-4" /><span>Join</span>
+                  : <button
+                      onClick={() => setShowJoinModal(true)}
+                      className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-sm font-semibold transition flex-shrink-0 flex items-center space-x-1"
+                    >
+                      <UserPlus className="w-4 h-4" /><span>Join ${(community.price || 9.99).toFixed(2)}/mo</span>
                     </button>
             )}
           </div>
 
+          {/* Tabs */}
           <div className="flex border-t border-gray-100">
             {['posts', 'members'].map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
-                className={`flex-1 py-3 text-sm font-semibold capitalize transition border-b-2 ${activeTab === tab ? 'border-rose-500 text-rose-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                {tab}{tab === 'members' && ` (${members.length})`}
+                className={`flex-1 py-3 text-sm font-semibold capitalize transition border-b-2 ${
+                  activeTab === tab ? 'border-rose-500 text-rose-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}>
+                {tab === 'members' ? `Members (${memberCount})` : 'Posts'}
               </button>
             ))}
           </div>
@@ -257,21 +292,29 @@ export default function CommunityDetail() {
             </div>
             <h3 className="text-xl font-bold text-gray-900 mb-2">Members Only</h3>
             <p className="text-gray-600 mb-2">Join to access exclusive content.</p>
-            <p className="text-gray-500 text-sm mb-6">From <span className="font-bold text-rose-600">${(community.price || 9.99).toFixed(2)}/month</span></p>
-            <button onClick={() => setShowJoinModal(true)} className="px-8 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-semibold transition inline-flex items-center space-x-2">
+            <p className="text-gray-500 text-sm mb-6">
+              From <span className="font-bold text-rose-600">${(community.price || 9.99).toFixed(2)}/month</span>
+            </p>
+            <button onClick={() => setShowJoinModal(true)}
+              className="px-8 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-semibold transition inline-flex items-center space-x-2">
               <UserPlus className="w-5 h-5" /><span>Join Community</span>
             </button>
           </div>
 
         ) : !community.isPrivate && !isMember && !isOwner ? (
-          // Public community — auto-join silently or show free badge
           <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center">
             <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-3">
               <Globe className="w-8 h-8 text-green-500" />
             </div>
             <h3 className="text-lg font-bold text-gray-900 mb-1">Public Community</h3>
             <p className="text-gray-500 text-sm mb-4">This is a free community. Join to participate.</p>
-            <button onClick={async () => { await joinCommunity(currentUser.uid, communityId, {}); setIsMember(true); const [p,m] = await Promise.all([getCommunityPosts(communityId), getCommunityMembers(communityId)]); setPosts(p); setMembers(m); }}
+            <button
+              onClick={async () => {
+                await joinCommunity(currentUser.uid, communityId, {});
+                setIsMember(true);
+                const [p, m] = await Promise.all([getCommunityPosts(communityId), getCommunityMembers(communityId)]);
+                setPosts(p); setMembers(m);
+              }}
               className="px-6 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl font-semibold transition inline-flex items-center space-x-2">
               <UserPlus className="w-4 h-4" /><span>Join Free</span>
             </button>
@@ -299,9 +342,10 @@ export default function CommunityDetail() {
           </div>
 
         ) : (
+          // Members tab — ✅ FIXED: shows live memberCount
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
             <div className="p-4 border-b border-gray-100">
-              <h3 className="font-semibold text-gray-900">{members.length} Members</h3>
+              <h3 className="font-semibold text-gray-900">{memberCount} {memberCount === 1 ? 'Member' : 'Members'}</h3>
             </div>
             {members.length === 0
               ? <p className="text-center text-gray-500 py-10">No members yet</p>
@@ -322,8 +366,12 @@ export default function CommunityDetail() {
                           {member.user?.username && <p className="text-xs text-gray-500">@{member.user.username}</p>}
                         </div>
                       </div>
-                      <button onClick={() => navigate(`/creator/${member.user?.username}`)}
-                        className="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg font-medium transition">Profile</button>
+                      <button
+                        onClick={() => navigate(`/creator/${member.user?.username}`)}
+                        className="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg font-medium transition"
+                      >
+                        Profile
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -332,18 +380,14 @@ export default function CommunityDetail() {
         )}
       </div>
 
-      {/* ── STICKY POST BAR — fixed bottom, above mobile nav ── */}
+      {/* ── STICKY POST BAR ── */}
       {canPost && activeTab === 'posts' && (
         <div className="fixed bottom-16 lg:bottom-0 left-0 right-0 z-30 lg:left-64">
           <div className="max-w-3xl mx-auto">
-
-            {/* Media tray — slides up when files are attached */}
             <AnimatePresence>
               {postMedia.length > 0 && (
                 <motion.div
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 16 }}
+                  initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
                   className="bg-white border border-b-0 border-gray-200 rounded-t-2xl px-3 pt-3 pb-2 mx-2"
                 >
                   <div className="flex items-center space-x-2 overflow-x-auto pb-1">
@@ -365,33 +409,16 @@ export default function CommunityDetail() {
               )}
             </AnimatePresence>
 
-            {/* Input row */}
             <div className="bg-white border-t border-gray-200 px-3 py-2.5 shadow-lg">
               <div className="flex items-end space-x-2">
-
-                {/* Attach media */}
                 <label className="flex-shrink-0 p-2 hover:bg-gray-100 rounded-full cursor-pointer transition">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*,video/*"
-                    multiple
-                    onChange={handleMediaUpload}
-                    className="hidden"
-                    disabled={uploading}
-                  />
-                  {uploading
-                    ? <Loader2 className="w-5 h-5 text-rose-400 animate-spin" />
-                    : <PlusCircle className="w-5 h-5 text-rose-400" />}
+                  <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple onChange={handleMediaUpload} className="hidden" disabled={uploading} />
+                  {uploading ? <Loader2 className="w-5 h-5 text-rose-400 animate-spin" /> : <PlusCircle className="w-5 h-5 text-rose-400" />}
                 </label>
-
-                {/* Camera */}
                 <label className="flex-shrink-0 p-2 hover:bg-gray-100 rounded-full cursor-pointer transition">
                   <input type="file" accept="image/*" capture="environment" onChange={handleMediaUpload} className="hidden" disabled={uploading} />
                   <Camera className="w-5 h-5 text-gray-400" />
                 </label>
-
-                {/* Text input */}
                 <textarea
                   ref={textareaRef}
                   value={postContent}
@@ -406,16 +433,12 @@ export default function CommunityDetail() {
                   className="flex-1 resize-none bg-gray-100 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300 leading-relaxed"
                   style={{ minHeight: '40px', maxHeight: '120px' }}
                 />
-
-                {/* Send */}
                 <button
                   onClick={handleCreatePost}
                   disabled={posting || (!postContent.trim() && postMedia.length === 0)}
                   className="flex-shrink-0 w-10 h-10 rounded-full bg-rose-500 hover:bg-rose-600 disabled:bg-gray-200 text-white flex items-center justify-center transition"
                 >
-                  {posting
-                    ? <Loader2 className="w-4 h-4 animate-spin" />
-                    : <Send className="w-4 h-4" />}
+                  {posting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 </button>
               </div>
             </div>
@@ -426,11 +449,11 @@ export default function CommunityDetail() {
       {/* ── Join Modal ── */}
       <AnimatePresence>
         {showJoinModal && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={() => setShowJoinModal(false)}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowJoinModal(false)}>
             <motion.div
-              initial={{ opacity: 0, y: 60 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 60 }}
+              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
               onClick={e => e.stopPropagation()}
-              className="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md p-6"
+              className="bg-white rounded-2xl w-full max-w-md p-6"
             >
               <div className="flex items-center justify-between mb-5">
                 <h2 className="text-xl font-bold text-gray-900">Join {community.name}</h2>
@@ -484,6 +507,28 @@ export default function CommunityDetail() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// ── Clickable link renderer ──
+function RenderTextWithLinks({ text }) {
+  if (!text) return null;
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRegex);
+  return (
+    <p className="px-4 pb-3 text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">
+      {parts.map((part, i) =>
+        urlRegex.test(part) ? (
+          <a key={i} href={part} target="_blank" rel="noopener noreferrer"
+            className="text-blue-500 underline break-all hover:text-blue-600"
+            onClick={e => e.stopPropagation()}>
+            {part}
+          </a>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </p>
   );
 }
 
@@ -584,23 +629,32 @@ function CommunityPostCard({ post, isOwner, communityCreatorId, canComment }) {
         </button>
       </div>
 
-      {/* Text */}
-      {post.content && <p className="px-4 pb-3 text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">{post.content}</p>}
+      {/* ✅ FIXED: Text with clickable links */}
+      {post.content && <RenderTextWithLinks text={post.content} />}
 
-      {/* Images */}
+      {/* ✅ FIXED: Images — no cropping, natural aspect ratio */}
       {post.images?.length > 0 && (
-        <div className={`grid gap-0.5 ${post.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+        <div className={`grid gap-1 px-4 pb-3 ${post.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
           {post.images.map((url, i) => (
-            <img key={i} src={url} alt="" className={`w-full object-cover ${post.images.length === 1 ? 'max-h-80' : 'h-40'}`} />
+            <div key={i} className="rounded-xl overflow-hidden bg-gray-100">
+              <img
+                src={url}
+                alt=""
+                className="w-full h-auto object-contain"
+                style={{ maxHeight: post.images.length === 1 ? '500px' : '240px' }}
+              />
+            </div>
           ))}
         </div>
       )}
 
       {/* Videos */}
       {post.videos?.length > 0 && (
-        <div className="space-y-0.5">
+        <div className="space-y-1 px-4 pb-3">
           {post.videos.map((url, i) => (
-            <video key={i} src={url} controls playsInline preload="metadata" className="w-full" onClick={e => e.stopPropagation()} />
+            <div key={i} className="rounded-xl overflow-hidden bg-gray-900">
+              <video src={url} controls playsInline preload="metadata" className="w-full" onClick={e => e.stopPropagation()} />
+            </div>
           ))}
         </div>
       )}
@@ -619,27 +673,20 @@ function CommunityPostCard({ post, isOwner, communityCreatorId, canComment }) {
         </button>
       </div>
 
-      {/* ── Comments panel ── */}
+      {/* Comments panel */}
       <AnimatePresence>
         {showComments && (
           <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
+            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
             className="border-t border-gray-100 overflow-hidden"
           >
-            {/* Comment input */}
             {canComment && (
               <div className="flex items-center space-x-2 px-4 py-3 border-b border-gray-50">
                 <div className="w-7 h-7 rounded-full bg-gradient-to-br from-rose-100 to-pink-200 flex-shrink-0 overflow-hidden flex items-center justify-center text-xs">
-                  {currentUser?.photoURL
-                    ? <img src={currentUser.photoURL} alt="" className="w-full h-full object-cover" />
-                    : '👤'}
+                  {currentUser?.photoURL ? <img src={currentUser.photoURL} alt="" className="w-full h-full object-cover" /> : '👤'}
                 </div>
                 <input
-                  type="text"
-                  value={commentText}
-                  onChange={e => setCommentText(e.target.value)}
+                  type="text" value={commentText} onChange={e => setCommentText(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmitComment(); } }}
                   placeholder="Write a comment..."
                   className="flex-1 bg-gray-100 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300"
@@ -650,13 +697,9 @@ function CommunityPostCard({ post, isOwner, communityCreatorId, canComment }) {
                 </button>
               </div>
             )}
-
-            {/* Comments list */}
             <div className="px-4 py-3 space-y-3 max-h-64 overflow-y-auto">
               {loadingComments ? (
-                <div className="flex justify-center py-4">
-                  <Loader2 className="w-5 h-5 text-rose-400 animate-spin" />
-                </div>
+                <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 text-rose-400 animate-spin" /></div>
               ) : comments.length === 0 ? (
                 <p className="text-xs text-gray-400 text-center py-3">No comments yet. Be first!</p>
               ) : (

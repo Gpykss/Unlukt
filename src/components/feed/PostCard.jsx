@@ -45,7 +45,6 @@ function UnlockModal({ isOpen, onClose, post, creator, onUnlocked }) {
     setError('');
     setLoading(true);
     try {
-      // Deduct from wallet
       await deductFromWallet(
         currentUser.uid,
         price,
@@ -53,7 +52,6 @@ function UnlockModal({ isOpen, onClose, post, creator, onUnlocked }) {
         { contentType: 'unlock', postId: post?.id, creatorId: post?.userId }
       );
 
-      // Record unlock so canViewPost returns true next time
       await setDoc(doc(db, 'unlocked_content', `${currentUser.uid}_${post.id}`), {
         userId: currentUser.uid,
         postId: post.id,
@@ -65,7 +63,7 @@ function UnlockModal({ isOpen, onClose, post, creator, onUnlocked }) {
       setSuccess(true);
       setBalance(prev => prev - price);
       setTimeout(() => {
-        onUnlocked();  // sets canView(true) in PostCard
+        onUnlocked();
         onClose();
       }, 1200);
     } catch (e) {
@@ -82,15 +80,15 @@ function UnlockModal({ isOpen, onClose, post, creator, onUnlocked }) {
   return (
     <AnimatePresence>
       <div
-        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
         onClick={onClose}
       >
         <motion.div
-          initial={{ opacity: 0, y: 60 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 60 }}
+          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 20 }}
           onClick={e => e.stopPropagation()}
-          className="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-sm overflow-hidden"
+          className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl"
         >
           {success ? (
             <div className="p-8 text-center">
@@ -107,7 +105,6 @@ function UnlockModal({ isOpen, onClose, post, creator, onUnlocked }) {
             </div>
           ) : (
             <>
-              {/* Header */}
               <div className="flex items-center justify-between px-5 pt-5 pb-3">
                 <div className="flex items-center space-x-3">
                   <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center">
@@ -124,7 +121,6 @@ function UnlockModal({ isOpen, onClose, post, creator, onUnlocked }) {
               </div>
 
               <div className="px-5 pb-5 space-y-4">
-                {/* Balance row */}
                 <div className={`px-4 py-3 rounded-xl flex items-center justify-between text-sm border ${
                   !hasEnough && balance !== null ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'
                 }`}>
@@ -146,20 +142,17 @@ function UnlockModal({ isOpen, onClose, post, creator, onUnlocked }) {
                   )}
                 </div>
 
-                {/* Price */}
                 <div className="text-center py-2">
                   <p className="text-3xl font-bold text-gray-900">${price.toFixed(2)}</p>
                   <p className="text-sm text-gray-500 mt-1">one-time unlock</p>
                 </div>
 
-                {/* Error */}
                 {error && (
                   <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
                     {error}
                   </div>
                 )}
 
-                {/* Primary CTA */}
                 {hasEnough ? (
                   <button
                     onClick={handleUnlock}
@@ -181,7 +174,6 @@ function UnlockModal({ isOpen, onClose, post, creator, onUnlocked }) {
                   </button>
                 )}
 
-                {/* Subscribe fallback */}
                 <button
                   onClick={() => {
                     onClose();
@@ -204,6 +196,41 @@ function UnlockModal({ isOpen, onClose, post, creator, onUnlocked }) {
         </motion.div>
       </div>
     </AnimatePresence>
+  );
+}
+
+// ── Diagonal Watermark ───────────────────────────────────────────────────────
+function DiagonalWatermark({ username }) {
+  if (!username) return null;
+  // Repeat the username across a diagonal SVG overlay
+  const text = `@${username}`;
+  const repeats = 6;
+  return (
+    <div className="absolute inset-0 pointer-events-none overflow-hidden select-none z-10">
+      <svg
+        className="w-full h-full opacity-20"
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ position: 'absolute', inset: 0 }}
+      >
+        {Array.from({ length: repeats }).map((_, i) => (
+          <text
+            key={i}
+            x="50%"
+            y={`${10 + i * (90 / repeats)}%`}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            transform={`rotate(-35, 50%, ${10 + i * (90 / repeats)}%)`}
+            fill="white"
+            fontSize="14"
+            fontWeight="bold"
+            fontFamily="monospace"
+            letterSpacing="2"
+          >
+            {text}
+          </text>
+        ))}
+      </svg>
+    </div>
   );
 }
 
@@ -237,6 +264,10 @@ export default function PostCard({
   const isBlockedByNSFW = isNSFW && !showNSFW;
   const isPaid = (post?.type || 'free') !== 'free' && Number(post?.price || 0) > 0;
   const isLocked = isPaid && !isOwnPost && !canView;
+
+  // Watermark: show viewer's username on all unlocked posts they don't own
+  const viewerUsername = currentUser ? (profile?.username || currentUser.email?.split('@')[0] || currentUser.uid.slice(0, 8)) : null;
+  const showWatermark = !isLocked && !isBlockedByNSFW && !!imageUrl && !!viewerUsername && !isOwnPost;
 
   const tipCreator = creator ? {
     uid: creator.uid || creator.id || post?.userId,
@@ -319,7 +350,6 @@ export default function PostCard({
       alert('NSFW is hidden. Turn on "Show NSFW" to view this content.');
       return;
     }
-    // ✅ Never navigate away — open inline modal
     if (isLocked) {
       setShowUnlockModal(true);
       return;
@@ -413,11 +443,12 @@ export default function PostCard({
             onClick={goToCreator}
             className="flex items-center space-x-3 cursor-pointer hover:opacity-80 transition"
           >
-            <div className="w-11 h-11 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-xl overflow-hidden">
+            {/* FIX: Bigger avatar, clearly visible */}
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-xl overflow-hidden ring-2 ring-rose-100 flex-shrink-0">
               {creator?.profilePicture || creator?.avatar ? (
                 <img src={creator.profilePicture || creator.avatar} alt="" className="w-full h-full object-cover" />
               ) : (
-                <span>{creator?.displayName?.charAt(0)?.toUpperCase() || '👤'}</span>
+                <span className="text-lg">{creator?.displayName?.charAt(0)?.toUpperCase() || '👤'}</span>
               )}
             </div>
 
@@ -506,7 +537,7 @@ export default function PostCard({
           )}
         </div>
 
-        {/* Media */}
+        {/* FIX: Media — uncropped, full image shown, watermark diagonal */}
         <div className="relative bg-black">
           {imageUrl ? (
             (() => {
@@ -517,22 +548,29 @@ export default function PostCard({
                 mediaItem?.mimeType?.startsWith('video/');
 
               return isVideo ? (
-                <video
-                  src={imageUrl}
-                  controls
-                  playsInline
-                  preload="metadata"
-                  className={`w-full max-h-[520px] ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
-                  style={{ backgroundColor: 'black' }}
-                  onClick={(e) => e.stopPropagation()}
-                />
+                <div className="relative">
+                  <video
+                    src={imageUrl}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className={`w-full h-auto ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
+                    style={{ maxHeight: '600px', backgroundColor: 'black' }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  {showWatermark && <DiagonalWatermark username={viewerUsername} />}
+                </div>
               ) : (
-                <img
-                  src={imageUrl}
-                  alt="Post"
-                  className={`w-full max-h-[520px] object-cover ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
-                  loading="lazy"
-                />
+                <div className="relative">
+                  <img
+                    src={imageUrl}
+                    alt="Post"
+                    className={`w-full h-auto object-contain ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
+                    style={{ maxHeight: '600px', backgroundColor: 'black' }}
+                    loading="lazy"
+                  />
+                  {showWatermark && <DiagonalWatermark username={viewerUsername} />}
+                </div>
               );
             })()
           ) : (
@@ -558,7 +596,7 @@ export default function PostCard({
             </div>
           )}
 
-          {/* ✅ Locked overlay — opens inline modal, never navigates */}
+          {/* Locked overlay */}
           {isLocked && (
             <div className="absolute inset-0 flex items-center justify-center p-6">
               <div className="bg-white/95 rounded-2xl border border-gray-200 shadow-xl p-5 max-w-sm w-full text-center">
@@ -628,7 +666,6 @@ export default function PostCard({
                 onClick={handleLike}
                 className={`transition ${isLiked ? 'text-rose-500' : 'text-gray-600 hover:text-rose-500'}`}
                 disabled={isBlockedByNSFW || isLocked}
-                title={isLocked ? 'Unlock to interact' : isBlockedByNSFW ? 'Enable NSFW to interact' : 'Like'}
               >
                 <Heart className={`w-6 h-6 ${isLiked ? 'fill-rose-500' : ''}`} />
               </button>
@@ -646,12 +683,10 @@ export default function PostCard({
               </button>
             </div>
 
-            {/* ✅ Gift button — only for other people's unlocked posts */}
             {!isOwnPost && !isLocked && currentUser && tipCreator && (
               <button
                 onClick={handleTipClick}
                 className="flex items-center space-x-1.5 px-3 py-1.5 bg-yellow-50 hover:bg-yellow-100 border border-yellow-200 rounded-full transition"
-                title="Send a gift"
               >
                 <Gift className="w-4 h-4 text-yellow-600" />
                 <span className="text-xs font-bold text-yellow-700">Gift</span>
@@ -666,7 +701,6 @@ export default function PostCard({
         </div>
       </motion.div>
 
-      {/* ✅ Inline unlock modal — stays on page, deducts from wallet directly */}
       <UnlockModal
         isOpen={showUnlockModal}
         onClose={() => setShowUnlockModal(false)}
@@ -675,7 +709,6 @@ export default function PostCard({
         onUnlocked={() => setCanView(true)}
       />
 
-      {/* Tip modal */}
       {tipCreator && (
         <TipModal
           isOpen={showTipModal}

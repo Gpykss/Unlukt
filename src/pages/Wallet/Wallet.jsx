@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Plus, Wallet as WalletIcon, TrendingUp, X, MapPin, Loader2, Info } from 'lucide-react';
+import { ArrowLeft, Plus, Wallet as WalletIcon, TrendingUp, X, MapPin, Loader2, Info, MessageCircle, Mail } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db, auth } from '../../config/firebase';
@@ -27,17 +27,14 @@ export default function Wallet() {
   const [selectedCountryCode, setSelectedCountryCode] = useState('NG');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
-  // ✅ Subscribe modal state
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
   const [subscribeCreator, setSubscribeCreator] = useState(null);
 
   const user = auth.currentUser;
 
-  // ✅ Handle subscribe action from navigation state
   useEffect(() => {
     const state = location.state;
     if (state?.action === 'subscribe' && state?.creatorId) {
-      // Load creator data and show subscribe modal
       const loadCreatorForSubscribe = async () => {
         try {
           const creatorDoc = await getDoc(doc(db, 'users', state.creatorId));
@@ -56,8 +53,6 @@ export default function Wallet() {
         }
       };
       loadCreatorForSubscribe();
-      
-      // Clear navigation state
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, navigate, location.pathname]);
@@ -170,7 +165,7 @@ export default function Wallet() {
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
 
-        {/* ✅ How it works banner */}
+        {/* How it works banner */}
         <div className="mb-6 bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-start space-x-3">
           <Info className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
           <div>
@@ -252,16 +247,19 @@ export default function Wallet() {
         </div>
       </div>
 
-      {/* Amount input modal */}
+      {/* FIX 1: Amount input modal — centered on ALL screen sizes */}
       <AnimatePresence>
         {showAmountInput && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={() => setShowAmountInput(false)}>
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            onClick={() => setShowAmountInput(false)}
+          >
             <motion.div
-              initial={{ opacity: 0, y: 100 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 100 }}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-t-3xl sm:rounded-2xl p-6 sm:p-8 w-full sm:max-w-md"
+              className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl"
             >
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold text-gray-900">Add Funds</h2>
@@ -278,7 +276,7 @@ export default function Wallet() {
                 </p>
               </div>
 
-              <div className="space-y-3 mb-6">
+              <div className="space-y-3 mb-5">
                 <label className="block text-sm font-semibold text-gray-700">Amount (USD)</label>
                 <input
                   type="number"
@@ -296,20 +294,64 @@ export default function Wallet() {
                     <button
                       key={amt}
                       onClick={() => setTopUpAmountUSD(String(amt))}
-                      className={`py-2 rounded-xl text-sm font-semibold border transition ${Number(topUpAmountUSD) === amt ? 'border-rose-500 bg-rose-50 text-rose-600' : 'border-gray-200 hover:border-gray-300 text-gray-700'}`}
+                      className={`py-2 rounded-xl text-sm font-semibold border transition ${
+                        Number(topUpAmountUSD) === amt
+                          ? 'border-rose-500 bg-rose-50 text-rose-600'
+                          : 'border-gray-200 hover:border-gray-300 text-gray-700'
+                      }`}
                     >
                       ${amt}
                     </button>
                   ))}
                 </div>
 
+                {/* FIX 3: Removed hardcoded USDT TRC20 — NowPayments handles crypto selection */}
                 <p className="text-xs text-gray-500">
-                  Paid via crypto (USDT TRC20). Balance reflects in USD.
+                  Paid via crypto (powered by NowPayments). Balance reflects in USD.
                 </p>
               </div>
 
+              {/* FIX 2: Contact support for NGN/Naira users */}
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 mb-5">
+                <p className="text-xs font-semibold text-gray-700 mb-2">
+                  🇳🇬 Paying in Naira (NGN)?
+                </p>
+                <p className="text-xs text-gray-500 mb-3">
+                  Contact our support team and we'll assist you with your payment manually.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                      if (isMobile) {
+                        window.location.href = 'tg://resolve?domain=unlukt';
+                        setTimeout(() => window.open('https://t.me/unlukt', '_blank'), 1000);
+                      } else {
+                        window.open('https://t.me/unlukt', '_blank', 'noopener,noreferrer');
+                      }
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold transition"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    Telegram
+                  </button>
+                  <a
+                    href="mailto:support@unluktuse.com"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-gray-700 hover:bg-gray-800 text-white rounded-lg text-xs font-semibold transition"
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    Email
+                  </a>
+                </div>
+              </div>
+
               <div className="flex space-x-3">
-                <button onClick={() => setShowAmountInput(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-semibold transition">Cancel</button>
+                <button
+                  onClick={() => setShowAmountInput(false)}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-semibold transition"
+                >
+                  Cancel
+                </button>
                 <button
                   onClick={proceedToPay}
                   disabled={!amountUSDNum || amountUSDNum < MIN_TOPUP}
@@ -338,7 +380,7 @@ export default function Wallet() {
         }}
       />
 
-      {/* ✅ Subscribe Modal */}
+      {/* Subscribe Modal */}
       {subscribeCreator && (
         <SubscribeModal
           isOpen={showSubscribeModal}
@@ -350,7 +392,7 @@ export default function Wallet() {
           onSuccess={(duration) => {
             setShowSubscribeModal(false);
             setSubscribeCreator(null);
-            fetchUserBalance(); // Refresh balance
+            fetchUserBalance();
             alert(`Successfully subscribed! You now have ${duration} access.`);
           }}
         />
@@ -359,26 +401,46 @@ export default function Wallet() {
       {/* Location modal */}
       <AnimatePresence>
         {showLocationModal && (
-          <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setShowLocationModal(false)}>
+          <div
+            className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+            onClick={() => setShowLocationModal(false)}
+          >
             <motion.div
-              initial={{ opacity: 0, y: 100 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 100 }}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-t-3xl sm:rounded-2xl p-6 sm:p-8 w-full sm:max-w-md"
+              className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl"
             >
               <div className="flex items-center justify-between mb-5">
                 <h2 className="text-xl font-bold text-gray-900">Select your location</h2>
-                <button onClick={() => setShowLocationModal(false)} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-5 h-5 text-gray-600" /></button>
+                <button onClick={() => setShowLocationModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X className="w-5 h-5 text-gray-600" />
+                </button>
               </div>
               <p className="text-sm text-gray-600 mb-4">We use this to show local payment options when available.</p>
               <label className="block text-sm font-semibold text-gray-700 mb-2">Country</label>
-              <select value={selectedCountryCode} onChange={(e) => setSelectedCountryCode(e.target.value)} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-rose-500">
-                {COUNTRIES.map((c) => (<option key={c.code} value={c.code}>{c.name} ({c.currency})</option>))}
+              <select
+                value={selectedCountryCode}
+                onChange={(e) => setSelectedCountryCode(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-rose-500"
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c.code} value={c.code}>{c.name} ({c.currency})</option>
+                ))}
               </select>
               <div className="mt-6 flex gap-3">
-                <button onClick={() => setShowLocationModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-semibold transition">Cancel</button>
-                <button onClick={saveLocation} disabled={savingLocation} className="flex-1 bg-rose-500 hover:bg-rose-600 text-white py-3 rounded-xl font-semibold transition disabled:opacity-60">
+                <button
+                  onClick={() => setShowLocationModal(false)}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-semibold transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveLocation}
+                  disabled={savingLocation}
+                  className="flex-1 bg-rose-500 hover:bg-rose-600 text-white py-3 rounded-xl font-semibold transition disabled:opacity-60"
+                >
                   {savingLocation ? 'Saving...' : 'Save'}
                 </button>
               </div>

@@ -96,32 +96,32 @@ export default function DiscoverSidebar() {
               onClick={() => navigate(`/creator/${creator.username?.replace('@', '') || creator.id}`)}
               className="bg-white border border-gray-200 hover:border-rose-300 hover:shadow-md rounded-xl p-3 cursor-pointer transition"
             >
-              {/* Top row: rank + avatar + name */}
-              <div className="flex items-center space-x-2 mb-3">
-                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
-                  index === 0 ? 'bg-yellow-400 text-white' :
-                  index === 1 ? 'bg-gray-400 text-white' :
-                  index === 2 ? 'bg-orange-400 text-white' :
-                  'bg-gray-100 text-gray-600'
-                }`}>
-                  {index + 1}
-                </span>
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-100 to-pink-100 flex-shrink-0 overflow-hidden border-2 border-white shadow-sm">
+              {/* Profile picture - full width banner */}
+              <div className="relative mb-3">
+                <div className="w-full h-28 rounded-lg bg-gradient-to-br from-rose-100 to-pink-100 overflow-hidden">
                   {creator.profilePicture ? (
                     <img src={creator.profilePicture} alt={creator.displayName} className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-base">
+                    <div className="w-full h-full flex items-center justify-center text-4xl">
                       {creator.avatar || '👤'}
                     </div>
                   )}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center space-x-1">
-                    <p className="font-bold text-gray-900 text-xs truncate">{creator.displayName || 'Anonymous'}</p>
-                    {creator.kycStatus === 'approved' && <span className="text-blue-500 text-[10px]">✓</span>}
-                  </div>
-                  <p className="text-[10px] text-gray-400 truncate">@{creator.username || 'user'}</p>
-                </div>
+                {/* Rank badge */}
+                <span className={`absolute top-1.5 left-1.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                  index === 0 ? 'bg-yellow-400 text-white' :
+                  index === 1 ? 'bg-gray-400 text-white' :
+                  index === 2 ? 'bg-orange-400 text-white' :
+                  'bg-black/40 text-white'
+                }`}>
+                  {index + 1}
+                </span>
+              </div>
+              {/* Name row */}
+              <div className="flex items-center space-x-1 mb-3">
+                <p className="font-bold text-gray-900 text-xs truncate">{creator.displayName || 'Anonymous'}</p>
+                {creator.kycStatus === 'approved' && <span className="text-blue-500 text-[10px] flex-shrink-0">✓</span>}
+                <p className="text-[10px] text-gray-400 truncate ml-1">@{creator.username || 'user'}</p>
               </div>
 
               {/* Stats row */}

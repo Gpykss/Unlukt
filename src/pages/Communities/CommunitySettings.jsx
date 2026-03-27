@@ -1,4 +1,4 @@
-// src/pages/Communities/CommunitySettings.jsx - Telegram-style channel settings
+// src/pages/Communities/CommunitySettings.jsx
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -30,7 +30,6 @@ export default function CommunitySettings() {
   const [deleting, setDeleting] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Form state
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -40,8 +39,7 @@ export default function CommunitySettings() {
     isPrivate: true,
     rules: [],
     coverImage: null,
-    // Channel settings
-    membersCanPost: false,    // false = only owner (Telegram channel style)
+    membersCanPost: false,
     approvalRequired: false,
     showMemberCount: true,
     allowLinks: true,
@@ -164,6 +162,24 @@ export default function CommunitySettings() {
   const updateRule = (i, v) => setForm(prev => { const r = [...prev.rules]; r[i] = v; return { ...prev, rules: r }; });
   const removeRule = (i) => setForm(prev => ({ ...prev, rules: prev.rules.filter((_, j) => j !== i) }));
 
+  // ✅ Reusable toggle component — properly visible
+  const Toggle = ({ value, onChange }) => (
+    <button
+      type="button"
+      onClick={onChange}
+      className={`relative inline-flex items-center flex-shrink-0 h-7 w-13 rounded-full transition-colors duration-200 focus:outline-none ${
+        value ? 'bg-rose-500' : 'bg-gray-300'
+      }`}
+      style={{ width: '52px', height: '28px' }}
+    >
+      <span
+        className={`inline-block w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ${
+          value ? 'translate-x-7' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  );
+
   if (loading) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
       <Loader2 className="w-10 h-10 text-rose-500 animate-spin" />
@@ -215,18 +231,29 @@ export default function CommunitySettings() {
           {/* GENERAL */}
           {activeSection === 'general' && (
             <div className="space-y-5">
-              {/* Cover Image */}
+              {/* ✅ FIXED: Cover Image — taller, better visible */}
               <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-                <div className="relative h-44 bg-gradient-to-br from-rose-100 to-pink-200 group cursor-pointer">
+                <div className="relative h-52 bg-gradient-to-br from-rose-200 via-pink-200 to-purple-200 group cursor-pointer">
                   {form.coverImage
                     ? <img src={form.coverImage} alt="" className="w-full h-full object-cover" />
-                    : <div className="w-full h-full flex items-center justify-center text-5xl">👥</div>}
+                    : (
+                      <div className="w-full h-full flex flex-col items-center justify-center">
+                        <span className="text-5xl mb-2">👥</span>
+                        <p className="text-gray-500 text-sm font-medium">No cover image</p>
+                      </div>
+                    )}
                   <label className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition cursor-pointer">
                     <input type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" disabled={uploadingCover} />
                     {uploadingCover
                       ? <Loader2 className="w-10 h-10 text-white animate-spin" />
-                      : <div className="text-white text-center"><Camera className="w-10 h-10 mx-auto mb-1" /><p className="text-sm font-medium">Change Cover</p></div>}
+                      : <div className="text-white text-center">
+                          <Camera className="w-10 h-10 mx-auto mb-1" />
+                          <p className="text-sm font-semibold">Change Cover</p>
+                        </div>}
                   </label>
+                </div>
+                <div className="px-4 py-2 bg-gray-50 border-t border-gray-100">
+                  <p className="text-xs text-gray-400">Recommended: 1200×400px or wider. Hover to change.</p>
                 </div>
               </div>
 
@@ -268,10 +295,12 @@ export default function CommunitySettings() {
               <div className="bg-white rounded-2xl border border-gray-200 p-5">
                 <h2 className="font-semibold text-gray-900 mb-3">Invite Link</h2>
                 <div className="flex items-center space-x-2">
-                  <div className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-600 truncate">
+                  <div className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-blue-600 truncate underline cursor-pointer"
+                    onClick={copyInviteLink}>
                     {window.location.origin}/community/{communityId}
                   </div>
-                  <button onClick={copyInviteLink} className={`px-4 py-3 rounded-xl font-medium text-sm transition flex items-center space-x-1 ${copied ? 'bg-green-100 text-green-700' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+                  <button onClick={copyInviteLink}
+                    className={`px-4 py-3 rounded-xl font-medium text-sm transition flex items-center space-x-1 ${copied ? 'bg-green-100 text-green-700' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
                     {copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                     <span>{copied ? 'Copied!' : 'Copy'}</span>
                   </button>
@@ -327,10 +356,9 @@ export default function CommunitySettings() {
                     onChange={e => setForm(p => ({ ...p, oneTimePrice: e.target.value }))}
                     className="w-full pl-9 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 text-sm" />
                 </div>
-                <p className="text-xs text-gray-400 mt-1">Leave blank to auto-set to 3× monthly price. Members pay once, access forever.</p>
+                <p className="text-xs text-gray-400 mt-1">Leave blank to auto-set to 3× monthly. Members pay once, access forever.</p>
               </div>
 
-              {/* Preview */}
               <div className="bg-gray-50 rounded-xl p-4 space-y-2">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Member will see:</p>
                 <div className="flex items-center justify-between py-2 px-3 bg-white rounded-lg border border-gray-200">
@@ -345,46 +373,49 @@ export default function CommunitySettings() {
             </div>
           )}
 
-          {/* PERMISSIONS */}
+          {/* ✅ FIXED: PERMISSIONS — proper toggle styling */}
           {activeSection === 'permissions' && (
-            <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-1">
-              <h2 className="font-semibold text-gray-900 mb-4">Channel Permissions</h2>
+            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+              <div className="px-5 pt-5 pb-3">
+                <h2 className="font-semibold text-gray-900">Channel Permissions</h2>
+                <p className="text-sm text-gray-500 mt-1">Control what members can do in your community.</p>
+              </div>
 
               {[
                 {
                   key: 'membersCanPost',
                   label: 'Members can post',
-                  desc: 'Allow members to create posts. Disable for broadcast-only (Telegram channel style).',
-                  danger: false,
+                  desc: 'Allow members to create posts. Disable for broadcast-only mode.',
                 },
                 {
                   key: 'approvalRequired',
                   label: 'Approve member posts',
                   desc: 'Posts from members require your approval before being visible.',
-                  danger: false,
                 },
                 {
                   key: 'showMemberCount',
                   label: 'Show member count',
                   desc: 'Display the number of members publicly on the channel.',
-                  danger: false,
                 },
                 {
                   key: 'allowLinks',
                   label: 'Allow links in posts',
-                  desc: 'Members can include links in their posts.',
-                  danger: false,
+                  desc: 'Members can include clickable links in their posts.',
                 },
-              ].map(({ key, label, desc }) => (
-                <div key={key} className="flex items-start justify-between py-4 border-b border-gray-50 last:border-0">
-                  <div className="flex-1 mr-4">
+              ].map(({ key, label, desc }, index, arr) => (
+                <div
+                  key={key}
+                  className={`flex items-center justify-between px-5 py-4 ${index < arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                >
+                  <div className="flex-1 mr-6">
                     <p className="text-sm font-semibold text-gray-900">{label}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{desc}</p>
                   </div>
-                  <button onClick={() => setForm(p => ({ ...p, [key]: !p[key] }))}
-                    className={`flex-shrink-0 w-12 h-6 rounded-full transition-colors relative ${form[key] ? 'bg-rose-500' : 'bg-gray-200'}`}>
-                    <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${form[key] ? 'translate-x-6' : 'translate-x-0.5'}`} />
-                  </button>
+                  {/* ✅ FIXED: use the Toggle component */}
+                  <Toggle
+                    value={form[key]}
+                    onChange={() => setForm(p => ({ ...p, [key]: !p[key] }))}
+                  />
                 </div>
               ))}
             </div>
@@ -395,7 +426,8 @@ export default function CommunitySettings() {
             <div className="bg-white rounded-2xl border border-gray-200 p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-semibold text-gray-900">Community Rules</h2>
-                <button onClick={addRule} className="px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-sm font-medium transition flex items-center space-x-1">
+                <button onClick={addRule}
+                  className="px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-sm font-medium transition flex items-center space-x-1">
                   <Plus className="w-4 h-4" /><span>Add Rule</span>
                 </button>
               </div>
@@ -424,7 +456,8 @@ export default function CommunitySettings() {
           {activeSection === 'members' && (
             <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
               <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-                <h2 className="font-semibold text-gray-900">{members.length} Members</h2>
+                {/* ✅ FIXED: show live member count */}
+                <h2 className="font-semibold text-gray-900">{members.length} {members.length === 1 ? 'Member' : 'Members'}</h2>
               </div>
               {members.length === 0 ? (
                 <p className="text-center text-gray-400 py-10 text-sm">No members yet</p>
@@ -443,11 +476,11 @@ export default function CommunitySettings() {
                           {member.user?.username && <p className="text-xs text-gray-400">@{member.user.username}</p>}
                         </div>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${member.subscriptionStatus === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                          {member.subscriptionStatus || 'active'}
-                        </span>
-                      </div>
+                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                        member.subscriptionStatus === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {member.subscriptionStatus || 'active'}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -462,11 +495,9 @@ export default function CommunitySettings() {
                 <AlertTriangle className="w-5 h-5 text-red-500" />
                 <h2 className="font-semibold text-red-700">Danger Zone</h2>
               </div>
-
               <p className="text-sm text-gray-600 mb-5">
                 Deleting this community is permanent and cannot be undone. All posts, members, and data will be lost.
               </p>
-
               <button onClick={() => setShowDeleteModal(true)}
                 className="px-5 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-semibold text-sm transition flex items-center space-x-2">
                 <Trash2 className="w-4 h-4" />
@@ -486,14 +517,12 @@ export default function CommunitySettings() {
         </div>
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Modal */}
       <AnimatePresence>
         {showDeleteModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
             <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
+              initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
               className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl"
             >
               <div className="flex items-center space-x-3 mb-4">
@@ -505,15 +534,12 @@ export default function CommunitySettings() {
                   <p className="text-sm text-gray-500">This cannot be undone</p>
                 </div>
               </div>
-
               <p className="text-sm text-gray-600 mb-4">
                 Type <span className="font-bold text-gray-900">"{community?.name}"</span> to confirm deletion.
               </p>
-
               <input type="text" value={deleteConfirm} onChange={e => setDeleteConfirm(e.target.value)}
                 placeholder="Type community name..."
                 className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-red-500 text-sm mb-4" />
-
               <div className="flex space-x-3">
                 <button onClick={() => { setShowDeleteModal(false); setDeleteConfirm(''); }}
                   className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-semibold text-sm transition">

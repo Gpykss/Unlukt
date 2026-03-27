@@ -1,27 +1,18 @@
-// src/pages/Communities/Communities.jsx - Browse All Communities
+// src/pages/Communities/Communities.jsx
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Users, Plus, Search, Lock, Globe, ArrowLeft, Loader2
-} from 'lucide-react';
+import { Users, Plus, Search, Lock, Globe, ArrowLeft, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { 
-  getCommunities, 
-  getUserCommunities,
-  getCreatorCommunities,
-  isCommunityMember 
-} from '../../services/communityService';
+import { getCommunities, getUserCommunities, getCreatorCommunities, isCommunityMember } from '../../services/communityService';
 
-const CATEGORIES = [
-  'All','Fitness','Gaming','Art','Music','Fashion','Cooking','Tech','Lifestyle','Business'
-];
+const CATEGORIES = ['All','Fitness','Gaming','Art','Music','Fashion','Cooking','Tech','Lifestyle','Business'];
 
 export default function Communities() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  
+
   const [communities, setCommunities] = useState([]);
   const [myCommunities, setMyCommunities] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -48,7 +39,6 @@ export default function Communities() {
         getUserCommunities(currentUser.uid),
         getCreatorCommunities(currentUser.uid)
       ]);
-      // Strict dedup by id using a Map — last write wins but we prefer created over joined
       const map = new Map();
       [...joined, ...created].forEach(c => { if (c?.id) map.set(c.id, c); });
       setMyCommunities(Array.from(map.values()));
@@ -103,7 +93,6 @@ export default function Communities() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
         {activeTab === 'discover' ? (
           <>
-            {/* Search */}
             <div className="mb-6 relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
@@ -111,7 +100,6 @@ export default function Communities() {
                 className="w-full pl-12 pr-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 transition" />
             </div>
 
-            {/* Categories */}
             <div className="mb-6 overflow-x-auto scrollbar-hide">
               <div className="flex space-x-2 min-w-max pb-2">
                 {CATEGORIES.map(cat => (
@@ -179,13 +167,13 @@ export default function Communities() {
 
 function CommunityCard({ community, index, isMember = false, onClick }) {
   const isFree = community.isPrivate === false;
+  const memberCount = community.memberCount ?? community.members?.length ?? 0;
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.05 }}
+    <div
       onClick={onClick}
-      className="bg-white rounded-2xl border border-gray-200 hover:border-rose-300 hover:shadow-lg transition cursor-pointer overflow-hidden group">
-
+      className="bg-white rounded-2xl border border-gray-200 hover:border-rose-300 hover:shadow-lg transition cursor-pointer overflow-hidden group"
+    >
       {/* Cover */}
       <div className="relative h-32 sm:h-40 bg-gradient-to-br from-rose-100 via-pink-100 to-purple-100 overflow-hidden">
         {community.coverImage
@@ -198,38 +186,38 @@ function CommunityCard({ community, index, isMember = false, onClick }) {
             ? <><Globe className="w-3 h-3 text-white" /><span className="text-xs text-white font-medium">Free</span></>
             : <><Lock className="w-3 h-3 text-white" /><span className="text-xs text-white font-medium">Private</span></>}
         </div>
+
+        {/* Member count badge */}
+        <div className="absolute bottom-3 left-3 px-2 py-1 bg-black/50 backdrop-blur-sm rounded-full flex items-center space-x-1">
+          <Users className="w-3 h-3 text-white" />
+          <span className="text-xs text-white font-medium">{memberCount} {memberCount === 1 ? 'member' : 'members'}</span>
+        </div>
       </div>
 
       {/* Content */}
       <div className="p-4">
         <h3 className="text-lg font-bold text-gray-900 mb-1 line-clamp-1">{community.name}</h3>
         <p className="text-sm text-gray-600 line-clamp-2 mb-2">{community.description || 'No description'}</p>
-        <span className="inline-block px-2 py-1 bg-rose-50 text-rose-600 text-xs font-medium rounded-full mb-3">
+        <span className="inline-block px-2 py-1 bg-rose-50 text-rose-600 text-xs font-medium rounded-full mb-3 capitalize">
           {community.category || 'general'}
         </span>
 
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-1 text-gray-600 text-sm">
-            <Users className="w-4 h-4" />
-            <span>{community.memberCount || 0} members</span>
-          </div>
-          {isMember && (
-            <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full">Joined</span>
-          )}
-        </div>
-
-        {/* Price row — only show for private communities */}
-        <div className="flex items-center justify-between mt-3">
+        {/* Price row */}
+        <div className="flex items-center justify-between mt-1">
           {isFree
             ? <span className="text-lg font-bold text-green-600">Free</span>
-            : <div className="text-lg font-bold text-gray-900">${(community.price || 9.99).toFixed(2)}<span className="text-sm text-gray-500">/mo</span></div>
+            : <div className="text-lg font-bold text-gray-900">
+                ${(community.price || 9.99).toFixed(2)}
+                <span className="text-sm text-gray-500 font-normal">/mo</span>
+              </div>
           }
           {isMember ? (
             <div className="flex items-center space-x-1 px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-sm font-semibold">
               <span>✓</span><span>Joined</span>
             </div>
           ) : (
-            <button onClick={e => { e.stopPropagation(); onClick(); }}
+            <button
+              onClick={e => { e.stopPropagation(); onClick(); }}
               className={`px-4 py-2 rounded-lg font-semibold text-sm transition ${
                 isFree ? 'bg-green-500 text-white hover:bg-green-600' : 'bg-rose-500 text-white hover:bg-rose-600'
               }`}>
@@ -238,6 +226,6 @@ function CommunityCard({ community, index, isMember = false, onClick }) {
           )}
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }
