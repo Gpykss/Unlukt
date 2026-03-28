@@ -28,7 +28,7 @@ function DiagonalWatermark({ username }) {
         {Array.from({ length: 6 }).map((_, i) => (
           <text key={i} x="50%" y={`${10 + i * 16}%`}
             textAnchor="middle" dominantBaseline="middle"
-            transform={`rotate(-35, 50%, ${10 + i * 16}%)`}
+            transform={`rotate(-35)`}
             fill="white" fontSize="13" fontWeight="bold" fontFamily="monospace" letterSpacing="2">
             {text}
           </text>
