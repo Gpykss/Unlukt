@@ -279,6 +279,36 @@
 }
 ```
 
+### `ngn_payments` (Nigerian Bank Transfer Payments) ✅ NEW
+```javascript
+{
+  userId: string,
+  userEmail: string,
+  amountUSD: number,          // USD amount requested
+  amountNGN: number,          // NGN equivalent shown to user
+  reference: string,          // e.g. UNLUKT-ABC123-XY45
+  proofUrl: string,           // Firebase Storage URL of screenshot
+  status: 'pending' | 'approved' | 'rejected',
+  bankName: string,           // e.g. 'Opay'
+  accountNo: string,          // your account number
+  adminNote: string,          // optional rejection reason
+  reviewedBy: string,         // admin uid
+  reviewedAt: timestamp,
+  createdAt: timestamp
+}
+```
+
+### `settings` (Platform-wide Config) ✅ NEW
+```javascript
+// Document ID: 'ngn_rate'
+{
+  rate: number,       // base NGN per $1 USD (e.g. 1550)
+  buffer: number,     // extra NGN added on top (e.g. 25)
+  effective: number,  // rate + buffer (cached for quick reads)
+  updatedAt: timestamp
+}
+```
+
 ### `notifications` (User Notifications)
 ```javascript
 {
@@ -324,6 +354,12 @@
 
 // communities
 - category, memberCount (DESC)
+// ngn_payments
+- userId, status (ASC)
+- status, createdAt (DESC)
+
+// settings
+// No indexes needed (single document reads)
 ```
 
 ## Deprecated/Unused Collections

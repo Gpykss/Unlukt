@@ -52,115 +52,164 @@ export default function AdminAnalytics() {
     loadStats();
   }, [range]);
 
-  const since = () => {
+  // JS-side date helper — avoids composite index requirements
+  const sinceDate = () => {
     if (!range.days) return null;
     const d = new Date();
     d.setDate(d.getDate() - range.days);
     return d;
   };
 
+  // Returns true if a Firestore doc's createdAt is within the selected range
+  const afterSince = (data, field = 'createdAt') => {
+    const since = sinceDate();
+    if (!since) return true;
+    const raw = data[field];
+    if (!raw) return false;
+    const ts = raw.toDate ? raw.toDate() : (raw.seconds ? new Date(raw.seconds * 1000) : new Date(raw));
+    return ts >= since;
+  };
+
   const loadStats = async () => {
     try {
       setLoading(true);
 
-      // Total revenue from completed payments
-      const paymentsRef = collection(db, 'crypto_payments');
-      const finishedQuery = query(paymentsRef, where('status', 'in', ['finished', 'completed', 'confirmed']));
-      const paymentsSnap = await getDocs(finishedQuery);
-      
-      let totalRevenue = 0;
-      let platformRevenue = 0;
-      let creatorRevenue = 0;
-
-      paymentsSnap.forEach(doc => {
-        const amount = Number(doc.data().amount || 0);
-        totalRevenue += amount;
-        // Platform takes 20%, creators get 80%
-        platformRevenue += amount * 0.20;
-        creatorRevenue += amount * 0.80;
+      // ── Revenue: Crypto payments — fetch all then JS date-filter ──────────
+      // (avoids composite index: status + createdAt)
+      const cryptoSnap = await getDocs(
+        query(collection(db, 'crypto_payments'),
+          where('status', 'in', ['finished', 'completed', 'confirmed', 'verified']))
+      );
+      let cryptoRevenue = 0;
+      cryptoSnap.forEach(d => {
+        if (afterSince(d.data())) cryptoRevenue += Number(d.data().amount || 0);
       });
 
-      // Total users
-      const usersCount = await getCountFromServer(collection(db, 'users'));
+      // ── Revenue: NGN payments — same pattern ──────────────────────────────
+      const ngnSnap = await getDocs(
+        query(collection(db, 'ngn_payments'), where('status', '==', 'approved'))
+      );
+      let ngnRevenue = 0;
+      ngnSnap.forEach(d => {
+        if (afterSince(d.data())) ngnRevenue += Number(d.data().amountUSD || 0);
+      });
 
-      // Total creators
+      const totalRevenue    = cryptoRevenue + ngnRevenue;
+      const platformRevenue = totalRevenue * 0.20;
+      const creatorRevenue  = totalRevenue * 0.80;
+
+      // ── Users (totals — not date filtered, counts make more sense all-time) ─
+      const usersCount    = await getCountFromServer(collection(db, 'users'));
       const creatorsQuery = query(collection(db, 'users'), where('isCreator', '==', true));
       const creatorsCount = await getCountFromServer(creatorsQuery);
+      const verifiedCount = await getCountFromServer(
+        query(collection(db, 'users'), where('kycStatus', '==', 'approved'))
+      );
 
-      // Verified creators
-      const verifiedQuery = query(collection(db, 'users'), where('kycStatus', '==', 'approved'));
-      const verifiedCount = await getCountFromServer(verifiedQuery);
+      // ── Subscriptions counts (all-time totals) ────────────────────────────
+      const allSubsCount    = await getCountFromServer(collection(db, 'subscriptions'));
+      const activeSubsCount = await getCountFromServer(
+        query(collection(db, 'subscriptions'), where('status', '==', 'active'))
+      );
 
-      // Total subscriptions (all)
-      const allSubsCount = await getCountFromServer(collection(db, 'subscriptions'));
-
-      // Active subscriptions
-      const activeSubsQuery = query(collection(db, 'subscriptions'), where('status', '==', 'active'));
-      const activeSubsCount = await getCountFromServer(activeSubsQuery);
-
-      // Total posts
-      const postsCount = await getCountFromServer(collection(db, 'posts'));
-
-      // Total likes and comments
-      const postsSnap = await getDocs(collection(db, 'posts'));
-      let totalLikes = 0;
-      let totalComments = 0;
-      postsSnap.forEach(doc => {
-        totalLikes += Number(doc.data().likes || 0);
-        totalComments += Number(doc.data().comments || 0);
+      // ── Posts — fetch once, JS date-filter for range stats ───────────────
+      const allPostsSnap = await getDocs(collection(db, 'posts'));
+      let totalLikes = 0, totalComments = 0, totalPostsNum = 0;
+      allPostsSnap.forEach(d => {
+        if (afterSince(d.data())) {
+          totalPostsNum++;
+          totalLikes    += Number(d.data().likes    || 0);
+          totalComments += Number(d.data().comments || 0);
+        }
       });
 
-      // Total tips
+      // ── Tips — fetch all, JS date-filter ─────────────────────────────────
       const tipsSnap = await getDocs(collection(db, 'tips'));
       let totalTips = 0;
-      tipsSnap.forEach(doc => {
-        totalTips += Number(doc.data().amount || 0);
+      tipsSnap.forEach(d => {
+        if (afterSince(d.data())) totalTips += Number(d.data().amount || 0);
       });
 
-      const totalUsersNum = usersCount.data().count;
+      // ── PPV unlocks — fetch all, JS date-filter ───────────────────────────
+      const ppvSnap = await getDocs(collection(db, 'ppv_unlocks'));
+      let ppvRevenue = 0;
+      ppvSnap.forEach(d => {
+        if (afterSince(d.data())) ppvRevenue += Number(d.data().amount || 0);
+      });
+
+      // ── Subscriptions spending — fetch all, JS date-filter ────────────────
+      const subsSnap = await getDocs(
+        query(collection(db, 'subscriptions'), where('status', 'in', ['active', 'expired']))
+      );
+      let subsRevenue = 0;
+      subsSnap.forEach(d => {
+        if (afterSince(d.data())) subsRevenue += Number(d.data().amount || 0);
+      });
+
+      // ── Completed calls — fetch all, JS date-filter ───────────────────────
+      const callsSnap = await getDocs(
+        query(collection(db, 'video_calls'), where('status', '==', 'completed'))
+      );
+      let callsRevenue = 0;
+      callsSnap.forEach(d => {
+        if (afterSince(d.data())) callsRevenue += Number(d.data().price || 0);
+      });
+
+      const totalSpending = subsRevenue + ppvRevenue + totalTips + callsRevenue;
+      const safePct = (n) => totalSpending > 0 ? Math.round((n / totalSpending) * 100) : 0;
+
+      const totalUsersNum    = usersCount.data().count;
       const totalCreatorsNum = creatorsCount.data().count;
-      const totalPostsNum = postsCount.data().count;
 
       setStats({
-        totalRevenue,
-        platformRevenue,
-        creatorRevenue,
-        totalUsers: totalUsersNum,
-        totalCreators: totalCreatorsNum,
-        verifiedCreators: verifiedCount.data().count,
-        totalSubscriptions: allSubsCount.data().count,
+        totalRevenue, platformRevenue, creatorRevenue,
+        cryptoRevenue, ngnRevenue,
+        totalUsers:          totalUsersNum,
+        totalCreators:       totalCreatorsNum,
+        verifiedCreators:    verifiedCount.data().count,
+        totalSubscriptions:  allSubsCount.data().count,
         activeSubscriptions: activeSubsCount.data().count,
-        totalPosts: totalPostsNum,
-        totalLikes,
-        totalComments,
-        totalTips,
-        avgRevenuePerUser: totalUsersNum > 0 ? totalRevenue / totalUsersNum : 0,
-        avgPostsPerCreator: totalCreatorsNum > 0 ? totalPostsNum / totalCreatorsNum : 0,
-        avgLikesPerPost: totalPostsNum > 0 ? totalLikes / totalPostsNum : 0,
+        totalPosts:          totalPostsNum,
+        totalLikes, totalComments, totalTips,
+        avgRevenuePerUser:   totalUsersNum    > 0 ? totalRevenue / totalUsersNum    : 0,
+        avgPostsPerCreator:  totalCreatorsNum > 0 ? totalPostsNum / totalCreatorsNum : 0,
+        avgLikesPerPost:     totalPostsNum    > 0 ? totalLikes / totalPostsNum      : 0,
       });
 
-      // Revenue breakdown
       setRevenueBreakdown([
-        { label: 'Subscriptions', amount: totalRevenue * 0.6, color: 'bg-rose-500', pct: 60 },
-        { label: 'Tips', amount: totalTips, color: 'bg-yellow-400', pct: Math.round((totalTips / totalRevenue) * 100) || 0 },
-        { label: 'PPV Unlocks', amount: totalRevenue * 0.2, color: 'bg-purple-500', pct: 20 },
-        { label: 'Other', amount: totalRevenue * 0.1, color: 'bg-blue-400', pct: 10 },
+        { label: 'Subscriptions',     amount: subsRevenue,  color: 'bg-rose-500',   pct: safePct(subsRevenue)  },
+        { label: 'Tips',              amount: totalTips,    color: 'bg-yellow-400', pct: safePct(totalTips)    },
+        { label: 'PPV Messages',      amount: ppvRevenue,   color: 'bg-purple-500', pct: safePct(ppvRevenue)   },
+        { label: 'Video/Voice Calls', amount: callsRevenue, color: 'bg-blue-400',   pct: safePct(callsRevenue) },
       ]);
 
-      // Top creators by followers
+      // ── Top creators — enrich with real follow/subscriber counts ──────────
       const creatorsSnap = await getDocs(creatorsQuery);
-      const creatorsList = creatorsSnap.docs
-        .map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }))
-        .sort((a, b) => (b.followersCount || 0) - (a.followersCount || 0))
-        .slice(0, 5);
+      const creatorList  = creatorsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-      setTopCreators(creatorsList);
+      // Fetch real counts for each creator (batched)
+      const enriched = await Promise.all(
+        creatorList.map(async (c) => {
+          const [fSnap, sSnap] = await Promise.all([
+            getCountFromServer(query(collection(db, 'follows'), where('followingId', '==', c.id))),
+            getCountFromServer(query(collection(db, 'subscriptions'), where('creatorId', '==', c.id), where('status', '==', 'active'))),
+          ]);
+          return {
+            ...c,
+            followersCount:    fSnap.data().count,
+            subscribersCount:  sSnap.data().count,
+          };
+        })
+      );
+
+      setTopCreators(
+        enriched
+          .sort((a, b) => b.followersCount - a.followersCount)
+          .slice(0, 5)
+      );
 
     } catch (error) {
-      console.error('Error loading stats:', error);
+      console.error('Error loading analytics:', error);
     } finally {
       setLoading(false);
     }
@@ -217,7 +266,7 @@ export default function AdminAnalytics() {
 
         {/* Revenue Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}
             className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-6 text-white shadow-lg">
             <div className="flex items-center justify-between mb-3">
               <DollarSign className="w-8 h-8" />
@@ -227,7 +276,7 @@ export default function AdminAnalytics() {
             <p className="text-sm opacity-75">From all payments</p>
           </motion.div>
 
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}
             className="bg-gradient-to-br from-rose-500 to-pink-600 rounded-2xl p-6 text-white shadow-lg">
             <div className="flex items-center justify-between mb-3">
               <Zap className="w-8 h-8" />
@@ -237,7 +286,7 @@ export default function AdminAnalytics() {
             <p className="text-sm opacity-75">20% of revenue</p>
           </motion.div>
 
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}
             className="bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl p-6 text-white shadow-lg">
             <div className="flex items-center justify-between mb-3">
               <Crown className="w-8 h-8" />
@@ -260,7 +309,7 @@ export default function AdminAnalytics() {
             { label: 'Total Comments', value: stats.totalComments.toLocaleString(), icon: MessageCircle, color: 'text-blue-500', bg: 'bg-blue-50' },
             { label: 'Total Tips', value: fmt(stats.totalTips), icon: DollarSign, color: 'text-yellow-600', bg: 'bg-yellow-50' },
           ].map(({ label, value, icon: Icon, color, bg }) => (
-            <motion.div key={label} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+            <motion.div key={label} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}
               className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
               <div className={`w-10 h-10 ${bg} rounded-xl flex items-center justify-center mb-3`}>
                 <Icon className={`w-5 h-5 ${color}`} />

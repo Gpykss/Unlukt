@@ -64,21 +64,27 @@ export const canViewPost = async (post, viewerId) => {
   try {
     if (!post) return false;
 
-    // owner always
+    // Owner always sees their own content
     if (viewerId && post.userId === viewerId) return true;
 
-    const isPaid = (post.type || 'free') !== 'free' && Number(post.price || 0) > 0;
-    if (!isPaid) return true;
+    const postType = post.type || 'free';
+
+    // Free posts — everyone can view
+    if (postType === 'free') return true;
 
     if (!viewerId) return false;
 
-    // subscription unlocks all paid posts
+    // ✅ Business logic: an active subscription unlocks ALL non-free posts
+    // (both subscriber-only AND paid PPV). This incentivises subscribing
+    // over paying per post.
     const sub = await hasActiveSubscription(viewerId, post.userId);
     if (sub) return true;
 
-    // single unlock
-    const unlocked = await hasUnlockedPost(viewerId, post.id);
-    if (unlocked) return true;
+    // Non-subscribers can still individually unlock a paid post
+    if (postType === 'paid') {
+      const unlocked = await hasUnlockedPost(viewerId, post.id);
+      return !!unlocked;
+    }
 
     return false;
   } catch (e) {

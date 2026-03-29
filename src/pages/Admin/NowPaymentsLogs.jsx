@@ -160,7 +160,7 @@ export default function NowPaymentsLogs() {
             { label: 'Pending',       value: stats.pending,    sub: 'awaiting confirmation',                      icon: Clock,       bg: 'bg-yellow-50', iconBg: 'bg-yellow-100', iconColor: 'text-yellow-600', alert: stats.pending > 0 },
             { label: 'Failed',        value: stats.failed,     sub: 'failed or expired',                         icon: XCircle,     bg: 'bg-red-50',    iconBg: 'bg-red-100',    iconColor: 'text-red-500' },
           ].map((s, i) => (
-            <motion.div key={i} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }}
+            <motion.div key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}
               className={`${s.bg} rounded-2xl border border-white p-5 shadow-sm relative`}>
               <div className="flex items-center justify-between mb-3">
                 <div className={`w-10 h-10 ${s.iconBg} rounded-xl flex items-center justify-center`}>

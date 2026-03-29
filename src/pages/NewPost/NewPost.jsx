@@ -36,6 +36,7 @@ export default function NewPost() {
 
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const [tags, setTags] = useState('');
 
@@ -191,8 +192,8 @@ export default function NewPost() {
       const newPost = await createPost(currentUser.uid, postData);
 
       console.log('✅ Post created:', newPost);
-      alert('Post created successfully! 🎉');
-      navigate('/feed');
+      setShowSuccess(true);
+      setTimeout(() => navigate('/feed'), 2200);
     } catch (error) {
       console.error('Error creating post:', error);
       alert('Failed to create post: ' + error.message);
@@ -246,6 +247,63 @@ export default function NewPost() {
   }
 
   return (
+    <>
+    {/* ── Success overlay ───────────────────────────────────────────────── */}
+    {showSuccess && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.85 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'spring', duration: 0.4 }}
+          className="bg-white rounded-3xl shadow-2xl p-8 mx-4 max-w-sm w-full text-center"
+        >
+          {/* Animated checkmark */}
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 0.15, type: 'spring', stiffness: 200 }}
+            className="w-20 h-20 bg-gradient-to-br from-rose-400 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-5 shadow-lg"
+          >
+            <svg className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <motion.path
+                initial={{ pathLength: 0 }}
+                animate={{ pathLength: 1 }}
+                transition={{ delay: 0.3, duration: 0.4 }}
+                strokeLinecap="round" strokeLinejoin="round"
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+          </motion.div>
+
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Post Published! 🎉</h2>
+            <p className="text-gray-500 text-sm mb-5">Your post is live and visible to your audience.</p>
+
+            {/* Visibility badge */}
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${
+              visibility === 'public'      ? 'bg-blue-100 text-blue-700'
+              : visibility === 'paid'      ? 'bg-amber-100 text-amber-700'
+              :                              'bg-rose-100 text-rose-700'
+            }`}>
+              {visibility === 'public' ? '🌍 Public' : visibility === 'paid' ? `💰 Paid · $${price}` : '🔒 Subscribers Only'}
+            </span>
+
+            <p className="text-xs text-gray-400 mt-5">Taking you to your feed...</p>
+
+            {/* Progress bar */}
+            <motion.div className="mt-2 h-1 bg-gray-100 rounded-full overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: '100%' }}
+                transition={{ duration: 2.0, ease: 'linear' }}
+                className="h-full bg-gradient-to-r from-rose-400 to-pink-500 rounded-full"
+              />
+            </motion.div>
+          </motion.div>
+        </motion.div>
+      </div>
+    )}
+
     <div className="min-h-screen bg-gray-50 pb-20 lg:pb-8">
       {/* Hidden file input */}
       <input
@@ -576,5 +634,7 @@ export default function NewPost() {
         </button>
       </div>
     </div>
+    </>
   );
 }
+

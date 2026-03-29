@@ -11,11 +11,13 @@ import {
   CheckCircle,
   Clock,
   ArrowRight,
-  Wallet
+  Wallet,
+  Settings
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs, getCountFromServer } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import NGNPayments from './NGNPayments';
 
 export default function Admin() {
   const navigate = useNavigate();
@@ -59,19 +61,26 @@ export default function Admin() {
       const rejectedQuery = query(usersRef, where('kycStatus', '==', 'rejected'));
       const rejectedSnap = await getCountFromServer(rejectedQuery);
 
-      // ✅ Revenue from crypto_payments
-      const paymentsRef = collection(db, 'crypto_payments');
-      const finishedQuery = query(paymentsRef, where('status', '==', 'finished'));
-      const finishedSnap = await getDocs(finishedQuery);
-      
+      // ✅ Revenue from crypto_payments (verified/finished)
+      const cryptoSnap = await getDocs(
+        query(collection(db, 'crypto_payments'),
+          where('status', 'in', ['finished', 'completed', 'confirmed', 'verified']))
+      );
       let totalRevenue = 0;
-      finishedSnap.forEach(doc => {
-        totalRevenue += Number(doc.data().amount || 0);
-      });
+      cryptoSnap.forEach(doc => { totalRevenue += Number(doc.data().amount || 0); });
 
-      // ✅ Pending payments
-      const pendingPaymentsQuery = query(paymentsRef, where('status', 'in', ['waiting', 'confirming']));
-      const pendingPaymentsSnap = await getCountFromServer(pendingPaymentsQuery);
+      // ✅ Revenue from approved NGN payments
+      const ngnApprovedSnap = await getDocs(
+        query(collection(db, 'ngn_payments'), where('status', '==', 'approved'))
+      );
+      ngnApprovedSnap.forEach(doc => { totalRevenue += Number(doc.data().amountUSD || 0); });
+
+      // ✅ Pending payments (crypto waiting + NGN pending)
+      const [cryptoPendingSnap, ngnPendingSnap] = await Promise.all([
+        getCountFromServer(query(collection(db, 'crypto_payments'), where('status', 'in', ['waiting', 'confirming', 'pending_review']))),
+        getCountFromServer(query(collection(db, 'ngn_payments'), where('status', '==', 'pending'))),
+      ]);
+      const pendingPaymentsSnap = { data: () => ({ count: cryptoPendingSnap.data().count + ngnPendingSnap.data().count }) };
       
       setStats({
         totalUsers: totalUsersSnap.data().count,
@@ -104,14 +113,26 @@ export default function Admin() {
     },
     {
       id: 'payments',
-      title: 'Payment Logs',
-      description: 'View all NowPayments transactions',
+      title: 'Crypto Payments',
+      description: 'Review NowPayments USDT transactions',
       icon: Wallet,
       color: 'green',
       gradient: 'from-green-500 to-emerald-500',
-      route: '/admin/payment-logs',
+      route: '/admin/crypto-payments',
       stat: stats.pendingPayments,
       statLabel: 'Pending Verification',
+      needsAttention: stats.pendingPayments > 0
+    },
+    {
+      id: 'ngn',
+      title: 'NGN Payments',
+      description: 'Approve Nigerian bank transfer proofs',
+      icon: DollarSign,
+      color: 'emerald',
+      gradient: 'from-emerald-500 to-teal-500',
+      route: '/admin/ngn-payments',
+      stat: stats.pendingPayments,
+      statLabel: 'Pending Approval',
       needsAttention: stats.pendingPayments > 0
     },
     {
@@ -136,6 +157,17 @@ export default function Admin() {
       stat: stats.totalCreators,
       statLabel: 'Active Creators'
     },
+    {
+      id: 'settings',
+      title: 'Platform Settings',
+      description: 'Set NGN exchange rate & payment config',
+      icon: Settings,
+      color: 'orange',
+      gradient: 'from-orange-500 to-amber-500',
+      route: '/admin/settings',
+      stat: null,
+      statLabel: 'NGN Rate & Buffer'
+    },
   ];
 
   return (
@@ -157,8 +189,7 @@ export default function Admin() {
         {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}
             className="bg-white rounded-2xl border border-gray-200 p-6"
           >
             <div className="flex items-center justify-between mb-4">
@@ -171,9 +202,7 @@ export default function Admin() {
           </motion.div>
 
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}
             className="bg-white rounded-2xl border border-gray-200 p-6"
           >
             <div className="flex items-center justify-between mb-4">
@@ -186,9 +215,7 @@ export default function Admin() {
           </motion.div>
 
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}
             className="bg-white rounded-2xl border border-gray-200 p-6"
           >
             <div className="flex items-center justify-between mb-4">
@@ -206,9 +233,7 @@ export default function Admin() {
           </motion.div>
 
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}
             className="bg-white rounded-2xl border border-gray-200 p-6"
           >
             <div className="flex items-center justify-between mb-4">
@@ -226,9 +251,7 @@ export default function Admin() {
           {adminSections.map((section, index) => (
             <motion.div
               key={section.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 * index }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}
               onClick={() => navigate(section.route)}
               className="bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-xl transition cursor-pointer group relative"
             >

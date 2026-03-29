@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Plus, Wallet as WalletIcon, TrendingUp, X, MapPin, Loader2, Info, MessageCircle, Mail } from 'lucide-react';
+import { ArrowLeft, Plus, Wallet as WalletIcon, TrendingUp, X, MapPin, Loader2, Info } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db, auth } from '../../config/firebase';
 
 import PaymentModal from '../../components/Payment/PaymentModal';
 import SubscribeModal from '../../components/Payment/SubscribeModal';
+import NGNPaymentModal from '../../components/Payment/NGNPaymentModal';
 import { COUNTRIES, getCountryByCode, formatMoney } from '../../utils/currencySupport';
 
 const MIN_TOPUP = 12;
@@ -26,6 +27,7 @@ export default function Wallet() {
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [selectedCountryCode, setSelectedCountryCode] = useState('NG');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showNGNModal, setShowNGNModal] = useState(false);
 
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
   const [subscribeCreator, setSubscribeCreator] = useState(null);
@@ -305,44 +307,40 @@ export default function Wallet() {
                   ))}
                 </div>
 
-                {/* FIX 3: Removed hardcoded USDT TRC20 — NowPayments handles crypto selection */}
-                <p className="text-xs text-gray-500">
-                  Paid via crypto (powered by NowPayments). Balance reflects in USD.
-                </p>
+                {/* Payment method info */}
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+                  <p className="text-xs font-semibold text-gray-700 mb-2">💡 Payment options</p>
+                  <div className="space-y-1.5">
+                    <div className="flex items-start gap-2">
+                      <span className="text-xs mt-0.5">🌍</span>
+                      <p className="text-xs text-gray-600"><strong>Crypto (below)</strong> — available to everyone worldwide, powered by NowPayments.</p>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="text-xs mt-0.5">🇳🇬</span>
+                      <p className="text-xs text-gray-600"><strong>Bank Transfer (NGN)</strong> — only for Nigerian users paying in Naira.</p>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {/* FIX 2: Contact support for NGN/Naira users */}
-              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 mb-5">
-                <p className="text-xs font-semibold text-gray-700 mb-2">
-                  🇳🇬 Paying in Naira (NGN)?
+              {/* NGN Bank Transfer — in-app flow, Nigeria only */}
+              <div className="bg-green-50 border border-green-200 rounded-xl p-3 mb-5">
+                <p className="text-xs font-semibold text-green-800 mb-1">
+                  🇳🇬 Nigerian users only — Pay in Naira (NGN)
                 </p>
-                <p className="text-xs text-gray-500 mb-3">
-                  Contact our support team and we'll assist you with your payment manually.
+                <p className="text-xs text-green-700 mb-3">
+                  Pay via bank transfer and upload your proof — we'll credit your wallet within 1–3 hours.
                 </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-                      if (isMobile) {
-                        window.location.href = 'tg://resolve?domain=unlukt';
-                        setTimeout(() => window.open('https://t.me/unlukt', '_blank'), 1000);
-                      } else {
-                        window.open('https://t.me/unlukt', '_blank', 'noopener,noreferrer');
-                      }
-                    }}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold transition"
-                  >
-                    <MessageCircle className="w-3.5 h-3.5" />
-                    Telegram
-                  </button>
-                  <a
-                    href="mailto:support@unluktuse.com"
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-gray-700 hover:bg-gray-800 text-white rounded-lg text-xs font-semibold transition"
-                  >
-                    <Mail className="w-3.5 h-3.5" />
-                    Email
-                  </a>
-                </div>
+                <button
+                  onClick={() => {
+                    setShowAmountInput(false);
+                    setShowNGNModal(true);
+                  }}
+                  disabled={!amountUSDNum || amountUSDNum < MIN_TOPUP}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl text-sm font-semibold transition"
+                >
+                  Pay with Bank Transfer (NGN)
+                </button>
               </div>
 
               <div className="flex space-x-3">
@@ -397,6 +395,17 @@ export default function Wallet() {
           }}
         />
       )}
+
+      {/* NGN Bank Transfer Modal */}
+      <NGNPaymentModal
+        isOpen={showNGNModal}
+        onClose={() => setShowNGNModal(false)}
+        amountUSD={amountUSDNum}
+        onSuccess={() => {
+          setShowNGNModal(false);
+          setTopUpAmountUSD('');
+        }}
+      />
 
       {/* Location modal */}
       <AnimatePresence>

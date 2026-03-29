@@ -6,7 +6,7 @@ import {
   Loader2, Mail, Calendar, MapPin, CheckCircle, XCircle, Clock
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, getDocs, orderBy, limit, where } from 'firebase/firestore';
+import { collection, query, getDocs, getCountFromServer, orderBy, limit, where } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 
 export default function UserManagement() {
@@ -35,10 +35,30 @@ export default function UserManagement() {
       }
 
       const snapshot = await getDocs(q);
-      const userData = snapshot.docs.map(doc => ({
+      let userData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+
+      // ✅ Enrich creators with real follower + subscriber counts
+      const creators = userData.filter(u => u.isCreator);
+      if (creators.length > 0) {
+        const enriched = await Promise.all(
+          creators.map(async (creator) => {
+            const [fSnap, sSnap] = await Promise.all([
+              getCountFromServer(query(collection(db, 'follows'), where('followingId', '==', creator.id))),
+              getCountFromServer(query(collection(db, 'subscriptions'), where('creatorId', '==', creator.id), where('status', '==', 'active'))),
+            ]);
+            return {
+              ...creator,
+              followersCount:   fSnap.data().count,
+              subscribersCount: sSnap.data().count,
+            };
+          })
+        );
+        const enrichedMap = Object.fromEntries(enriched.map(c => [c.id, c]));
+        userData = userData.map(u => (u.isCreator && enrichedMap[u.id]) ? enrichedMap[u.id] : u);
+      }
 
       setUsers(userData);
     } catch (error) {

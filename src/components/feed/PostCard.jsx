@@ -252,7 +252,10 @@ export default function PostCard({
   const [likesCount, setLikesCount] = useState(0);
   const [commentsCount, setCommentsCount] = useState(0);
   const [showMenu, setShowMenu] = useState(false);
-  const [canView, setCanView] = useState(true);
+  // Start as false — we only allow viewing after the Firestore check confirms access.
+  // This prevents paid/subscriber content from briefly showing before the async check runs.
+  const [canView, setCanView] = useState(false);
+  const [accessChecked, setAccessChecked] = useState(false);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
 
@@ -262,8 +265,12 @@ export default function PostCard({
   const contentRating = (post?.contentRating || 'sfw').toLowerCase();
   const isNSFW = contentRating === 'nsfw';
   const isBlockedByNSFW = isNSFW && !showNSFW;
-  const isPaid = (post?.type || 'free') !== 'free' && Number(post?.price || 0) > 0;
-  const isLocked = isPaid && !isOwnPost && !canView;
+  const postType = post?.type || 'free';
+  // Any non-free post needs an access check (subscribers-only OR paid PPV)
+  const isPaid = postType !== 'free';
+  const isSubscribersOnly = postType === 'subscribers';
+  // isLocked is only meaningful once the access check has completed
+  const isLocked = isPaid && !isOwnPost && accessChecked && !canView;
 
   // Watermark: show viewer's username on all unlocked posts they don't own
   const viewerUsername = currentUser ? (profile?.username || currentUser.email?.split('@')[0] || currentUser.uid.slice(0, 8)) : null;
@@ -303,19 +310,36 @@ export default function PostCard({
   useEffect(() => {
     let mounted = true;
     const checkAccess = async () => {
+      if (!post) return;
+
+      // Owner: always grant access immediately, no Firestore round-trip
+      if (isOwnPost) {
+        if (mounted) { setCanView(true); setAccessChecked(true); }
+        return;
+      }
+
+      // Free posts: always viewable, no async check needed
+      if (postType === 'free') {
+        if (mounted) { setCanView(true); setAccessChecked(true); }
+        return;
+      }
+
+      // Non-free posts: check Firestore. canView stays false until confirmed.
       try {
-        if (!post) return;
-        if (!isPaid) { if (mounted) setCanView(true); return; }
         const ok = await canViewPost(post, currentUser?.uid || null);
-        if (mounted) setCanView(!!ok);
+        if (mounted) { setCanView(!!ok); setAccessChecked(true); }
       } catch (e) {
-        if (mounted) setCanView(false);
+        console.error('❌ access check failed:', e);
+        if (mounted) { setCanView(false); setAccessChecked(true); }
       }
     };
+    // Reset on post/user change so we don't show stale access
+    setCanView(false);
+    setAccessChecked(false);
     checkAccess();
     return () => { mounted = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [post?.id, post?.type, post?.price, post?.userId, currentUser?.uid]);
+  }, [post?.id, post?.type, post?.price, post?.userId, currentUser?.uid, isOwnPost]);
 
   const formatDate = (timestamp) => {
     if (!timestamp) return 'Just now';
@@ -351,7 +375,19 @@ export default function PostCard({
       return;
     }
     if (isLocked) {
-      setShowUnlockModal(true);
+      if (isSubscribersOnly) {
+        // Subscriber-only post: prompt to subscribe, not pay
+        navigate('/wallet', {
+          state: {
+            action: 'subscribe',
+            creatorId: post?.userId,
+            creatorName: creator?.displayName || 'this creator',
+            monthlyPrice: Number(creator?.subscriptionPrice || 9.99),
+          }
+        });
+      } else {
+        setShowUnlockModal(true);
+      }
       return;
     }
     if (onPostClick) onPostClick(post);
@@ -423,7 +459,9 @@ export default function PostCard({
 
   if (isBlockedByNSFW && nsfwRenderMode === 'hide') return null;
 
-  const blurMedia = (isBlockedByNSFW && nsfwRenderMode === 'blur') || isLocked;
+  // Blur if: NSFW is hidden, OR post is confirmed locked, OR access check is still pending for a non-free post
+  const accessPending = isPaid && !isOwnPost && !accessChecked;
+  const blurMedia = (isBlockedByNSFW && nsfwRenderMode === 'blur') || isLocked || accessPending;
 
   return (
     <>
@@ -472,11 +510,17 @@ export default function PostCard({
                   <span className={`text-[11px] px-2 py-0.5 rounded-full border font-semibold ${
                     isLocked
                       ? 'bg-yellow-50 border-yellow-200 text-yellow-800'
-                      : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                      : isSubscribersOnly
+                        ? 'bg-purple-50 border-purple-200 text-purple-700'
+                        : 'bg-emerald-50 border-emerald-200 text-emerald-700'
                   }`}>
                     {isLocked
-                      ? `Locked • $${Number(post?.price || 0).toFixed(2)}`
-                      : `Paid • $${Number(post?.price || 0).toFixed(2)}`}
+                      ? isSubscribersOnly
+                        ? '🔒 Subscribers Only'
+                        : `🔒 Paid • $${Number(post?.price || 0).toFixed(2)}`
+                      : isSubscribersOnly
+                        ? '👑 Subscribers'
+                        : `💰 Paid • $${Number(post?.price || 0).toFixed(2)}`}
                   </span>
                 )}
 
@@ -602,33 +646,60 @@ export default function PostCard({
               <div className="bg-white/95 rounded-2xl border border-gray-200 shadow-xl p-5 max-w-sm w-full text-center">
                 <div className="flex items-center justify-center gap-2 mb-2">
                   <Lock className="w-5 h-5 text-gray-800" />
-                  <p className="font-bold text-gray-900">Locked Post</p>
+                  <p className="font-bold text-gray-900">
+                    {isSubscribersOnly ? 'Subscribers Only' : 'Locked Post'}
+                  </p>
                 </div>
                 <p className="text-sm text-gray-600 mb-4">
-                  Unlock this post or subscribe for full access.
+                  {isSubscribersOnly
+                    ? 'Subscribe to this creator to get access to all their exclusive posts.'
+                    : 'Purchase this post or subscribe for full access.'}
                 </p>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setShowUnlockModal(true); }}
-                  className="w-full px-4 py-2.5 rounded-xl font-semibold bg-rose-500 hover:bg-rose-600 text-white transition"
-                >
-                  Unlock • ${Number(post?.price || 0).toFixed(2)}
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate('/wallet', {
-                      state: {
-                        action: 'subscribe',
-                        creatorId: post?.userId,
-                        creatorName: creator?.displayName || 'this creator',
-                        monthlyPrice: Number(creator?.subscriptionPrice || 9.99),
-                      }
-                    });
-                  }}
-                  className="w-full mt-2 px-4 py-2.5 rounded-xl font-semibold bg-gray-100 hover:bg-gray-200 text-gray-800 transition"
-                >
-                  Subscribe • ${Number(creator?.subscriptionPrice || 9.99).toFixed(2)}/mo
-                </button>
+
+                {/* Primary CTA */}
+                {isSubscribersOnly ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate('/wallet', {
+                        state: {
+                          action: 'subscribe',
+                          creatorId: post?.userId,
+                          creatorName: creator?.displayName || 'this creator',
+                          monthlyPrice: Number(creator?.subscriptionPrice || 9.99),
+                        }
+                      });
+                    }}
+                    className="w-full px-4 py-2.5 rounded-xl font-semibold bg-rose-500 hover:bg-rose-600 text-white transition"
+                  >
+                    Subscribe • ${Number(creator?.subscriptionPrice || 9.99).toFixed(2)}/mo
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowUnlockModal(true); }}
+                      className="w-full px-4 py-2.5 rounded-xl font-semibold bg-rose-500 hover:bg-rose-600 text-white transition"
+                    >
+                      Unlock • ${Number(post?.price || 0).toFixed(2)}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate('/wallet', {
+                          state: {
+                            action: 'subscribe',
+                            creatorId: post?.userId,
+                            creatorName: creator?.displayName || 'this creator',
+                            monthlyPrice: Number(creator?.subscriptionPrice || 9.99),
+                          }
+                        });
+                      }}
+                      className="w-full mt-2 px-4 py-2.5 rounded-xl font-semibold bg-gray-100 hover:bg-gray-200 text-gray-800 transition"
+                    >
+                      Subscribe • ${Number(creator?.subscriptionPrice || 9.99).toFixed(2)}/mo
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}

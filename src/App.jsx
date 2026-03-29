@@ -9,6 +9,7 @@ import { DataLiteProvider } from './contexts/DataLiteContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import LoadingScreen from './components/common/LoadingScreen';
+import ScrollToTop from './components/ScrollToTop';
 import GlobalSidebar from './layout/GlobalSidebar';
 import MobileNavbar from './layout/MobileNavbar';
 import MobileBottomNav from './layout/MobileBottomNav';
@@ -56,6 +57,8 @@ import UserManagement from './pages/Admin/UserManagement';
 import AdminAnalytics from './pages/Admin/Analytics';
 import NowPaymentsLogs from './pages/Admin/NowPaymentsLogs';
 import CryptoPayments from './pages/Admin/CryptoPayments';
+import NGNPayments from './pages/Admin/NGNPayments';
+import PlatformSettings from './pages/Admin/PlatformSettings';
 
 // Pages that should have NO navigation chrome
 const NO_NAV_PATHS = new Set([
@@ -66,6 +69,12 @@ const NO_NAV_PATHS = new Set([
 function AppContent() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Reset scroll position on every route change
+  // The scroll container is div.app (height:100dvh, overflow:auto) — not window
+  useEffect(() => {
+    document.querySelector('.app')?.scrollTo({ top: 0, behavior: 'instant' });
+  }, [location.pathname]);
 
   const path = location.pathname;
 
@@ -142,6 +151,8 @@ function AppContent() {
           <Route path="/admin/analytics" element={<AdminRoute><AdminAnalytics /></AdminRoute>} />
           <Route path="/admin/payment-logs" element={<AdminRoute><NowPaymentsLogs /></AdminRoute>} />
           <Route path="/admin/crypto-payments" element={<AdminRoute><CryptoPayments /></AdminRoute>} />
+          <Route path="/admin/ngn-payments" element={<AdminRoute><NGNPayments /></AdminRoute>} />
+          <Route path="/admin/settings" element={<AdminRoute><PlatformSettings /></AdminRoute>} />
         </Routes>
       </div>
 
