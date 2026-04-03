@@ -101,6 +101,16 @@ export const subscribeToCreator = async (userId, creatorId, duration = 'monthly'
     await updateDoc(subRef, { ...subData, expiresAt: Timestamp.fromDate(newExpiry) });
   } else {
     await setDoc(subRef, { ...subData, createdAt: serverTimestamp() });
+    // ✅ Increment subscribersCount on creator's user doc for NEW subscriptions
+    try {
+      const creatorUserRef = doc(db, 'users', creatorId);
+      await updateDoc(creatorUserRef, {
+        subscribersCount: increment(1),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e) {
+      console.error('Failed to update subscribersCount:', e);
+    }
   }
 
   // 4. Log transaction
@@ -172,6 +182,16 @@ export const cancelSubscription = async (userId, creatorId) => {
       cancelledAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    // ✅ Decrement subscribersCount on cancel
+    try {
+      const creatorUserRef = doc(db, 'users', creatorId);
+      await updateDoc(creatorUserRef, {
+        subscribersCount: increment(-1),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e) {
+      console.error('Failed to decrement subscribersCount:', e);
+    }
     return true;
   } catch (e) { throw new Error('Failed to cancel subscription: ' + e.message); }
 };

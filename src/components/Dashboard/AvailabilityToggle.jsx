@@ -13,8 +13,8 @@ export default function AvailabilityToggle() {
   const [saving, setSaving] = useState(false);
   const [availability, setAvailability] = useState({
     status: 'offline',
-    videoCallPrice: 12,
-    voiceCallPrice: 12,
+    videoCallPrice: 5,
+    voiceCallPrice: 3,
     callsEnabled: false
   });
 
@@ -58,7 +58,7 @@ export default function AvailabilityToggle() {
 
   const updatePrice = async (type, value) => {
     const price = parseFloat(value);
-    if (isNaN(price) || price < (type === 'video' ? 10 : 5)) {
+    if (isNaN(price) || price < (type === 'video' ? 5 : 3)) {
       return;
     }
 
@@ -152,21 +152,21 @@ export default function AvailabilityToggle() {
             <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="number"
-              min="12"
+              min="5"
               step="1"
               value={availability.videoCallPrice}
               onChange={(e) => updatePrice('video', e.target.value)}
               onBlur={(e) => {
-                if (parseFloat(e.target.value) < 12) {
-                  e.target.value = 12;
-                  updatePrice('video', 12);
+                if (parseFloat(e.target.value) < 5) {
+                  e.target.value = 5;
+                  updatePrice('video', 5);
                 }
               }}
               className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:border-rose-500 focus:outline-none font-semibold text-lg"
             />
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Minimum: $12 • VIP gets 10% off • Superfan gets 20% off
+            Minimum: $5 • Set any price you want
           </p>
         </div>
 
@@ -184,21 +184,21 @@ export default function AvailabilityToggle() {
             <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="number"
-              min="12"
+              min="3"
               step="1"
               value={availability.voiceCallPrice}
               onChange={(e) => updatePrice('voice', e.target.value)}
               onBlur={(e) => {
-                if (parseFloat(e.target.value) < 12) {
-                  e.target.value = 12;
-                  updatePrice('voice', 12);
+                if (parseFloat(e.target.value) < 3) {
+                  e.target.value = 3;
+                  updatePrice('voice', 3);
                 }
               }}
               className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none font-semibold text-lg"
             />
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Minimum: $12 • VIP gets 10% off • Superfan gets 20% off
+            Minimum: $3 • Set any price you want
           </p>
         </div>
       </div>

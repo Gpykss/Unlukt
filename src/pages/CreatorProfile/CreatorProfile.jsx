@@ -1,11 +1,12 @@
-// src/pages/CreatorProfile/CreatorProfile.jsx
+// src/pages/CreatorProfile/CreatorProfile.jsx - FIXED
 
-import { useState, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import {
   Heart, MessageCircle, Settings, ArrowLeft, Lock, Star,
   MapPin, Calendar, Link as LinkIcon, MoreVertical, Archive,
-  Loader2, Camera, Flag, Ban, X, Eye, EyeOff, Video, Phone, Gift
+  Loader2, Camera, Flag, Ban, X, Eye, EyeOff, Video, Phone, Gift,
+  ShieldOff, RotateCcw
 } from 'lucide-react';
 
 import { useNavigate, useParams } from 'react-router-dom';
@@ -13,7 +14,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { getUserProfile, getUserByUsername, updateUserProfile } from '../../services/firestoreService';
 import { getUserPosts } from '../../services/postService';
 import { hasActiveSubscription, getOrCreateConversation } from '../../services/messageService';
-import { blockUser, reportUser } from '../../services/userService';
+import { blockUser, unblockUser, isUserBlocked, reportUser } from '../../services/userService';
 import { uploadToBunny as uploadMedia } from '../../services/bunnyUpload.service';
 import FollowButton from '../../components/common/FollowButton';
 import PostCard from '../../components/feed/PostCard';
@@ -28,7 +29,6 @@ export default function CreatorProfile() {
   const navigate = useNavigate();
   const { username } = useParams();
   const { currentUser } = useAuth();
-
   const { showNSFW, setShowNSFW } = useContentSettings();
 
   const [activeTab, setActiveTab] = useState('posts');
@@ -39,19 +39,15 @@ export default function CreatorProfile() {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [checkingSubscription, setCheckingSubscription] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
-
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
-
-  // Post modal
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [checkingBlock, setCheckingBlock] = useState(false);
   const [selectedPost, setSelectedPost] = useState(null);
   const [showPostModal, setShowPostModal] = useState(false);
-
-  // ✅ Tip modal
   const [showTipModal, setShowTipModal] = useState(false);
-  // ✅ Subscribe modal
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
 
   const isOwnProfile = currentUser && creator && currentUser.uid === creator.uid;
@@ -59,92 +55,104 @@ export default function CreatorProfile() {
   useEffect(() => { loadCreatorData(); }, [username]);
 
   useEffect(() => {
-    if (creator && currentUser && !isOwnProfile) checkSubscriptionStatus();
-  }, [creator, currentUser]);
+    if (creator && currentUser && !isOwnProfile) {
+      checkSubscriptionStatus();
+      checkBlockStatus();
+    }
+  }, [creator?.uid, currentUser?.uid]);
 
   const checkSubscriptionStatus = async () => {
     try {
       setCheckingSubscription(true);
-      const hasSubscription = await hasActiveSubscription(currentUser.uid, creator.uid);
-      setIsSubscribed(hasSubscription);
-    } catch (error) {
-      console.error('Error checking subscription:', error);
-    } finally {
-      setCheckingSubscription(false);
-    }
+      const has = await hasActiveSubscription(currentUser.uid, creator.uid);
+      setIsSubscribed(has);
+    } catch (e) { console.error(e); }
+    finally { setCheckingSubscription(false); }
+  };
+
+  const checkBlockStatus = async () => {
+    try {
+      setCheckingBlock(true);
+      const blocked = await isUserBlocked(currentUser.uid, creator.uid);
+      setIsBlocked(blocked);
+    } catch (e) { console.error(e); }
+    finally { setCheckingBlock(false); }
   };
 
   const loadCreatorData = async () => {
     try {
       setLoading(true);
       let foundCreator;
-
       if (username) foundCreator = await getUserByUsername(username);
       else if (currentUser) foundCreator = await getUserProfile(currentUser.uid);
 
-      if (foundCreator) {
-        const uid = foundCreator.uid || foundCreator.id;
+      if (!foundCreator) { setCreator(null); return; }
 
-        setCreator({
-          uid,
-          username: foundCreator.username || 'user',
-          name: foundCreator.displayName || foundCreator.name || 'User',
-          avatar: foundCreator.avatar || foundCreator.photoURL || null,
-          banner: foundCreator.banner || null,
-          bio: foundCreator.bio || 'No bio yet',
-          location: foundCreator.location || null,
-          joined: foundCreator.createdAt
-            ? foundCreator.createdAt.toDate
-              ? foundCreator.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-              : foundCreator.createdAt.seconds
-                ? new Date(foundCreator.createdAt.seconds * 1000).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-                : 'Recently'
-            : 'Recently',
-          website: foundCreator.website || '',
-          verified: foundCreator.kycStatus === 'approved' || false,
-          followers: foundCreator.followersCount || foundCreator.followers || 0,
-          subscribers: foundCreator.subscribersCount || 0,
-          postsCount: 0,
-          subscriptionPrice: foundCreator.subscriptionPrice || 9.99,
-        });
+      const uid = foundCreator.uid || foundCreator.id;
 
-        // Load call availability
-        try {
-          const availDoc = await getDoc(doc(db, 'creator_availability', uid));
-          if (availDoc.exists()) {
-            const avail = availDoc.data();
-            setCreator(prev => ({
-              ...prev,
-              videoCallPrice: avail.callsEnabled ? avail.videoCallPrice : null,
-              voiceCallPrice: avail.callsEnabled ? avail.voiceCallPrice : null,
-            }));
-          }
-        } catch (err) {
-          console.error('Error loading availability:', err);
+      const creatorObj = {
+        uid,
+        username: foundCreator.username || 'user',
+        name: foundCreator.displayName || foundCreator.name || 'User',
+        avatar: foundCreator.avatar || foundCreator.photoURL || null,
+        banner: foundCreator.banner || null,
+        bio: foundCreator.bio || 'No bio yet',
+        location: foundCreator.location || null,
+        joined: foundCreator.createdAt
+          ? foundCreator.createdAt.toDate
+            ? foundCreator.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+            : foundCreator.createdAt.seconds
+              ? new Date(foundCreator.createdAt.seconds * 1000).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+              : 'Recently'
+          : 'Recently',
+        website: foundCreator.website || '',
+        verified: foundCreator.kycStatus === 'approved' || false,
+        // ✅ FIXED: use correct field names
+        followers: foundCreator.followersCount || foundCreator.followers || 0,
+        subscribers: foundCreator.subscribersCount || foundCreator.subscribers || 0,
+        postsCount: 0,
+        subscriptionPrice: foundCreator.subscriptionPrice || 9.99,
+        isCreator: foundCreator.isCreator || false,
+      };
+
+      setCreator(creatorObj);
+
+      // Load call availability
+      try {
+        const availDoc = await getDoc(doc(db, 'creator_availability', uid));
+        if (availDoc.exists()) {
+          const avail = availDoc.data();
+          setCreator(prev => ({
+            ...prev,
+            videoCallPrice: avail.callsEnabled ? avail.videoCallPrice : null,
+            voiceCallPrice: avail.callsEnabled ? avail.voiceCallPrice : null,
+          }));
         }
+      } catch (err) { console.error('Availability error:', err); }
 
-        const userPosts = await getUserPosts(uid);
-        const activePosts = userPosts.filter(p => !p.archived);
-        const archived = userPosts.filter(p => p.archived);
+      // ✅ FIXED: posts sorted newest first, pinned on top
+      const userPosts = await getUserPosts(uid);
+      const activePosts = userPosts.filter(p => !p.archived);
+      const archived = userPosts.filter(p => p.archived);
 
-        activePosts.sort((a, b) => {
-          if (a.pinned && !b.pinned) return -1;
-          if (!a.pinned && b.pinned) return 1;
-          const getTime = p => {
-            if (!p.createdAt) return 0;
-            if (p.createdAt.toDate) return p.createdAt.toDate().getTime();
-            if (p.createdAt.seconds) return p.createdAt.seconds * 1000;
-            return 0;
-          };
-          return getTime(b) - getTime(a);
-        });
+      const sortPosts = (arr) => [...arr].sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        const getTime = p => {
+          if (!p.createdAt) return 0;
+          if (p.createdAt.toDate) return p.createdAt.toDate().getTime();
+          if (p.createdAt.seconds) return p.createdAt.seconds * 1000;
+          return 0;
+        };
+        return getTime(b) - getTime(a);
+      });
 
-        setPosts(activePosts);
-        setArchivedPosts(archived);
-        setCreator(prev => ({ ...prev, postsCount: activePosts.length }));
-      } else {
-        setCreator(null);
-      }
+      const sortedActive = sortPosts(activePosts);
+      const sortedArchived = sortPosts(archived);
+
+      setPosts(sortedActive);
+      setArchivedPosts(sortedArchived);
+      setCreator(prev => ({ ...prev, postsCount: sortedActive.length }));
     } catch (error) {
       console.error('Error loading creator:', error);
       setCreator(null);
@@ -153,7 +161,8 @@ export default function CreatorProfile() {
     }
   };
 
-  const handleFollowChange = async () => {
+  // ✅ FIXED: refresh subscriber count from Firestore after subscribe
+  const refreshCreatorCounts = useCallback(async () => {
     try {
       let foundCreator;
       if (username) foundCreator = await getUserByUsername(username);
@@ -162,13 +171,13 @@ export default function CreatorProfile() {
         setCreator(prev => ({
           ...prev,
           followers: foundCreator.followersCount || foundCreator.followers || 0,
-          subscribers: foundCreator.subscribersCount || 0,
+          subscribers: foundCreator.subscribersCount || foundCreator.subscribers || 0,
         }));
       }
-    } catch (error) {
-      console.error('Error updating follower count:', error);
-    }
-  };
+    } catch (e) { console.error(e); }
+  }, [username, currentUser]);
+
+  const handleFollowChange = async () => { await refreshCreatorCounts(); };
 
   const handleMessage = async () => {
     if (!currentUser) { alert('Please login to send messages'); return; }
@@ -179,7 +188,7 @@ export default function CreatorProfile() {
     } catch (error) {
       if (error.message?.includes('subscription')) {
         const shouldSubscribe = window.confirm(
-          `You need an active subscription to message ${creator.name}.\n\nSubscribe for $${creator.subscriptionPrice}/month to unlock messaging!`
+          `You need an active subscription to message ${creator.name}.\n\nSubscribe to unlock messaging!`
         );
         if (shouldSubscribe) handleSubscribe();
       } else {
@@ -203,12 +212,15 @@ export default function CreatorProfile() {
     try {
       setUploadingAvatar(true);
       const result = await uploadMedia(file, 'avatars');
+      if (!result?.cdnUrl) throw new Error('Upload failed');
       await updateUserProfile(currentUser.uid, { avatar: result.cdnUrl });
       setCreator(prev => ({ ...prev, avatar: result.cdnUrl }));
     } catch (error) {
+      console.error('Avatar upload error:', error);
       alert('Failed to upload profile picture.');
     } finally {
       setUploadingAvatar(false);
+      e.target.value = '';
     }
   };
 
@@ -220,36 +232,79 @@ export default function CreatorProfile() {
     try {
       setUploadingBanner(true);
       const result = await uploadMedia(file, 'banners');
+      if (!result?.cdnUrl) throw new Error('Upload failed');
       await updateUserProfile(currentUser.uid, { banner: result.cdnUrl });
       setCreator(prev => ({ ...prev, banner: result.cdnUrl }));
     } catch (error) {
+      console.error('Banner upload error:', error);
       alert('Failed to upload banner.');
     } finally {
       setUploadingBanner(false);
+      e.target.value = '';
     }
   };
 
+  // ✅ FIXED: block stays on page, shows unblock option
   const handleBlock = async () => {
-    const confirmed = window.confirm(`Block @${creator.username}?`);
-    if (!confirmed) return;
+    if (!window.confirm(`Block @${creator.username}?`)) return;
     try {
       await blockUser(currentUser.uid, creator.uid);
-      alert(`@${creator.username} has been blocked`);
-      navigate('/feed');
+      setIsBlocked(true);
+      setShowMoreMenu(false);
+      alert(`@${creator.username} has been blocked. You can unblock them from the menu.`);
     } catch { alert('Failed to block user'); }
+  };
+
+  // ✅ FIXED: unblock works and updates UI
+  const handleUnblock = async () => {
+    if (!window.confirm(`Unblock @${creator.username}?`)) return;
+    try {
+      await unblockUser(currentUser.uid, creator.uid);
+      setIsBlocked(false);
+      setShowMoreMenu(false);
+      alert(`@${creator.username} has been unblocked.`);
+    } catch { alert('Failed to unblock user'); }
   };
 
   const handleReport = async (reason) => {
     try {
       await reportUser(currentUser.uid, creator.uid, reason);
       setShowReportModal(false);
-      alert('Report submitted.');
+      alert('Report submitted. Thank you.');
     } catch { alert('Failed to submit report'); }
   };
 
   const handlePostDeleted = (postId) => {
     setPosts(prev => prev.filter(p => p.id !== postId));
     setArchivedPosts(prev => prev.filter(p => p.id !== postId));
+    setCreator(prev => ({ ...prev, postsCount: Math.max(0, (prev?.postsCount || 1) - 1) }));
+  };
+
+  const handlePostArchived = (postId) => {
+    const post = posts.find(p => p.id === postId);
+    if (post) {
+      setPosts(prev => prev.filter(p => p.id !== postId));
+      setArchivedPosts(prev => [{ ...post, archived: true }, ...prev]);
+      setCreator(prev => ({ ...prev, postsCount: Math.max(0, (prev?.postsCount || 1) - 1) }));
+    }
+  };
+
+  const handlePostUnarchived = (postId) => {
+    const post = archivedPosts.find(p => p.id === postId);
+    if (post) {
+      setArchivedPosts(prev => prev.filter(p => p.id !== postId));
+      const restored = { ...post, archived: false };
+      setPosts(prev => {
+        const updated = [restored, ...prev];
+        return updated.sort((a, b) => {
+          if (a.pinned && !b.pinned) return -1;
+          if (!a.pinned && b.pinned) return 1;
+          const getTime = p => p.createdAt?.toDate?.()?.getTime?.() || p.createdAt?.seconds * 1000 || 0;
+          return getTime(b) - getTime(a);
+        });
+      });
+      setCreator(prev => ({ ...prev, postsCount: (prev?.postsCount || 0) + 1 }));
+    }
   };
 
   const handlePostClick = (post) => {
@@ -262,8 +317,6 @@ export default function CreatorProfile() {
     setShowPostModal(true);
   };
 
-  const isArchiveTab = activeTab === 'archive';
-
   const filteredActivePosts = useMemo(() => {
     if (showNSFW) return posts;
     return posts.filter(p => (p?.contentRating || 'sfw').toLowerCase() !== 'nsfw');
@@ -274,6 +327,7 @@ export default function CreatorProfile() {
     return archivedPosts.filter(p => (p?.contentRating || 'sfw').toLowerCase() !== 'nsfw');
   }, [archivedPosts, showNSFW]);
 
+  const isArchiveTab = activeTab === 'archive';
   const displayPosts = isArchiveTab ? filteredArchivedPosts : filteredActivePosts;
 
   if (loading) {
@@ -289,224 +343,298 @@ export default function CreatorProfile() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Creator Not Found</h2>
-          <button onClick={() => navigate('/feed')} className="px-6 py-3 bg-rose-500 text-white rounded-lg font-semibold">Back to Feed</button>
+          <button onClick={() => navigate('/feed')} className="px-6 py-3 bg-rose-500 text-white rounded-lg font-semibold">
+            Back to Feed
+          </button>
         </div>
       </div>
     );
   }
 
+  // ✅ More menu — shows Report, Block/Unblock
+  const moreMenuContent = (
+    <div className="absolute right-0 top-full mt-2 bg-white rounded-lg shadow-xl border border-gray-200 py-2 w-48 z-30">
+      {/* ✅ Report is visible */}
+      <button
+        onClick={() => { setShowReportModal(true); setShowMoreMenu(false); }}
+        className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center space-x-2 text-gray-700"
+      >
+        <Flag className="w-4 h-4" /><span>Report</span>
+      </button>
+      {/* ✅ FIXED: shows Unblock if blocked, Block if not */}
+      {isBlocked ? (
+        <button
+          onClick={handleUnblock}
+          className="w-full px-4 py-2 text-left hover:bg-green-50 flex items-center space-x-2 text-green-600"
+        >
+          <ShieldOff className="w-4 h-4" /><span>Unblock</span>
+        </button>
+      ) : (
+        <button
+          onClick={handleBlock}
+          className="w-full px-4 py-2 text-left hover:bg-red-50 flex items-center space-x-2 text-red-600"
+        >
+          <Ban className="w-4 h-4" /><span>Block</span>
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-gray-50 pb-20 lg:pb-8">
-      {/* Mobile Header */}
-      <div className="lg:hidden bg-white border-b border-gray-200 sticky top-0 z-20">
-        <div className="flex items-center justify-between px-4 py-3">
+
+      {/* ✅ FIXED: Mobile header — no shift, fixed height */}
+      <div className="lg:hidden bg-white border-b border-gray-200 sticky top-0 z-30">
+        <div className="flex items-center justify-between px-4 h-[52px]">
           <button onClick={() => navigate(-1)} className="p-2 hover:bg-gray-100 rounded-lg transition">
             <ArrowLeft className="w-5 h-5 text-gray-600" />
           </button>
-          <h1 className="text-lg font-bold text-gray-900">@{creator.username}</h1>
+          <h1 className="text-base font-bold text-gray-900 truncate mx-2">@{creator.username}</h1>
           {!isOwnProfile ? (
             <div className="relative">
               <button onClick={() => setShowMoreMenu(!showMoreMenu)} className="p-2 hover:bg-gray-100 rounded-lg transition">
                 <MoreVertical className="w-5 h-5 text-gray-600" />
               </button>
               {showMoreMenu && (
-                <div className="absolute right-0 top-full mt-2 bg-white rounded-lg shadow-xl border border-gray-200 py-2 w-48 z-30">
-                  <button onClick={() => { setShowReportModal(true); setShowMoreMenu(false); }}
-                    className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center space-x-2 text-gray-700">
-                    <Flag className="w-4 h-4" /><span>Report</span>
-                  </button>
-                  <button onClick={handleBlock}
-                    className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center space-x-2 text-red-600">
-                    <Ban className="w-4 h-4" /><span>Block</span>
-                  </button>
-                </div>
+                <>
+                  <div className="fixed inset-0 z-20" onClick={() => setShowMoreMenu(false)} />
+                  {moreMenuContent}
+                </>
               )}
             </div>
-          ) : <div className="w-10" />}
+          ) : (
+            <button onClick={() => navigate('/settings')} className="p-2 hover:bg-gray-100 rounded-lg transition">
+              <Settings className="w-5 h-5 text-gray-600" />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Desktop Back */}
+      {/* Desktop back */}
       <div className="hidden lg:block bg-white border-b border-gray-200">
-        <div className="max-w-4xl mx-auto px-6 py-4">
+        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
           <button onClick={() => navigate('/feed')} className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition">
             <ArrowLeft className="w-5 h-5" /><span className="font-medium">Back to Feed</span>
           </button>
+          {!isOwnProfile && (
+            <div className="relative">
+              <button onClick={() => setShowMoreMenu(!showMoreMenu)} className="p-2 hover:bg-gray-100 rounded-lg transition">
+                <MoreVertical className="w-5 h-5 text-gray-600" />
+              </button>
+              {showMoreMenu && (
+                <>
+                  <div className="fixed inset-0 z-20" onClick={() => setShowMoreMenu(false)} />
+                  {moreMenuContent}
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
       {/* Profile Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto">
+
           {/* Banner */}
-          <div className="relative h-48 sm:h-56 md:h-64 bg-gradient-to-br from-rose-200 via-pink-200 to-purple-200 overflow-hidden group">
+          <div className="relative h-36 sm:h-48 md:h-56 bg-gradient-to-br from-rose-200 via-pink-200 to-purple-200 overflow-hidden group">
             {creator.banner
               ? <img src={creator.banner} alt="Banner" className="w-full h-full object-cover" />
-              : <div className="w-full h-full flex items-center justify-center text-9xl">🎨</div>}
+              : <div className="w-full h-full flex items-center justify-center text-7xl opacity-30">🎨</div>}
             {isOwnProfile && (
-              <label className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition cursor-pointer">
+              <label className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition cursor-pointer">
                 <input type="file" accept="image/*" onChange={handleBannerUpload} className="hidden" disabled={uploadingBanner} />
                 {uploadingBanner
                   ? <Loader2 className="w-8 h-8 text-white animate-spin" />
-                  : <div className="text-white text-center"><Camera className="w-8 h-8 mx-auto mb-2" /><p className="text-sm font-medium">Change Banner</p></div>}
+                  : <div className="text-white text-center">
+                      <Camera className="w-8 h-8 mx-auto mb-1" />
+                      <p className="text-sm font-semibold">Change Banner</p>
+                    </div>}
               </label>
             )}
           </div>
 
+          {/* Profile info */}
           <div className="px-4 sm:px-6 pb-4 sm:pb-6">
-            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between -mt-12 sm:-mt-16 mb-4 sm:mb-6">
-              {/* Avatar */}
-              <div className="flex items-end space-x-4">
-                <div className="relative group">
-                  <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 border-4 border-white flex items-center justify-center text-5xl shadow-lg overflow-hidden">
-                    {creator.avatar ? <img src={creator.avatar} alt={creator.name} className="w-full h-full object-cover" /> : <span>👤</span>}
+            {/* Avatar row */}
+            <div className="relative -mt-10 sm:-mt-14 mb-3 z-10">
+              <div className="flex items-end justify-between">
+                {/* Avatar */}
+                <div className="relative group flex-shrink-0">
+                  <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 border-4 border-white flex items-center justify-center text-4xl shadow-lg overflow-hidden">
+                    {creator.avatar
+                      ? <img src={creator.avatar} alt={creator.name} className="w-full h-full object-cover" />
+                      : <span>👤</span>}
                   </div>
                   {isOwnProfile && (
                     <label className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition rounded-full cursor-pointer">
                       <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" disabled={uploadingAvatar} />
-                      {uploadingAvatar ? <Loader2 className="w-6 h-6 text-white animate-spin" /> : <Camera className="w-6 h-6 text-white" />}
+                      {uploadingAvatar
+                        ? <Loader2 className="w-5 h-5 text-white animate-spin" />
+                        : <Camera className="w-5 h-5 text-white" />}
                     </label>
                   )}
                   {creator.verified && (
-                    <div className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2 bg-blue-500 text-white p-1 sm:p-1.5 rounded-full border-2 border-white">
-                      <Star className="w-3 h-3 sm:w-4 sm:h-4 fill-white" />
+                    <div className="absolute bottom-0 right-0 bg-blue-500 text-white p-1 rounded-full border-2 border-white">
+                      <Star className="w-3 h-3 fill-white" />
                     </div>
                   )}
                 </div>
-              </div>
 
-              {/* Action Buttons */}
-              <div className="flex items-center flex-wrap gap-2 mt-4 sm:mt-0">
-                {/* NSFW toggle */}
-                <button
-                  onClick={() => setShowNSFW(v => !v)}
-                  className={`px-3 py-2 rounded-full font-semibold text-sm transition border flex items-center gap-1.5 ${
-                    showNSFW ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-gray-50 border-gray-200 text-gray-700'
-                  }`}
-                >
-                  {showNSFW ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                  <span className="hidden sm:inline">{showNSFW ? 'NSFW: ON' : 'NSFW: OFF'}</span>
-                </button>
-
-                {!isOwnProfile ? (
-                  <>
-                    {creator.videoCallPrice && (
-                      <button onClick={() => navigate(`/book-video-call/${creator.uid}`)}
-                        className="flex items-center space-x-1 px-3 py-2 rounded-full border-2 border-rose-200 hover:bg-rose-50 transition">
-                        <Video className="w-4 h-4 text-rose-500" />
-                        <span className="hidden sm:inline text-sm font-semibold text-rose-600">${creator.videoCallPrice}</span>
-                      </button>
-                    )}
-                    {creator.voiceCallPrice && (
-                      <button onClick={() => navigate(`/book-voice-call/${creator.uid}`)}
-                        className="flex items-center space-x-1 px-3 py-2 rounded-full border-2 border-purple-200 hover:bg-purple-50 transition">
-                        <Phone className="w-4 h-4 text-purple-500" />
-                        <span className="hidden sm:inline text-sm font-semibold text-purple-600">${creator.voiceCallPrice}</span>
-                      </button>
-                    )}
-
-                    {/* ✅ TIP BUTTON */}
+                {/* Own profile buttons */}
+                {isOwnProfile && (
+                  <div className="flex items-center gap-2 mb-1">
                     <button
-                      onClick={() => {
-                        if (!currentUser) { navigate('/login'); return; }
-                        setShowTipModal(true);
-                      }}
-                      className="flex items-center space-x-1.5 px-3 py-2 rounded-full border-2 border-yellow-300 bg-yellow-50 hover:bg-yellow-100 transition"
-                      title="Send a gift or tip"
+                      onClick={() => navigate('/settings')}
+                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-full font-semibold text-sm transition border border-gray-200"
                     >
-                      <Gift className="w-4 h-4 text-yellow-600" />
-                      <span className="hidden sm:inline text-sm font-semibold text-yellow-700">Gift</span>
-                    </button>
-
-                    <button onClick={handleMessage} disabled={sendingMessage}
-                      className="p-2 rounded-full border-2 border-gray-200 hover:bg-gray-50 transition disabled:opacity-50 relative">
-                      {sendingMessage
-                        ? <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600 animate-spin" />
-                        : <>
-                            <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
-                            {!isSubscribed && <Lock className="w-2.5 h-2.5 absolute -top-1 -right-1 text-rose-500 bg-white rounded-full" />}
-                          </>}
-                    </button>
-
-                    <FollowButton userId={creator.uid} username={creator.username} size="md" onFollowChange={handleFollowChange} />
-
-                    <button onClick={handleSubscribe}
-                      className={`px-4 sm:px-6 py-2 sm:py-2.5 rounded-full font-bold text-sm sm:text-base transition shadow-lg ${
-                        isSubscribed
-                          ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                          : 'bg-gradient-to-r from-rose-500 to-pink-600 text-white hover:from-rose-600 hover:to-pink-700'
-                      }`}>
-                      <span className="hidden sm:inline">
-                        {isSubscribed ? 'Subscribed' : `Subscribe • $${creator.subscriptionPrice}/mo`}
-                      </span>
-                      <span className="sm:hidden">{isSubscribed ? 'Subscribed' : 'Subscribe'}</span>
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button onClick={() => navigate('/settings')} className="p-2 sm:p-3 rounded-full border-2 border-gray-200 hover:bg-gray-50 transition">
-                      <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
-                    </button>
-                    <button onClick={() => navigate('/settings')}
-                      className="px-6 sm:px-8 py-2 sm:py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full font-bold text-sm sm:text-base transition">
                       Edit Profile
                     </button>
-                  </>
+                  </div>
                 )}
               </div>
             </div>
 
-            {/* Name + stats + bio */}
-            <div className="mb-3 sm:mb-4">
-              <div className="flex items-center space-x-2 mb-1">
-                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{creator.name}</h1>
+            {/* Name */}
+            <div className="mb-2">
+              <div className="flex items-center space-x-2 mb-0.5">
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{creator.name}</h1>
                 {creator.verified && (
-                  <div className="bg-blue-500 text-white p-1 rounded-full">
-                    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <div className="bg-blue-500 text-white p-0.5 rounded-full">
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
                   </div>
                 )}
               </div>
-              <p className="text-gray-600 text-base sm:text-lg">@{creator.username}</p>
+              <p className="text-sm text-gray-500">@{creator.username}</p>
             </div>
 
-            <div className="flex items-center flex-wrap gap-4 sm:gap-8 mb-4 sm:mb-6">
-              <div><span className="text-2xl font-bold text-gray-900">{creator.postsCount}</span><span className="text-gray-600 ml-2 text-sm">Posts</span></div>
-              <div><span className="text-2xl font-bold text-gray-900">{creator.followers}</span><span className="text-gray-600 ml-2 text-sm">Followers</span></div>
-              <div><span className="text-2xl font-bold text-gray-900">{creator.subscribers}</span><span className="text-gray-600 ml-2 text-sm">Subscribers</span></div>
+            {/* Stats */}
+            <div className="flex items-center gap-5 sm:gap-8 mb-3">
+              <div>
+                <span className="text-xl font-bold text-gray-900">{creator.postsCount}</span>
+                <span className="text-gray-500 ml-1 text-sm">Posts</span>
+              </div>
+              <div>
+                <span className="text-xl font-bold text-gray-900">{creator.followers}</span>
+                <span className="text-gray-500 ml-1 text-sm">Followers</span>
+              </div>
+              {/* ✅ FIXED: subscribers count shows correctly */}
+              <div>
+                <span className="text-xl font-bold text-gray-900">{creator.subscribers}</span>
+                <span className="text-gray-500 ml-1 text-sm">Subscribers</span>
+              </div>
             </div>
 
-            <div className="mb-3 sm:mb-4">
-              <p className="text-sm sm:text-base text-gray-700 leading-relaxed">{creator.bio}</p>
-            </div>
+            {/* Bio */}
+            <p className="text-sm text-gray-700 leading-relaxed mb-3">{creator.bio}</p>
 
-            <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs sm:text-sm text-gray-600">
+            {/* Meta */}
+            <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 mb-3">
               {creator.location && (
-                <div className="flex items-center space-x-1 sm:space-x-2">
-                  <MapPin className="w-3 h-3 sm:w-4 sm:h-4" />
+                <div className="flex items-center space-x-1">
+                  <MapPin className="w-3.5 h-3.5" />
                   <span>{creator.location?.countryName || creator.location}</span>
                 </div>
               )}
-              <div className="flex items-center space-x-1 sm:space-x-2">
-                <Calendar className="w-3 h-3 sm:w-4 sm:h-4" />
+              <div className="flex items-center space-x-1">
+                <Calendar className="w-3.5 h-3.5" />
                 <span>Joined {creator.joined}</span>
               </div>
               {creator.website && (
-                <div className="flex items-center space-x-1 sm:space-x-2">
-                  <LinkIcon className="w-3 h-3 sm:w-4 sm:h-4" />
+                <div className="flex items-center space-x-1">
+                  <LinkIcon className="w-3.5 h-3.5" />
                   <a href={creator.website.startsWith('http') ? creator.website : `https://${creator.website}`}
-                    target="_blank" rel="noopener noreferrer" className="text-rose-500 hover:text-rose-600 font-medium">
+                    target="_blank" rel="noopener noreferrer"
+                    className="text-rose-500 hover:text-rose-600 font-medium underline">
                     {creator.website}
                   </a>
                 </div>
               )}
             </div>
 
+            {/* ✅ FIXED: Action buttons below name/bio, not overlapping banner */}
+            {!isOwnProfile && (
+              <div className="flex items-center flex-wrap gap-2 mt-3">
+                {/* NSFW toggle */}
+                <button
+                  onClick={() => setShowNSFW(v => !v)}
+                  className={`px-3 py-1.5 rounded-full font-semibold text-xs transition border flex items-center gap-1 ${
+                    showNSFW ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-gray-50 border-gray-200 text-gray-600'
+                  }`}
+                >
+                  {showNSFW ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                  <span>{showNSFW ? 'NSFW: ON' : 'NSFW: OFF'}</span>
+                </button>
+
+                {creator.videoCallPrice && (
+                  <button onClick={() => navigate(`/book-video-call/${creator.uid}`)}
+                    className="flex items-center space-x-1 px-3 py-1.5 rounded-full border-2 border-rose-200 hover:bg-rose-50 transition text-xs font-semibold text-rose-600">
+                    <Video className="w-3.5 h-3.5" />
+                    <span>${creator.videoCallPrice}</span>
+                  </button>
+                )}
+
+                {creator.voiceCallPrice && (
+                  <button onClick={() => navigate(`/book-voice-call/${creator.uid}`)}
+                    className="flex items-center space-x-1 px-3 py-1.5 rounded-full border-2 border-purple-200 hover:bg-purple-50 transition text-xs font-semibold text-purple-600">
+                    <Phone className="w-3.5 h-3.5" />
+                    <span>${creator.voiceCallPrice}</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => { if (!currentUser) { navigate('/login'); return; } setShowTipModal(true); }}
+                  className="flex items-center space-x-1 px-3 py-1.5 rounded-full border-2 border-yellow-300 bg-yellow-50 hover:bg-yellow-100 transition text-xs font-semibold text-yellow-700"
+                >
+                  <Gift className="w-3.5 h-3.5" /><span>Gift</span>
+                </button>
+
+                <button onClick={handleMessage} disabled={sendingMessage}
+                  className="p-2 rounded-full border-2 border-gray-200 hover:bg-gray-50 transition disabled:opacity-50 relative">
+                  {sendingMessage
+                    ? <Loader2 className="w-4 h-4 text-gray-600 animate-spin" />
+                    : <>
+                        <MessageCircle className="w-4 h-4 text-gray-600" />
+                        {!isSubscribed && <Lock className="w-2.5 h-2.5 absolute -top-0.5 -right-0.5 text-rose-500 bg-white rounded-full" />}
+                      </>}
+                </button>
+
+                <FollowButton userId={creator.uid} username={creator.username} size="md" onFollowChange={handleFollowChange} />
+
+                <button
+                  onClick={handleSubscribe}
+                  className={`px-4 py-2 rounded-full font-bold text-sm transition shadow-sm ${
+                    isSubscribed
+                      ? 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200'
+                      : 'bg-gradient-to-r from-rose-500 to-pink-600 text-white hover:from-rose-600 hover:to-pink-700'
+                  }`}
+                >
+                  {isSubscribed ? '✓ Subscribed' : `Subscribe • $${creator.subscriptionPrice}/mo`}
+                </button>
+              </div>
+            )}
+
+            {/* NSFW toggle for own profile */}
+            {isOwnProfile && (
+              <div className="mt-3">
+                <button
+                  onClick={() => setShowNSFW(v => !v)}
+                  className={`px-3 py-1.5 rounded-full font-semibold text-xs transition border flex items-center gap-1 ${
+                    showNSFW ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-gray-50 border-gray-200 text-gray-600'
+                  }`}
+                >
+                  {showNSFW ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                  <span>{showNSFW ? 'NSFW: ON' : 'NSFW: OFF'}</span>
+                </button>
+              </div>
+            )}
+
             {!showNSFW && (
-              <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                <p className="text-sm text-gray-700 flex items-center space-x-2">
-                  <EyeOff className="w-4 h-4" /><span>NSFW content is hidden on this profile.</span>
+              <div className="mt-3 p-2.5 bg-gray-50 border border-gray-200 rounded-lg">
+                <p className="text-xs text-gray-600 flex items-center gap-1.5">
+                  <EyeOff className="w-3.5 h-3.5" />NSFW content is hidden on this profile.
                 </p>
               </div>
             )}
@@ -514,36 +642,50 @@ export default function CreatorProfile() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+      {/* ✅ FIXED: Tabs sticky below mobile header (52px) */}
+      <div className="bg-white border-b border-gray-200 sticky top-[52px] lg:top-0 z-20">
         <div className="max-w-4xl mx-auto px-4 sm:px-6">
-          <div className="flex space-x-4 sm:space-x-8 overflow-x-auto scrollbar-hide">
-            <button onClick={() => setActiveTab('posts')}
-              className={`py-3 sm:py-4 font-semibold border-b-2 transition whitespace-nowrap text-sm sm:text-base ${
-                activeTab === 'posts' ? 'border-rose-500 text-rose-500' : 'border-transparent text-gray-600 hover:text-gray-900'
-              }`}>Posts</button>
+          <div className="flex space-x-6 overflow-x-auto scrollbar-hide">
+            <button
+              onClick={() => setActiveTab('posts')}
+              className={`py-3 font-semibold border-b-2 transition whitespace-nowrap text-sm ${
+                activeTab === 'posts' ? 'border-rose-500 text-rose-500' : 'border-transparent text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              Posts ({creator.postsCount})
+            </button>
             {isOwnProfile && (
-              <button onClick={() => setActiveTab('archive')}
-                className={`py-3 sm:py-4 font-semibold border-b-2 transition whitespace-nowrap text-sm sm:text-base ${
-                  activeTab === 'archive' ? 'border-rose-500 text-rose-500' : 'border-transparent text-gray-600 hover:text-gray-900'
-                }`}>Archive {archivedPosts.length > 0 && `(${archivedPosts.length})`}</button>
+              <button
+                onClick={() => setActiveTab('archive')}
+                className={`py-3 font-semibold border-b-2 transition whitespace-nowrap text-sm ${
+                  activeTab === 'archive' ? 'border-rose-500 text-rose-500' : 'border-transparent text-gray-500 hover:text-gray-900'
+                }`}
+              >
+                Archive {archivedPosts.length > 0 && `(${archivedPosts.length})`}
+              </button>
             )}
           </div>
         </div>
       </div>
 
       {/* Posts */}
-      <div className="max-w-4xl mx-auto px-4 py-6">
+      <div className="max-w-4xl mx-auto px-4 py-5">
         {displayPosts.length === 0 ? (
           <div className="text-center py-12 bg-white rounded-2xl border border-gray-200">
             {isArchiveTab
-              ? <><Archive className="w-16 h-16 text-gray-300 mx-auto mb-4" /><p className="text-gray-500 text-lg font-semibold mb-2">No archived posts</p></>
-              : <><MessageCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" /><p className="text-gray-500 text-lg">{showNSFW ? 'No posts yet' : 'No visible posts (NSFW might be hidden)'}</p></>}
+              ? <><Archive className="w-14 h-14 text-gray-200 mx-auto mb-3" /><p className="text-gray-500 font-semibold">No archived posts</p></>
+              : <><MessageCircle className="w-14 h-14 text-gray-200 mx-auto mb-3" /><p className="text-gray-500">{showNSFW ? 'No posts yet' : 'No visible posts (NSFW may be hidden)'}</p></>}
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-5">
             {displayPosts.map(post => (
-              <PostCard key={post.id} post={post} onDelete={handlePostDeleted} showPinnedIndicator={true} onPostClick={handlePostClick} />
+              <PostCard
+                key={post.id}
+                post={post}
+                onDelete={handlePostDeleted}
+                showPinnedIndicator={true}
+                onPostClick={handlePostClick}
+              />
             ))}
           </div>
         )}
@@ -556,23 +698,26 @@ export default function CreatorProfile() {
         post={selectedPost}
         onPostUpdate={(updatedPost) => {
           if (!selectedPost) return;
-          if (updatedPost === null) { handlePostDeleted(selectedPost.id); setShowPostModal(false); setSelectedPost(null); }
-          else {
-            setPosts(prev => prev.map(p => p.id === updatedPost.id ? updatedPost : p));
-            setArchivedPosts(prev => prev.map(p => p.id === updatedPost.id ? updatedPost : p));
+          if (updatedPost === null) {
+            handlePostDeleted(selectedPost.id);
+            setShowPostModal(false);
+            setSelectedPost(null);
+          } else {
+            if (updatedPost.archived && !selectedPost.archived) handlePostArchived(updatedPost.id);
+            else if (!updatedPost.archived && selectedPost.archived) handlePostUnarchived(updatedPost.id);
+            else {
+              setPosts(prev => prev.map(p => p.id === updatedPost.id ? updatedPost : p));
+              setArchivedPosts(prev => prev.map(p => p.id === updatedPost.id ? updatedPost : p));
+            }
             setSelectedPost(updatedPost);
           }
         }}
       />
 
-      {/* ✅ Tip Modal */}
-      <TipModal
-        isOpen={showTipModal}
-        onClose={() => setShowTipModal(false)}
-        creator={creator}
-      />
+      {/* Tip Modal */}
+      <TipModal isOpen={showTipModal} onClose={() => setShowTipModal(false)} creator={creator} />
 
-      {/* ✅ Subscribe Modal */}
+      {/* ✅ FIXED: Subscribe Modal with count refresh */}
       <SubscribeModal
         isOpen={showSubscribeModal}
         onClose={() => setShowSubscribeModal(false)}
@@ -580,34 +725,32 @@ export default function CreatorProfile() {
         onSuccess={(duration) => {
           setIsSubscribed(true);
           setShowSubscribeModal(false);
+          refreshCreatorCounts();
         }}
       />
 
       {/* Report Modal */}
       <AnimatePresence>
         {showReportModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setShowReportModal(false)}>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-              onClick={e => e.stopPropagation()}
-              className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-bold text-gray-900">Report @{creator.username}</h3>
-                <button onClick={() => setShowReportModal(false)} className="p-2 hover:bg-gray-100 rounded-lg transition">
-                  <X className="w-5 h-5 text-gray-600" />
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+            onClick={() => setShowReportModal(false)}>
+            <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-lg font-bold text-gray-900">Report @{creator.username}</h3>
+                <button onClick={() => setShowReportModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                  <X className="w-5 h-5 text-gray-500" />
                 </button>
               </div>
               <div className="space-y-2">
                 {['Spam or misleading', 'Inappropriate content', 'Harassment or bullying', 'Impersonation', 'Scam or fraud', 'Other'].map(reason => (
                   <button key={reason} onClick={() => handleReport(reason)}
-                    className="w-full text-left px-4 py-3 hover:bg-gray-50 rounded-lg transition border border-gray-200">
+                    className="w-full text-left px-4 py-3 hover:bg-gray-50 rounded-lg transition border border-gray-100 text-sm">
                     {reason}
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-gray-500 mt-4">Reports are anonymous.</p>
-            </motion.div>
+              <p className="text-xs text-gray-400 mt-4 text-center">Reports are anonymous.</p>
+            </div>
           </div>
         )}
       </AnimatePresence>
