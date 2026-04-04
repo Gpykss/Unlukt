@@ -39,10 +39,12 @@ export default function Settings() {
   const [activeSessions, setActiveSessions] = useState([]);
   const [location, setLocation] = useState(profile?.location || '');
   
-  // ✅ Subscription price state
-  const [subscriptionPrice, setSubscriptionPrice] = useState(profile?.subscriptionPrice || 9.99);
+  // ✅ Per-duration subscription prices set by creator independently
+  const [priceMonthly, setPriceMonthly] = useState('');
+  const [priceWeekly, setPriceWeekly]   = useState('');
+  const [priceDaily, setPriceDaily]     = useState('');
   const [savingPrice, setSavingPrice] = useState(false);
-  
+
   // ✅ Collapsible sections state
   const [expandedSections, setExpandedSections] = useState({
     account: true,
@@ -70,7 +72,12 @@ export default function Settings() {
 
   useEffect(() => {
     if (profile?.location) setLocation(profile.location);
-    if (profile?.subscriptionPrice) setSubscriptionPrice(profile.subscriptionPrice);
+    // Load per-duration prices; fall back to legacy subscriptionPrice for monthly
+    if (profile) {
+      setPriceMonthly(String(profile.subscriptionPriceMonthly ?? profile.subscriptionPrice ?? '9.99'));
+      setPriceWeekly(String(profile.subscriptionPriceWeekly ?? ''));
+      setPriceDaily(String(profile.subscriptionPriceDaily ?? ''));
+    }
   }, [profile]);
 
   const loadBlockedUsers = async () => {
@@ -128,18 +135,31 @@ export default function Settings() {
     finally { setLoading(false); }
   };
 
-  // ✅ Save subscription price
+  // ✅ Save all 3 subscription prices set independently by creator
   const handleSaveSubscriptionPrice = async () => {
     if (!currentUser || !isCreator) return;
-    if (subscriptionPrice < 4.99 || subscriptionPrice > 999.99) {
-      showToast('Price must be between $4.99 and $999.99', 'error');
-      return;
+    const monthly = parseFloat(priceMonthly);
+    const weekly  = parseFloat(priceWeekly);
+    const daily   = parseFloat(priceDaily);
+    if (isNaN(monthly) || monthly < 0.99 || monthly > 999.99) {
+      showToast('Monthly price must be between $0.99 and $999.99', 'error'); return;
+    }
+    if (priceWeekly !== '' && (isNaN(weekly) || weekly < 0.49 || weekly > 999.99)) {
+      showToast('Weekly price must be between $0.49 and $999.99', 'error'); return;
+    }
+    if (priceDaily !== '' && (isNaN(daily) || daily < 0.10 || daily > 999.99)) {
+      showToast('Daily price must be between $0.10 and $999.99', 'error'); return;
     }
     setSavingPrice(true);
     try {
-      await updateUserProfile(currentUser.uid, { subscriptionPrice: parseFloat(subscriptionPrice) });
-      showToast('Subscription price updated successfully!');
-    } catch { showToast('Failed to update subscription price', 'error'); }
+      await updateUserProfile(currentUser.uid, {
+        subscriptionPrice: monthly,          // keep legacy field = monthly
+        subscriptionPriceMonthly: monthly,
+        subscriptionPriceWeekly:  priceWeekly !== '' ? weekly  : null,
+        subscriptionPriceDaily:   priceDaily  !== '' ? daily   : null,
+      });
+      showToast('Subscription prices saved!');
+    } catch { showToast('Failed to save prices', 'error'); }
     finally { setSavingPrice(false); }
   };
 
@@ -268,56 +288,97 @@ export default function Settings() {
           >
             {/* Subscription Pricing */}
             <div className="p-6 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">💰 Subscription Pricing</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Set your monthly subscription price. Fans pay this to access your exclusive content.
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">💰 Subscription Pricing</h3>
+              <p className="text-sm text-gray-500 mb-5">
+                Set your own prices for each duration. Fans choose which plan to subscribe to.
               </p>
 
-              <div className="max-w-md">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Monthly Price (USD)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-lg">$</span>
-                  <input
-                    type="number"
-                    min="4.99"
-                    max="999.99"
-                    step="0.01"
-                    value={subscriptionPrice}
-                    onChange={(e) => setSubscriptionPrice(parseFloat(e.target.value) || 4.99)}
-                    className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 text-lg font-semibold"
-                  />
+              <div className="space-y-4 max-w-md">
+                {/* Monthly */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5 flex items-center gap-2">
+                    📅 Monthly <span className="text-xs font-normal text-gray-400">(30 days)</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-lg">$</span>
+                    <input
+                      type="number"
+                      min="0.99"
+                      max="999.99"
+                      step="0.01"
+                      placeholder="e.g. 9.99"
+                      value={priceMonthly}
+                      onChange={(e) => setPriceMonthly(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 text-lg font-semibold"
+                    />
+                  </div>
                 </div>
-                <p className="text-xs text-gray-500 mt-2">
-                  Min: $4.99 • Max: $999.99 • You earn 80% after fees
-                </p>
 
-                {/* Price Preview */}
-                <div className="mt-4 p-4 bg-gradient-to-br from-rose-50 to-pink-50 rounded-xl border border-rose-200">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-gray-700 font-medium">Fan pays:</span>
-                    <span className="text-xl font-bold text-gray-900">
-                      ${subscriptionPrice.toFixed(2)}/mo
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-700 font-medium">You earn (80%):</span>
-                    <span className="text-xl font-bold text-green-600">
-                      ${(subscriptionPrice * 0.8).toFixed(2)}/mo
-                    </span>
+                {/* Weekly */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5 flex items-center gap-2">
+                    🗓️ Weekly <span className="text-xs font-normal text-gray-400">(7 days)</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-lg">$</span>
+                    <input
+                      type="number"
+                      min="0.49"
+                      max="999.99"
+                      step="0.01"
+                      placeholder="e.g. 3.99"
+                      value={priceWeekly}
+                      onChange={(e) => setPriceWeekly(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 text-lg font-semibold"
+                    />
                   </div>
                 </div>
+
+                {/* Daily */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5 flex items-center gap-2">
+                    ⚡ Daily <span className="text-xs font-normal text-gray-400">(24 hours)</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-lg">$</span>
+                    <input
+                      type="number"
+                      min="0.10"
+                      max="999.99"
+                      step="0.01"
+                      placeholder="e.g. 1.99"
+                      value={priceDaily}
+                      onChange={(e) => setPriceDaily(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-rose-500 text-lg font-semibold"
+                    />
+                  </div>
+                </div>
+
+                {/* Earnings preview (based on monthly) */}
+                {priceMonthly && !isNaN(parseFloat(priceMonthly)) && (
+                  <div className="p-4 bg-gradient-to-br from-rose-50 to-pink-50 rounded-xl border border-rose-200">
+                    <p className="text-xs font-semibold text-gray-500 mb-2">Monthly earnings preview (80% after fees):</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-700">Fan pays:</span>
+                      <span className="font-bold text-gray-900">${parseFloat(priceMonthly || 0).toFixed(2)}/mo</span>
+                    </div>
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-sm text-gray-700">You earn:</span>
+                      <span className="font-bold text-green-600">${(parseFloat(priceMonthly || 0) * 0.8).toFixed(2)}/mo</span>
+                    </div>
+                  </div>
+                )}
 
                 <button
                   onClick={handleSaveSubscriptionPrice}
-                  disabled={savingPrice || subscriptionPrice === profile?.subscriptionPrice}
-                  className="w-full mt-4 px-4 py-3 bg-rose-500 hover:bg-rose-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-semibold transition flex items-center justify-center"
+                  disabled={savingPrice}
+                  className="w-full mt-2 px-4 py-3 bg-rose-500 hover:bg-rose-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-semibold transition flex items-center justify-center gap-2"
                 >
-                  {savingPrice ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Save Price'}
+                  {savingPrice ? <Loader2 className="w-5 h-5 animate-spin" /> : '💾 Save Prices'}
                 </button>
               </div>
             </div>
+
 
             {/* Availability Toggle */}
             <div className="p-6 border-b border-gray-200">

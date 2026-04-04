@@ -1,4 +1,5 @@
 // src/components/Payment/SubscribeModal.jsx
+// Prices are set independently by creator per duration (daily/weekly/monthly)
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -13,7 +14,7 @@ import {
   subscribeToCreator,
   getPriceForDuration,
   getCreatorDiscount,
-  DURATIONS
+  DURATIONS,
 } from '../../services/subscriptionService';
 
 const DURATION_ICONS = {
@@ -39,7 +40,20 @@ export default function SubscribeModal({ isOpen, onClose, creator, onSuccess }) 
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
 
-  const monthlyPrice = Number(creator?.subscriptionPrice || creator?.price || 9.99);
+  // Creator-set prices for each duration
+  const creatorPrices = {
+    monthly: creator?.subscriptionPriceMonthly ?? creator?.subscriptionPrice ?? null,
+    weekly:  creator?.subscriptionPriceWeekly  ?? null,
+    daily:   creator?.subscriptionPriceDaily   ?? null,
+  };
+  // Monthly is the reference price for legacy/fallback
+  const monthlyPrice = Number(creatorPrices.monthly || 9.99);
+
+  // Only show durations the creator has set a price for
+  const availableDurations = Object.entries(DURATIONS).filter(([key]) => {
+    if (key === 'monthly') return true; // always show monthly
+    return creatorPrices[key] != null && Number(creatorPrices[key]) > 0;
+  });
 
   useEffect(() => {
     if (!isOpen) {
@@ -56,20 +70,24 @@ export default function SubscribeModal({ isOpen, onClose, creator, onSuccess }) 
         if (!data) return;
         const active =
           (data.limited_time?.active && data.limited_time) ||
-          (data.first_month?.active && data.first_month) ||
-          (data.bundle?.active && data.bundle) ||
+          (data.first_month?.active  && data.first_month)  ||
+          (data.bundle?.active       && data.bundle)        ||
           null;
         setDiscount(active);
       });
     }
   }, [isOpen, currentUser, creator?.uid]);
 
-  const getPrice = (duration) => getPriceForDuration(monthlyPrice, duration, discount);
+  // Get price for a duration using creator-set prices directly
+  const getPrice = (duration) => getPriceForDuration(monthlyPrice, duration, discount, creatorPrices);
+
   const selectedPrice = getPrice(selectedDuration);
   const hasEnoughBalance = balance !== null && balance >= selectedPrice;
 
+  // Savings = how much cheaper vs daily * days (only if daily is set)
   const getSavings = (duration) => {
     if (duration === 'daily') return null;
+    if (creatorPrices.daily == null) return null; // no daily price set to compare against
     const dailyEquivalent = getPrice('daily') * DURATIONS[duration].days;
     const actual = getPrice(duration);
     const saved = dailyEquivalent - actual;
@@ -87,7 +105,14 @@ export default function SubscribeModal({ isOpen, onClose, creator, onSuccess }) 
     setError('');
     try {
       setSubscribing(true);
-      await subscribeToCreator(currentUser.uid, creator.uid, selectedDuration, monthlyPrice, discount);
+      await subscribeToCreator(
+        currentUser.uid,
+        creator.uid,
+        selectedDuration,
+        monthlyPrice,
+        discount,
+        creatorPrices,
+      );
       setSuccess(true);
       if (onSuccess) onSuccess(selectedDuration);
     } catch (e) {
@@ -108,21 +133,20 @@ export default function SubscribeModal({ isOpen, onClose, creator, onSuccess }) 
 
   return (
     <AnimatePresence>
-      {/* ✅ FIXED: always centered, paddingBottom clears mobile nav */}
+      {/* Overlay — pb clears mobile nav bar */}
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom) + 64px)' }}
+        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         onClick={handleClose}
       >
         <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
+          initial={{ opacity: 0, y: 60 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 60 }}
           transition={{ type: 'spring', damping: 28, stiffness: 300 }}
           onClick={e => e.stopPropagation()}
-          // ✅ FIXED: max height with scroll so buttons always visible
-          className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col"
-          style={{ maxHeight: 'calc(100dvh - 120px)' }}
+          className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl overflow-hidden shadow-2xl flex flex-col"
+          style={{ maxHeight: '92dvh' }}
         >
           {success ? (
             <div className="p-8 text-center">
@@ -148,10 +172,16 @@ export default function SubscribeModal({ isOpen, onClose, creator, onSuccess }) 
             </div>
           ) : (
             <>
-              {/* Scrollable content */}
+              {/* Scrollable body */}
               <div className="overflow-y-auto flex-1 min-h-0">
+
+                {/* Drag handle for mobile */}
+                <div className="flex justify-center pt-3 pb-1 sm:hidden">
+                  <div className="w-10 h-1 bg-gray-300 rounded-full" />
+                </div>
+
                 {/* Header */}
-                <div className="flex items-center justify-between px-5 pt-5 pb-3">
+                <div className="flex items-center justify-between px-5 pt-4 pb-3">
                   <div className="flex items-center space-x-3">
                     <div className="w-11 h-11 rounded-full overflow-hidden bg-gradient-to-br from-rose-100 to-pink-200 flex items-center justify-center text-xl flex-shrink-0">
                       {creator.avatar
@@ -213,7 +243,7 @@ export default function SubscribeModal({ isOpen, onClose, creator, onSuccess }) 
                 <div className="px-5 mb-4">
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Choose duration</p>
                   <div className="space-y-2">
-                    {Object.entries(DURATIONS).map(([key, dur]) => {
+                    {availableDurations.map(([key, dur]) => {
                       const price = getPrice(key);
                       const savings = getSavings(key);
                       const isSelected = selectedDuration === key;
@@ -222,20 +252,20 @@ export default function SubscribeModal({ isOpen, onClose, creator, onSuccess }) 
                           className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border-2 transition ${
                             isSelected ? 'border-rose-500 bg-rose-50' : 'border-gray-200 hover:border-gray-300 bg-white'
                           }`}>
-                          <div className="flex items-center space-x-3">
-                            <div className={isSelected ? 'text-rose-500' : 'text-gray-400'}>
+                          <div className="flex items-center space-x-3 min-w-0">
+                            <div className={`flex-shrink-0 ${isSelected ? 'text-rose-500' : 'text-gray-400'}`}>
                               {DURATION_ICONS[key]}
                             </div>
-                            <div className="text-left">
+                            <div className="text-left min-w-0">
                               <p className={`font-bold text-sm ${isSelected ? 'text-rose-700' : 'text-gray-800'}`}>
                                 {dur.label}
                               </p>
                               <p className="text-xs text-gray-500">{dur.badge}</p>
                             </div>
                           </div>
-                          <div className="text-right flex items-center gap-2">
+                          <div className="text-right flex items-center gap-2 flex-shrink-0">
                             {savings && (
-                              <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
+                              <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full border border-green-200 whitespace-nowrap">
                                 {savings}
                               </span>
                             )}
@@ -271,7 +301,7 @@ export default function SubscribeModal({ isOpen, onClose, creator, onSuccess }) 
                 )}
               </div>
 
-              {/* ✅ FIXED: CTA always pinned at bottom, never hidden */}
+              {/* CTA — always pinned at bottom */}
               <div className="px-5 py-4 border-t border-gray-100 flex-shrink-0 bg-white">
                 {!hasEnoughBalance && balance !== null ? (
                   <button

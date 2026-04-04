@@ -238,6 +238,8 @@ function DiagonalWatermark({ username }) {
 export default function PostCard({
   post,
   onDelete,
+  onArchive,
+  onUnarchive,
   onPostClick,
   showPinnedIndicator = false,
   nsfwRenderMode = 'blur',
@@ -443,7 +445,9 @@ export default function PostCard({
     try {
       await updatePost(post.id, { archived: true, archivedAt: new Date() });
       setShowMenu(false);
-      if (onDelete) onDelete(post.id);
+      // Call onArchive if provided (moves post to archive tab), else fall back to onDelete
+      if (onArchive) onArchive(post.id);
+      else if (onDelete) onDelete(post.id);
     } catch { alert('Failed to archive post'); }
   };
 
@@ -453,7 +457,9 @@ export default function PostCard({
     try {
       await updatePost(post.id, { archived: false, archivedAt: null });
       setShowMenu(false);
-      window.location.reload();
+      // Call onUnarchive if provided (moves post back to posts tab), else reload
+      if (onUnarchive) onUnarchive(post.id);
+      else window.location.reload();
     } catch { alert('Failed to unarchive post'); }
   };
 

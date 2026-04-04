@@ -9,15 +9,31 @@ import { db } from '../config/firebase';
 import { deductFromWallet } from './walletService';
 
 export const DURATIONS = {
-  daily: { label: 'Daily', days: 1, multiplier: 0.1, badge: '24hrs' },
-  weekly: { label: 'Weekly', days: 7, multiplier: 0.35, badge: '7 days' },
-  monthly: { label: 'Monthly', days: 30, multiplier: 1, badge: '30 days' },
+  daily:   { label: 'Daily',   days: 1,  badge: '24hrs'   },
+  weekly:  { label: 'Weekly',  days: 7,  badge: '7 days'  },
+  monthly: { label: 'Monthly', days: 30, badge: '30 days' },
 };
 
-export const getPriceForDuration = (monthlyPrice, duration, discount = null) => {
-  const base = Number(monthlyPrice || 9.99);
-  const mult = DURATIONS[duration]?.multiplier ?? 1;
-  let price = base * mult;
+/**
+ * Get the price for a specific duration.
+ * Creators now set daily/weekly/monthly prices independently.
+ * creatorPrices = { daily, weekly, monthly } — all set by the creator.
+ * Falls back to monthlyPrice if specific price not set.
+ * Applies active discount on top.
+ */
+export const getPriceForDuration = (monthlyPrice, duration, discount = null, creatorPrices = null) => {
+  let base;
+  if (creatorPrices) {
+    if (duration === 'daily'   && creatorPrices.daily   != null) base = Number(creatorPrices.daily);
+    else if (duration === 'weekly'  && creatorPrices.weekly  != null) base = Number(creatorPrices.weekly);
+    else base = Number(creatorPrices.monthly ?? monthlyPrice);
+  } else {
+    // Legacy fallback — derive from monthly
+    const multipliers = { daily: 0.1, weekly: 0.35, monthly: 1 };
+    base = Number(monthlyPrice) * (multipliers[duration] ?? 1);
+  }
+
+  let price = base;
   if (discount && discount.active) {
     const now = Date.now();
     const expiry = discount.expiresAt ? new Date(discount.expiresAt).getTime() : Infinity;
@@ -33,12 +49,12 @@ export const getExpiryDate = (duration) => {
   return expiry;
 };
 
-export const subscribeToCreator = async (userId, creatorId, duration = 'monthly', monthlyPrice = 9.99, discount = null) => {
+export const subscribeToCreator = async (userId, creatorId, duration = 'monthly', monthlyPrice = 9.99, discount = null, creatorPrices = null) => {
   if (!userId) throw new Error('Not logged in');
   if (!creatorId) throw new Error('Invalid creator');
   if (userId === creatorId) throw new Error('You cannot subscribe to yourself');
 
-  const price = getPriceForDuration(monthlyPrice, duration, discount);
+  const price = getPriceForDuration(monthlyPrice, duration, discount, creatorPrices);
   const expiresAt = getExpiryDate(duration);
   const durationLabel = DURATIONS[duration]?.label ?? 'Monthly';
 

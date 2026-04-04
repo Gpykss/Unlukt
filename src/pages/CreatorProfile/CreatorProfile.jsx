@@ -107,11 +107,14 @@ export default function CreatorProfile() {
           : 'Recently',
         website: foundCreator.website || '',
         verified: foundCreator.kycStatus === 'approved' || false,
-        // ✅ FIXED: use correct field names
         followers: foundCreator.followersCount || foundCreator.followers || 0,
         subscribers: foundCreator.subscribersCount || foundCreator.subscribers || 0,
         postsCount: 0,
-        subscriptionPrice: foundCreator.subscriptionPrice || 9.99,
+        // ✅ Per-duration prices set by creator individually
+        subscriptionPrice: foundCreator.subscriptionPriceMonthly ?? foundCreator.subscriptionPrice ?? 9.99,
+        subscriptionPriceMonthly: foundCreator.subscriptionPriceMonthly ?? foundCreator.subscriptionPrice ?? 9.99,
+        subscriptionPriceWeekly:  foundCreator.subscriptionPriceWeekly  ?? null,
+        subscriptionPriceDaily:   foundCreator.subscriptionPriceDaily   ?? null,
         isCreator: foundCreator.isCreator || false,
       };
 
@@ -456,44 +459,43 @@ export default function CreatorProfile() {
 
           {/* Profile info */}
           <div className="px-4 sm:px-6 pb-4 sm:pb-6">
-            {/* Avatar row */}
-            <div className="relative -mt-10 sm:-mt-14 mb-3 z-10">
-              <div className="flex items-end justify-between">
-                {/* Avatar */}
-                <div className="relative group flex-shrink-0">
-                  <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 border-4 border-white flex items-center justify-center text-4xl shadow-lg overflow-hidden">
-                    {creator.avatar
-                      ? <img src={creator.avatar} alt={creator.name} className="w-full h-full object-cover" />
-                      : <span>👤</span>}
-                  </div>
-                  {isOwnProfile && (
-                    <label className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition rounded-full cursor-pointer">
-                      <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" disabled={uploadingAvatar} />
-                      {uploadingAvatar
-                        ? <Loader2 className="w-5 h-5 text-white animate-spin" />
-                        : <Camera className="w-5 h-5 text-white" />}
-                    </label>
-                  )}
-                  {creator.verified && (
-                    <div className="absolute bottom-0 right-0 bg-blue-500 text-white p-1 rounded-full border-2 border-white">
-                      <Star className="w-3 h-3 fill-white" />
-                    </div>
-                  )}
+            {/* Avatar row — use pt to overlap banner instead of negative margin */}
+            <div className="flex items-end justify-between" style={{ marginTop: '-2.5rem' }}>
+              {/* Avatar */}
+              <div className="relative group flex-shrink-0 z-10">
+                <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 border-4 border-white flex items-center justify-center text-4xl shadow-lg overflow-hidden">
+                  {creator.avatar
+                    ? <img src={creator.avatar} alt={creator.name} className="w-full h-full object-cover" />
+                    : <span>👤</span>}
                 </div>
-
-                {/* Own profile buttons */}
                 {isOwnProfile && (
-                  <div className="flex items-center gap-2 mb-1">
-                    <button
-                      onClick={() => navigate('/settings')}
-                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-full font-semibold text-sm transition border border-gray-200"
-                    >
-                      Edit Profile
-                    </button>
+                  <label className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition rounded-full cursor-pointer">
+                    <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" disabled={uploadingAvatar} />
+                    {uploadingAvatar
+                      ? <Loader2 className="w-5 h-5 text-white animate-spin" />
+                      : <Camera className="w-5 h-5 text-white" />}
+                  </label>
+                )}
+                {creator.verified && (
+                  <div className="absolute bottom-0 right-0 bg-blue-500 text-white p-1 rounded-full border-2 border-white">
+                    <Star className="w-3 h-3 fill-white" />
                   </div>
                 )}
               </div>
+
+              {/* Own profile: Edit Profile button */}
+              {isOwnProfile && (
+                <div className="flex items-center gap-2 mb-1 z-10">
+                  <button
+                    onClick={() => navigate('/settings')}
+                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-full font-semibold text-sm transition border border-gray-200"
+                  >
+                    Edit Profile
+                  </button>
+                </div>
+              )}
             </div>
+
 
             {/* Name */}
             <div className="mb-2">
@@ -611,7 +613,7 @@ export default function CreatorProfile() {
                       : 'bg-gradient-to-r from-rose-500 to-pink-600 text-white hover:from-rose-600 hover:to-pink-700'
                   }`}
                 >
-                  {isSubscribed ? '✓ Subscribed' : `Subscribe • $${creator.subscriptionPrice}/mo`}
+                {isSubscribed ? '✓ Subscribed' : `Subscribe • $${Number(creator.subscriptionPriceMonthly ?? creator.subscriptionPrice ?? 9.99).toFixed(2)}/mo`}
                 </button>
               </div>
             )}
@@ -683,6 +685,8 @@ export default function CreatorProfile() {
                 key={post.id}
                 post={post}
                 onDelete={handlePostDeleted}
+                onArchive={handlePostArchived}
+                onUnarchive={handlePostUnarchived}
                 showPinnedIndicator={true}
                 onPostClick={handlePostClick}
               />
