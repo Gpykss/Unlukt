@@ -164,19 +164,34 @@ export default function CreatorProfile() {
     }
   };
 
-  // ✅ FIXED: refresh subscriber count from Firestore after subscribe
+  // ✅ Refresh counts — query subscriptions collection for accurate live count
   const refreshCreatorCounts = useCallback(async () => {
     try {
       let foundCreator;
       if (username) foundCreator = await getUserByUsername(username);
       else if (currentUser) foundCreator = await getUserProfile(currentUser.uid);
-      if (foundCreator) {
-        setCreator(prev => ({
-          ...prev,
-          followers: foundCreator.followersCount || foundCreator.followers || 0,
-          subscribers: foundCreator.subscribersCount || foundCreator.subscribers || 0,
-        }));
-      }
+      if (!foundCreator) return;
+
+      const uid = foundCreator.uid || foundCreator.id;
+
+      // Count active subscriptions directly from collection for accuracy
+      const { getDocs: _getDocs, query: _query, collection: _coll, where: _where } = await import('firebase/firestore');
+      const subsSnap = await _getDocs(_query(
+        _coll(db, 'subscriptions'),
+        _where('creatorId', '==', uid),
+        _where('status', '==', 'active')
+      ));
+      const now = new Date();
+      const activeCount = subsSnap.docs.filter(d => {
+        const expiry = d.data().expiresAt?.toDate?.();
+        return !expiry || expiry > now;
+      }).length;
+
+      setCreator(prev => ({
+        ...prev,
+        followers: foundCreator.followersCount || foundCreator.followers || 0,
+        subscribers: activeCount,
+      }));
     } catch (e) { console.error(e); }
   }, [username, currentUser]);
 

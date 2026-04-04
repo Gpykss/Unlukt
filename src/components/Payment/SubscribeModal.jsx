@@ -147,19 +147,18 @@ export default function SubscribeModal({ isOpen, onClose, creator, onSuccess }) 
 
   return (
     <AnimatePresence>
-      {/* Overlay — pb clears mobile nav bar */}
+      {/* Overlay — always centered on all screen sizes */}
       <div
-        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
         onClick={handleClose}
       >
         <motion.div
-          initial={{ opacity: 0, y: 60 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 60 }}
+          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ type: 'spring', damping: 28, stiffness: 300 }}
           onClick={e => e.stopPropagation()}
-          className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl overflow-hidden shadow-2xl flex flex-col"
+          className="bg-white w-full max-w-md rounded-2xl overflow-hidden shadow-2xl flex flex-col"
           style={{ maxHeight: '92dvh' }}
         >
           {success ? (

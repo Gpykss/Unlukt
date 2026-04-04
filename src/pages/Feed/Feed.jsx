@@ -212,10 +212,12 @@ export default function Feed() {
                   )}
                   {/* Avatar overlapping banner */}
                   <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 w-12 h-12 rounded-full border-2 border-white shadow-md bg-gradient-to-br from-red-100 to-pink-100 overflow-hidden flex items-center justify-center">
-                    {creator.profilePicture ? (
-                      <img src={creator.profilePicture} alt={creator.displayName} className="w-full h-full object-cover" />
+                    {(creator.profilePicture || creator.avatar) && !creator.avatar?.includes('👤') ? (
+                      <img src={creator.profilePicture || creator.avatar} alt={creator.displayName} className="w-full h-full object-cover" />
                     ) : (
-                      <span className="text-xl">{creator.avatar || '👤'}</span>
+                      <span className="text-lg font-bold text-rose-400">
+                        {creator.displayName?.charAt(0)?.toUpperCase() || '?'}
+                      </span>
                     )}
                   </div>
                 </div>
