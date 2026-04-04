@@ -16,30 +16,44 @@ export const DURATIONS = {
 
 /**
  * Get the price for a specific duration.
- * Creators now set daily/weekly/monthly prices independently.
- * creatorPrices = { daily, weekly, monthly } — all set by the creator.
- * Falls back to monthlyPrice if specific price not set.
- * Applies active discount on top.
+ * Supports creator-set direct discounted prices (priceMonthly/Weekly/Daily).
+ * Falls back to percent-based discount, then base price.
  */
 export const getPriceForDuration = (monthlyPrice, duration, discount = null, creatorPrices = null) => {
+  // Base price from creator settings
   let base;
   if (creatorPrices) {
-    if (duration === 'daily'   && creatorPrices.daily   != null) base = Number(creatorPrices.daily);
-    else if (duration === 'weekly'  && creatorPrices.weekly  != null) base = Number(creatorPrices.weekly);
+    if (duration === 'daily'  && creatorPrices.daily  != null) base = Number(creatorPrices.daily);
+    else if (duration === 'weekly' && creatorPrices.weekly != null) base = Number(creatorPrices.weekly);
     else base = Number(creatorPrices.monthly ?? monthlyPrice);
   } else {
-    // Legacy fallback — derive from monthly
     const multipliers = { daily: 0.1, weekly: 0.35, monthly: 1 };
     base = Number(monthlyPrice) * (multipliers[duration] ?? 1);
   }
 
-  let price = base;
   if (discount && discount.active) {
     const now = Date.now();
     const expiry = discount.expiresAt ? new Date(discount.expiresAt).getTime() : Infinity;
-    if (now < expiry) price = price * (1 - (discount.percent || 0) / 100);
+    if (now < expiry) {
+      // Bundle: price per month from bundle total
+      if (discount.type === 'bundle' && discount.bundlePrice && discount.bundleMonths && duration === 'monthly') {
+        return Math.max(0.5, parseFloat((Number(discount.bundlePrice) / Number(discount.bundleMonths)).toFixed(2)));
+      }
+      // Direct creator-set discounted price per duration
+      const directPrice =
+        duration === 'monthly' ? discount.priceMonthly :
+        duration === 'weekly'  ? discount.priceWeekly  :
+        duration === 'daily'   ? discount.priceDaily   : null;
+      if (directPrice != null && Number(directPrice) > 0) {
+        return Math.max(0.5, parseFloat(Number(directPrice).toFixed(2)));
+      }
+      // Legacy: percent-based fallback
+      if (discount.percent) {
+        return Math.max(0.5, parseFloat((base * (1 - discount.percent / 100)).toFixed(2)));
+      }
+    }
   }
-  return Math.max(0.5, parseFloat(price.toFixed(2)));
+  return Math.max(0.5, parseFloat(base.toFixed(2)));
 };
 
 export const getExpiryDate = (duration) => {

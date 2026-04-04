@@ -81,14 +81,16 @@ export default function Discover() {
       <div className="px-4 sm:px-5 pb-4 sm:pb-5">
         <div className="flex items-end justify-between -mt-8 mb-3">
           <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full border-4 border-white shadow-lg bg-gradient-to-br from-rose-100 to-pink-100 overflow-hidden flex items-center justify-center flex-shrink-0">
-            {creator.profilePicture ? (
+            {(creator.profilePicture || creator.avatar) ? (
               <img
-                src={creator.profilePicture}
+                src={creator.profilePicture || creator.avatar}
                 alt={creator.displayName}
                 className="w-full h-full object-cover"
               />
             ) : (
-              <span className="text-3xl">{creator.avatar || '👤'}</span>
+              <span className="text-2xl font-bold text-rose-400">
+                {creator.displayName?.charAt(0)?.toUpperCase() || '👤'}
+              </span>
             )}
           </div>
           <button className="mb-1 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-full transition">

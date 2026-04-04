@@ -729,7 +729,10 @@ export default function CreatorProfile() {
         onSuccess={(duration) => {
           setIsSubscribed(true);
           setShowSubscribeModal(false);
-          refreshCreatorCounts();
+          // Optimistically increment subscriber count immediately
+          setCreator(prev => ({ ...prev, subscribers: (prev?.subscribers || 0) + 1 }));
+          // Then refresh from Firestore after delay to confirm
+          setTimeout(() => refreshCreatorCounts(), 2000);
         }}
       />
 

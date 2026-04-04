@@ -354,18 +354,27 @@ export default function Settings() {
                   </div>
                 </div>
 
-                {/* Earnings preview (based on monthly) */}
+                {/* What fans will see — no earnings confusion */}
                 {priceMonthly && !isNaN(parseFloat(priceMonthly)) && (
-                  <div className="p-4 bg-gradient-to-br from-rose-50 to-pink-50 rounded-xl border border-rose-200">
-                    <p className="text-xs font-semibold text-gray-500 mb-2">Monthly earnings preview (80% after fees):</p>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-700">Fan pays:</span>
-                      <span className="font-bold text-gray-900">${parseFloat(priceMonthly || 0).toFixed(2)}/mo</span>
+                  <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-1.5">
+                    <p className="text-xs font-bold text-gray-600 mb-2">💳 What fans will pay:</p>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-600">📅 Monthly</span>
+                      <span className="font-bold text-gray-900">${parseFloat(priceMonthly || 0).toFixed(2)}</span>
                     </div>
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="text-sm text-gray-700">You earn:</span>
-                      <span className="font-bold text-green-600">${(parseFloat(priceMonthly || 0) * 0.8).toFixed(2)}/mo</span>
-                    </div>
+                    {priceWeekly !== '' && !isNaN(parseFloat(priceWeekly)) && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600">🗓️ Weekly</span>
+                        <span className="font-bold text-gray-900">${parseFloat(priceWeekly).toFixed(2)}</span>
+                      </div>
+                    )}
+                    {priceDaily !== '' && !isNaN(parseFloat(priceDaily)) && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600">⚡ Daily</span>
+                        <span className="font-bold text-gray-900">${parseFloat(priceDaily).toFixed(2)}</span>
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-400 pt-1 border-t border-gray-200 mt-1">Platform fee: 20% · You receive 80% of each payment</p>
                   </div>
                 )}
 
@@ -387,7 +396,11 @@ export default function Settings() {
 
             {/* Discount Manager */}
             <div className="p-6">
-              <CreatorDiscountManager />
+              <CreatorDiscountManager
+                baseMonthly={parseFloat(priceMonthly) || 0}
+                baseWeekly={priceWeekly !== '' ? parseFloat(priceWeekly) : null}
+                baseDaily={priceDaily   !== '' ? parseFloat(priceDaily)  : null}
+              />
             </div>
           </CollapsibleSection>
         )}

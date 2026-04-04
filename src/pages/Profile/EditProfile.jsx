@@ -197,7 +197,7 @@ export default function EditProfile() {
       });
       
       // Update user profile
-      await updateUserProfile(currentUser.uid, { avatar: result.url });
+      await updateUserProfile(currentUser.uid, { avatar: result.cdnUrl });
       await fetchUserProfile(currentUser.uid);
       
       setSuccess('Profile picture updated!');
@@ -242,7 +242,7 @@ export default function EditProfile() {
       });
       
       // Update user profile
-      await updateUserProfile(currentUser.uid, { banner: result.url });
+      await updateUserProfile(currentUser.uid, { banner: result.cdnUrl });
       await fetchUserProfile(currentUser.uid);
       
       setSuccess('Banner updated!');
@@ -366,39 +366,29 @@ export default function EditProfile() {
           </div>
 
           <div className="p-8">
-            {/* ✅ UPDATED: Avatar Section */}
-            <div className="flex items-center space-x-6 mb-8 pb-8 border-b border-gray-200 -mt-16">
-              <div className="relative group">
-                <div className="w-24 h-24 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-bold text-3xl border-4 border-white overflow-hidden">
-                  {avatarPreview ? (
-                    <img 
-                      src={avatarPreview} 
-                      alt={formData.displayName} 
-                      className="w-full h-full object-cover" 
-                    />
-                  ) : (
-                    formData.displayName.charAt(0).toUpperCase()
-                  )}
+            {/* Avatar + Name — name placed BELOW avatar row so it's never clipped by banner */}
+            <div className="mb-6 pb-6 border-b border-gray-200" style={{ marginTop: '-3rem' }}>
+              {/* Avatar row */}
+              <div className="flex items-end justify-between mb-3">
+                <div className="relative group">
+                  <div className="w-24 h-24 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-bold text-3xl border-4 border-white overflow-hidden shadow-md">
+                    {avatarPreview ? (
+                      <img src={avatarPreview} alt={formData.displayName} className="w-full h-full object-cover" />
+                    ) : (
+                      formData.displayName.charAt(0).toUpperCase() || '?'
+                    )}
+                  </div>
+                  <label className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition rounded-full cursor-pointer">
+                    <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" disabled={uploadingAvatar} />
+                    {uploadingAvatar ? <Loader2 className="w-6 h-6 text-white animate-spin" /> : <Camera className="w-6 h-6 text-white" />}
+                  </label>
                 </div>
-                <label className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition rounded-full cursor-pointer">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleAvatarUpload}
-                    className="hidden"
-                    disabled={uploadingAvatar}
-                  />
-                  {uploadingAvatar ? (
-                    <Loader2 className="w-6 h-6 text-white animate-spin" />
-                  ) : (
-                    <Camera className="w-6 h-6 text-white" />
-                  )}
-                </label>
               </div>
+              {/* Name row — always fully visible below avatar */}
               <div>
-                <h3 className="font-semibold text-gray-900">{formData.displayName || 'Your Name'}</h3>
+                <h3 className="font-bold text-gray-900 text-lg">{formData.displayName || 'Your Name'}</h3>
                 <p className="text-sm text-gray-500">@{formData.username || 'username'}</p>
-                <p className="text-xs text-gray-400 mt-1">Click to change avatar or banner</p>
+                <p className="text-xs text-gray-400 mt-0.5">Hover avatar to change picture · hover banner to change banner</p>
               </div>
             </div>
 

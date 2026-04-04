@@ -79,20 +79,34 @@ export default function SubscribeModal({ isOpen, onClose, creator, onSuccess }) 
   }, [isOpen, currentUser, creator?.uid]);
 
   // Get price for a duration using creator-set prices directly
+  // Get price with discount applied
   const getPrice = (duration) => getPriceForDuration(monthlyPrice, duration, discount, creatorPrices);
+  // Get original price without discount (for strikethrough display)
+  const getOriginalPrice = (duration) => getPriceForDuration(monthlyPrice, duration, null, creatorPrices);
 
   const selectedPrice = getPrice(selectedDuration);
   const hasEnoughBalance = balance !== null && balance >= selectedPrice;
 
-  // Savings = how much cheaper vs daily * days (only if daily is set)
+  // Simply compare original (no discount) vs discounted price for each duration
   const getSavings = (duration) => {
-    if (duration === 'daily') return null;
-    if (creatorPrices.daily == null) return null; // no daily price set to compare against
-    const dailyEquivalent = getPrice('daily') * DURATIONS[duration].days;
-    const actual = getPrice(duration);
-    const saved = dailyEquivalent - actual;
-    if (saved <= 0.01) return null;
-    return `Save $${saved.toFixed(2)}`;
+    const original   = getOriginalPrice(duration);
+    const discounted = getPrice(duration);
+    const saved = parseFloat((original - discounted).toFixed(2));
+
+    if (saved > 0.01) {
+      // Discount is reducing this duration's price → show strikethrough + badge
+      return { label: `Save $${saved.toFixed(2)}`, original };
+    }
+
+    // No discount on this duration — compare vs daily rate to show relative value
+    if (duration === 'daily' || !creatorPrices?.daily) return null;
+    const dailyRate     = getOriginalPrice('daily');
+    const daysEquiv     = dailyRate * DURATIONS[duration].days;
+    const actualPrice   = getPrice(duration);
+    const altSaved      = parseFloat((daysEquiv - actualPrice).toFixed(2));
+    if (altSaved > 0.01) return { label: `Save $${altSaved.toFixed(2)}`, original: null };
+
+    return null;
   };
 
   const handleSubscribe = async () => {
@@ -244,8 +258,8 @@ export default function SubscribeModal({ isOpen, onClose, creator, onSuccess }) 
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Choose duration</p>
                   <div className="space-y-2">
                     {availableDurations.map(([key, dur]) => {
-                      const price = getPrice(key);
-                      const savings = getSavings(key);
+                      const price    = getPrice(key);
+                      const savings  = getSavings(key);
                       const isSelected = selectedDuration === key;
                       return (
                         <button key={key} onClick={() => setSelectedDuration(key)}
@@ -257,21 +271,22 @@ export default function SubscribeModal({ isOpen, onClose, creator, onSuccess }) 
                               {DURATION_ICONS[key]}
                             </div>
                             <div className="text-left min-w-0">
-                              <p className={`font-bold text-sm ${isSelected ? 'text-rose-700' : 'text-gray-800'}`}>
-                                {dur.label}
-                              </p>
+                              <p className={`font-bold text-sm ${isSelected ? 'text-rose-700' : 'text-gray-800'}`}>{dur.label}</p>
                               <p className="text-xs text-gray-500">{dur.badge}</p>
                             </div>
                           </div>
                           <div className="text-right flex items-center gap-2 flex-shrink-0">
                             {savings && (
                               <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full border border-green-200 whitespace-nowrap">
-                                {savings}
+                                {savings.label}
                               </span>
                             )}
-                            <p className={`font-bold text-base ${isSelected ? 'text-rose-600' : 'text-gray-900'}`}>
-                              ${price.toFixed(2)}
-                            </p>
+                            <div className="text-right">
+                              {savings?.original != null && (
+                                <p className="text-xs text-gray-400 line-through leading-none mb-0.5">${savings.original.toFixed(2)}</p>
+                              )}
+                              <p className={`font-bold text-base ${isSelected ? 'text-rose-600' : 'text-gray-900'}`}>${price.toFixed(2)}</p>
+                            </div>
                           </div>
                         </button>
                       );
