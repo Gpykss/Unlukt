@@ -59,29 +59,18 @@ export default function Discover() {
       onClick={() => navigate(`/creator/${creator.username?.replace('@', '') || creator.id}`)}
       className="bg-white rounded-2xl overflow-hidden border border-gray-200 hover:border-rose-300 hover:shadow-xl transition cursor-pointer"
     >
-      {/* FIX: Banner — gradient background, NOT the profile picture */}
-      <div className="h-28 sm:h-36 bg-gradient-to-br from-rose-300 via-pink-300 to-purple-300 relative overflow-hidden">
-        {creator.coverImage ? (
-          <img
-            src={creator.coverImage}
-            alt=""
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          // Decorative pattern when no cover
-          <div className="w-full h-full opacity-30"
-            style={{
-              backgroundImage: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.15) 0px, rgba(255,255,255,0.15) 2px, transparent 2px, transparent 12px)'
-            }}
-          />
+      {/* Banner — full height, uses creator's actual banner */}
+      <div className="h-28 sm:h-32 bg-gradient-to-br from-rose-300 via-pink-300 to-purple-300 relative">
+        {creator.banner && !creator.banner.includes('🎨') && (
+          <img src={creator.banner} alt="" className="w-full h-full object-cover" />
         )}
       </div>
 
-      {/* FIX: Avatar overlapping banner, clearly visible, separate from banner */}
-      <div className="px-4 sm:px-5 pb-4 sm:pb-5">
-        <div className="flex items-end justify-between -mt-8 mb-3">
-          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full border-4 border-white shadow-lg bg-gradient-to-br from-rose-100 to-pink-100 overflow-hidden flex items-center justify-center flex-shrink-0">
-            {(creator.profilePicture || creator.avatar) ? (
+      <div className="px-4 pb-4">
+        {/* Avatar + View button row — avatar overlaps banner */}
+        <div className="flex items-end justify-between" style={{ marginTop: '-40px', marginBottom: '8px' }}>
+          <div className="w-20 h-20 rounded-full border-4 border-white shadow-lg bg-gradient-to-br from-rose-200 to-pink-200 overflow-hidden flex items-center justify-center flex-shrink-0">
+            {(creator.profilePicture || (creator.avatar && !creator.avatar.includes('👤'))) ? (
               <img
                 src={creator.profilePicture || creator.avatar}
                 alt={creator.displayName}
@@ -89,26 +78,26 @@ export default function Discover() {
               />
             ) : (
               <span className="text-2xl font-bold text-rose-400">
-                {creator.displayName?.charAt(0)?.toUpperCase() || '👤'}
+                {creator.displayName?.charAt(0)?.toUpperCase() || '?'}
               </span>
             )}
           </div>
-          <button className="mb-1 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-full transition">
+          <button className="px-4 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold rounded-full transition">
             View
           </button>
         </div>
 
-        {/* Name & Username */}
-        <div className="mb-2">
+        {/* Name & username — clearly below avatar */}
+        <div className="mt-2 mb-2">
           <div className="flex items-center space-x-1.5 mb-0.5">
-            <h3 className="font-bold text-gray-900 text-base truncate">
+            <h3 className="font-bold text-gray-900 text-sm truncate">
               {creator.displayName || 'Anonymous'}
             </h3>
             {creator.kycStatus === 'approved' && (
-              <span className="text-blue-500 flex-shrink-0 text-sm">✓</span>
+              <span className="text-blue-500 flex-shrink-0 text-xs">✓</span>
             )}
           </div>
-          <p className="text-sm text-gray-500 truncate">@{creator.username || 'user'}</p>
+          <p className="text-xs text-gray-500 truncate">@{creator.username || 'user'}</p>
         </div>
 
         {/* Bio */}
@@ -117,7 +106,7 @@ export default function Discover() {
         )}
 
         {/* Stats */}
-        <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+        <div className="flex items-center justify-between pt-2 border-t border-gray-100">
           <div className="text-center">
             <div className="flex items-center space-x-1">
               <Users className="w-3.5 h-3.5 text-gray-400" />
@@ -140,7 +129,7 @@ export default function Discover() {
 
           <div className="text-center">
             <p className="text-sm font-bold text-gray-900">
-              ${Number(creator.subscriptionPrice || 9.99).toFixed(2)}
+              ${Number(creator.subscriptionPriceMonthly ?? creator.subscriptionPrice ?? 9.99).toFixed(2)}
             </p>
             <p className="text-[10px] text-gray-400 mt-0.5">/month</p>
           </div>

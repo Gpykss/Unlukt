@@ -21,7 +21,7 @@ import PostCard from '../../components/feed/PostCard';
 import PostModal from '../../components/Modals/PostModal';
 import TipModal from '../../components/Modals/TipModal';
 import SubscribeModal from '../../components/Payment/SubscribeModal';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { useContentSettings } from '../../hooks/useContentSettings';
 
@@ -90,14 +90,38 @@ export default function CreatorProfile() {
 
       const uid = foundCreator.uid || foundCreator.id;
 
+      // ✅ Count active subscribers directly from subscriptions collection (accurate for all existing subs)
+      let subscriberCount = 0;
+      try {
+        const subsSnap = await getDocs(query(
+          collection(db, 'subscriptions'),
+          where('creatorId', '==', uid),
+          where('status', '==', 'active')
+        ));
+        const now = new Date();
+        subscriberCount = subsSnap.docs.filter(d => {
+          const expiry = d.data().expiresAt?.toDate?.();
+          return !expiry || expiry > now;
+        }).length;
+      } catch (e) {
+        // fallback to stored count if query fails
+        subscriberCount = foundCreator.subscribersCount || foundCreator.subscribers || 0;
+      }
+
       const creatorObj = {
         uid,
         username: foundCreator.username || 'user',
         name: foundCreator.displayName || foundCreator.name || 'User',
         avatar: foundCreator.avatar || foundCreator.photoURL || null,
         banner: foundCreator.banner || null,
+        profilePicture: foundCreator.profilePicture || null,
         bio: foundCreator.bio || 'No bio yet',
-        location: foundCreator.location || null,
+        location: (() => {
+          const loc = foundCreator.location;
+          if (!loc) return null;
+          if (typeof loc === 'object') return loc.countryName || loc.city || loc.label || null;
+          return loc;
+        })(),
         joined: foundCreator.createdAt
           ? foundCreator.createdAt.toDate
             ? foundCreator.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
@@ -105,12 +129,12 @@ export default function CreatorProfile() {
               ? new Date(foundCreator.createdAt.seconds * 1000).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
               : 'Recently'
           : 'Recently',
-        website: foundCreator.website || '',
+        website: foundCreator.website || foundCreator.socialLinks?.website || '',
+        socialLinks: foundCreator.socialLinks || {},
         verified: foundCreator.kycStatus === 'approved' || false,
         followers: foundCreator.followersCount || foundCreator.followers || 0,
-        subscribers: foundCreator.subscribersCount || foundCreator.subscribers || 0,
+        subscribers: subscriberCount,
         postsCount: 0,
-        // ✅ Per-duration prices set by creator individually
         subscriptionPrice: foundCreator.subscriptionPriceMonthly ?? foundCreator.subscriptionPrice ?? 9.99,
         subscriptionPriceMonthly: foundCreator.subscriptionPriceMonthly ?? foundCreator.subscriptionPrice ?? 9.99,
         subscriptionPriceWeekly:  foundCreator.subscriptionPriceWeekly  ?? null,
@@ -133,7 +157,7 @@ export default function CreatorProfile() {
         }
       } catch (err) { console.error('Availability error:', err); }
 
-      // ✅ FIXED: posts sorted newest first, pinned on top
+      // ✅ Posts sorted newest first, pinned on top
       const userPosts = await getUserPosts(uid);
       const activePosts = userPosts.filter(p => !p.archived);
       const archived = userPosts.filter(p => p.archived);
@@ -150,7 +174,7 @@ export default function CreatorProfile() {
         return getTime(b) - getTime(a);
       });
 
-      const sortedActive = sortPosts(activePosts);
+      const sortedActive  = sortPosts(activePosts);
       const sortedArchived = sortPosts(archived);
 
       setPosts(sortedActive);
@@ -175,11 +199,10 @@ export default function CreatorProfile() {
       const uid = foundCreator.uid || foundCreator.id;
 
       // Count active subscriptions directly from collection for accuracy
-      const { getDocs: _getDocs, query: _query, collection: _coll, where: _where } = await import('firebase/firestore');
-      const subsSnap = await _getDocs(_query(
-        _coll(db, 'subscriptions'),
-        _where('creatorId', '==', uid),
-        _where('status', '==', 'active')
+      const subsSnap = await getDocs(query(
+        collection(db, 'subscriptions'),
+        where('creatorId', '==', uid),
+        where('status', '==', 'active')
       ));
       const now = new Date();
       const activeCount = subsSnap.docs.filter(d => {
@@ -547,29 +570,75 @@ export default function CreatorProfile() {
             {/* Bio */}
             <p className="text-sm text-gray-700 leading-relaxed mb-3">{creator.bio}</p>
 
-            {/* Meta */}
+            {/* Meta row — location + joined date only */}
             <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 mb-3">
               {creator.location && (
                 <div className="flex items-center space-x-1">
                   <MapPin className="w-3.5 h-3.5" />
-                  <span>{creator.location?.countryName || creator.location}</span>
+                  <span>{creator.location}</span>
                 </div>
               )}
               <div className="flex items-center space-x-1">
                 <Calendar className="w-3.5 h-3.5" />
                 <span>Joined {creator.joined}</span>
               </div>
-              {creator.website && (
-                <div className="flex items-center space-x-1">
-                  <LinkIcon className="w-3.5 h-3.5" />
-                  <a href={creator.website.startsWith('http') ? creator.website : `https://${creator.website}`}
-                    target="_blank" rel="noopener noreferrer"
-                    className="text-rose-500 hover:text-rose-600 font-medium underline">
-                    {creator.website}
-                  </a>
-                </div>
-              )}
             </div>
+
+            {/* Social media + website buttons */}
+            {(() => {
+              const sl = creator.socialLinks || {};
+              const web = sl.website || creator.website;
+              const hasAny = sl.instagram || sl.twitter || sl.tiktok || web;
+              if (!hasAny) return null;
+              return (
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  {sl.instagram && (
+                    <a
+                      href={`https://instagram.com/${sl.instagram.replace('@','')}`}
+                      target="_blank" rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-semibold hover:opacity-90 transition"
+                    >
+                      <svg className="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+                      Instagram
+                    </a>
+                  )}
+                  {sl.twitter && (
+                    <a
+                      href={`https://x.com/${sl.twitter.replace('@','')}`}
+                      target="_blank" rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black text-white text-xs font-semibold hover:opacity-80 transition"
+                    >
+                      <svg className="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                      X / Twitter
+                    </a>
+                  )}
+                  {sl.tiktok && (
+                    <a
+                      href={`https://tiktok.com/@${sl.tiktok.replace('@','')}`}
+                      target="_blank" rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-900 text-white text-xs font-semibold hover:opacity-80 transition"
+                    >
+                      <svg className="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.27 6.27 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.69a8.19 8.19 0 004.79 1.53V6.78a4.85 4.85 0 01-1.02-.09z"/></svg>
+                      TikTok
+                    </a>
+                  )}
+                  {web && (
+                    <a
+                      href={web.startsWith('http') ? web : `https://${web}`}
+                      target="_blank" rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500 text-white text-xs font-semibold hover:opacity-80 transition"
+                    >
+                      <LinkIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                      Website
+                    </a>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* ✅ FIXED: Action buttons below name/bio, not overlapping banner */}
             {!isOwnProfile && (

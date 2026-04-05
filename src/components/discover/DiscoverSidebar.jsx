@@ -96,19 +96,30 @@ export default function DiscoverSidebar() {
               onClick={() => navigate(`/creator/${creator.username?.replace('@', '') || creator.id}`)}
               className="bg-white border border-gray-200 hover:border-rose-300 hover:shadow-md rounded-xl p-3 cursor-pointer transition"
             >
-              {/* Profile picture - full width banner */}
+              {/* Banner + avatar overlay */}
               <div className="relative mb-3">
-                <div className="w-full h-28 rounded-lg bg-gradient-to-br from-rose-100 to-pink-100 overflow-hidden">
-                  {creator.profilePicture ? (
-                    <img src={creator.profilePicture} alt={creator.displayName} className="w-full h-full object-cover" />
+                {/* Banner */}
+                <div className="w-full h-20 rounded-lg bg-gradient-to-br from-rose-100 to-pink-100 overflow-hidden">
+                  {creator.banner && !creator.banner.includes('🎨') ? (
+                    <img src={creator.banner} alt="" className="w-full h-full object-cover" />
+                  ) : null}
+                </div>
+                {/* Profile picture — circular overlay */}
+                <div className="absolute -bottom-4 left-3 w-12 h-12 rounded-full border-3 border-white bg-gradient-to-br from-rose-200 to-pink-200 overflow-hidden flex items-center justify-center shadow-md" style={{ border: '3px solid white' }}>
+                  {(creator.profilePicture || (creator.avatar && !creator.avatar.includes('👤'))) ? (
+                    <img
+                      src={creator.profilePicture || creator.avatar}
+                      alt={creator.displayName}
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-4xl">
-                      {creator.avatar || '👤'}
-                    </div>
+                    <span className="text-lg font-bold text-rose-500">
+                      {creator.displayName?.charAt(0)?.toUpperCase() || '?'}
+                    </span>
                   )}
                 </div>
                 {/* Rank badge */}
-                <span className={`absolute top-1.5 left-1.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                <span className={`absolute top-1.5 right-1.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
                   index === 0 ? 'bg-yellow-400 text-white' :
                   index === 1 ? 'bg-gray-400 text-white' :
                   index === 2 ? 'bg-orange-400 text-white' :
@@ -117,8 +128,8 @@ export default function DiscoverSidebar() {
                   {index + 1}
                 </span>
               </div>
-              {/* Name row */}
-              <div className="flex items-center space-x-1 mb-3">
+              {/* Name row — pushed down to clear avatar */}
+              <div className="flex items-center space-x-1 mt-5 mb-2">
                 <p className="font-bold text-gray-900 text-xs truncate">{creator.displayName || 'Anonymous'}</p>
                 {creator.kycStatus === 'approved' && <span className="text-blue-500 text-[10px] flex-shrink-0">✓</span>}
                 <p className="text-[10px] text-gray-400 truncate ml-1">@{creator.username || 'user'}</p>

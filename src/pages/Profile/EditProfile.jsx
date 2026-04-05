@@ -84,12 +84,19 @@ export default function EditProfile() {
 
   useEffect(() => {
     if (userProfile) {
+      // Normalize location: may be stored as object {countryName, city} or as plain string
+      const rawLocation = userProfile.location;
+      const locationString =
+        typeof rawLocation === 'object' && rawLocation !== null
+          ? rawLocation.countryName || rawLocation.city || rawLocation.label || ''
+          : (rawLocation || '');
+
       setFormData({
         username: userProfile.username || '',
         displayName: userProfile.displayName || '',
         bio: userProfile.bio || '',
         phoneNumber: userProfile.phoneNumber || '',
-        location: userProfile.location || '',
+        location: locationString,
         socialLinks: userProfile.socialLinks || {
           instagram: '',
           twitter: '',
@@ -97,13 +104,17 @@ export default function EditProfile() {
           website: ''
         }
       });
-      setAvatarPreview(userProfile.avatar || null);
-      setBannerPreview(userProfile.banner || null);
-      
-      // Check if location is custom
-      if (userProfile.location && !LOCATIONS.includes(userProfile.location)) {
+
+      // Only show real CDN URLs as previews, not emoji placeholders
+      const av = userProfile.avatar;
+      setAvatarPreview(av && !av.includes('👤') ? av : null);
+      const bn = userProfile.banner;
+      setBannerPreview(bn && !bn.includes('🎨') ? bn : null);
+
+      // Check if location is custom (not in the LOCATIONS list)
+      if (locationString && !LOCATIONS.includes(locationString)) {
         setIsCustomLocation(true);
-        setCustomLocation(userProfile.location);
+        setCustomLocation(locationString);
       }
     }
   }, [userProfile]);

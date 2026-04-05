@@ -61,39 +61,39 @@ export default function Feed() {
       usersSnapshot.forEach((d) => {
         const userData = d.data();
         if (userData.kycStatus === 'approved') {
-          creators.push({ id: d.id, ...userData });
+          creators.push({ id: d.id, ...userData, subscriberCount: userData.subscribersCount || 0, postCount: 0 });
         }
       });
+      creators.sort((a, b) => (b.subscriberCount || 0) - (a.subscriberCount || 0));
+      // Phase 1: show creators immediately
+      setTopCreators(creators);
 
-      const subsSnapshot = await getDocs(query(
-        collection(db, 'subscriptions'),
-        where('status', '==', 'active')
-      ));
+      // Phase 2: enrich subscriber + post counts in background
+      const [subsSnapshot, postsSnapshot] = await Promise.all([
+        getDocs(query(collection(db, 'subscriptions'), where('status', '==', 'active'))),
+        getDocs(collection(db, 'posts')),
+      ]);
       const subCounts = {};
       subsSnapshot.forEach((d) => {
         const creatorId = d.data().creatorId;
         if (creatorId) subCounts[creatorId] = (subCounts[creatorId] || 0) + 1;
       });
-
-      const postsSnapshot = await getDocs(collection(db, 'posts'));
       const postCounts = {};
       postsSnapshot.forEach((d) => {
         const { userId, archived } = d.data();
         if (userId && !archived) postCounts[userId] = (postCounts[userId] || 0) + 1;
       });
-
-      creators.forEach((c) => {
-        c.subscriberCount = subCounts[c.id] || 0;
-        c.postCount = postCounts[c.id] || 0;
-      });
-
-      creators.sort((a, b) =>
+      const enriched = creators.map(c => ({
+        ...c,
+        subscriberCount: subCounts[c.id] || c.subscriberCount || 0,
+        postCount: postCounts[c.id] || 0,
+      }));
+      enriched.sort((a, b) =>
         b.subscriberCount !== a.subscriberCount
           ? b.subscriberCount - a.subscriberCount
           : (b.followers || 0) - (a.followers || 0)
       );
-
-      setTopCreators(creators);
+      setTopCreators(enriched);
     } catch (err) {
       console.error('Error loading top creators:', err);
     }
@@ -206,23 +206,27 @@ export default function Feed() {
                 className="flex-shrink-0 w-28 bg-white rounded-2xl border border-gray-200 hover:border-red-300 hover:shadow-md transition cursor-pointer overflow-hidden"
               >
                 {/* Cover banner */}
-                <div className="w-full h-16 bg-gradient-to-br from-rose-200 via-pink-200 to-purple-200 relative">
-                  {creator.coverImage && (
-                    <img src={creator.coverImage} alt="" className="w-full h-full object-cover" />
+                <div className="w-full h-14 bg-gradient-to-br from-rose-200 via-pink-200 to-purple-200 relative">
+                  {creator.banner && !creator.banner.includes('🎨') && (
+                    <img src={creator.banner} alt="" className="w-full h-full object-cover" />
                   )}
-                  {/* Avatar overlapping banner */}
-                  <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 w-12 h-12 rounded-full border-2 border-white shadow-md bg-gradient-to-br from-red-100 to-pink-100 overflow-hidden flex items-center justify-center">
-                    {(creator.profilePicture || creator.avatar) && !creator.avatar?.includes('👤') ? (
-                      <img src={creator.profilePicture || creator.avatar} alt={creator.displayName} className="w-full h-full object-cover" />
+                  {/* Avatar — larger, always centered */}
+                  <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-14 h-14 rounded-full border-2 border-white shadow-lg bg-gradient-to-br from-red-100 to-pink-100 overflow-hidden flex items-center justify-center">
+                    {(creator.profilePicture || (creator.avatar && !creator.avatar.includes('👤'))) ? (
+                      <img
+                        src={creator.profilePicture || creator.avatar}
+                        alt={creator.displayName}
+                        className="w-full h-full object-cover"
+                      />
                     ) : (
-                      <span className="text-lg font-bold text-rose-400">
+                      <span className="text-xl font-bold text-rose-400">
                         {creator.displayName?.charAt(0)?.toUpperCase() || '?'}
                       </span>
                     )}
                   </div>
                 </div>
 
-                <div className="pt-7 pb-3 px-2 text-center">
+                <div className="pt-8 pb-3 px-2 text-center">
                   <h3 className="font-bold text-gray-900 text-xs truncate">
                     {creator.displayName || 'Anonymous'}
                   </h3>
