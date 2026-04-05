@@ -53,89 +53,88 @@ export default function Discover() {
   };
 
   const CreatorCard = ({ creator }) => (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
+    <div
+      className="relative cursor-pointer"
       onClick={() => navigate(`/creator/${creator.username?.replace('@', '') || creator.id}`)}
-      className="bg-white rounded-2xl overflow-hidden border border-gray-200 hover:border-rose-300 hover:shadow-xl transition cursor-pointer"
     >
-      {/* Banner — full height, uses creator's actual banner */}
-      <div className="h-28 sm:h-32 bg-gradient-to-br from-rose-300 via-pink-300 to-purple-300 relative">
-        {creator.banner && !creator.banner.includes('🎨') && (
-          <img src={creator.banner} alt="" className="w-full h-full object-cover" />
-        )}
-      </div>
-
-      <div className="px-4 pb-4">
-        {/* Avatar + View button row — avatar overlaps banner */}
-        <div className="flex items-end justify-between" style={{ marginTop: '-40px', marginBottom: '8px' }}>
-          <div className="w-20 h-20 rounded-full border-4 border-white shadow-lg bg-gradient-to-br from-rose-200 to-pink-200 overflow-hidden flex items-center justify-center flex-shrink-0">
-            {(creator.profilePicture || (creator.avatar && !creator.avatar.includes('👤'))) ? (
-              <img
-                src={creator.profilePicture || creator.avatar}
-                alt={creator.displayName}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span className="text-2xl font-bold text-rose-400">
-                {creator.displayName?.charAt(0)?.toUpperCase() || '?'}
-              </span>
-            )}
-          </div>
-          <button className="px-4 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold rounded-full transition">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="bg-white rounded-2xl overflow-hidden border border-gray-200 hover:border-rose-300 hover:shadow-xl transition"
+      >
+        {/* Banner — taller on mobile so image shows well */}
+        <div className="h-40 sm:h-36 bg-gradient-to-br from-rose-300 via-pink-300 to-purple-300 relative">
+          {creator.banner && !creator.banner.includes('🎨') && (
+            <img src={creator.banner} alt="" className="w-full h-full object-cover" />
+          )}
+          <button
+            className="absolute top-3 right-3 z-10 px-4 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold rounded-full shadow-md transition"
+            onClick={e => e.stopPropagation()}
+          >
             View
           </button>
         </div>
 
-        {/* Name & username — clearly below avatar */}
-        <div className="mt-2 mb-2">
-          <div className="flex items-center space-x-1.5 mb-0.5">
-            <h3 className="font-bold text-gray-900 text-sm truncate">
-              {creator.displayName || 'Anonymous'}
-            </h3>
-            {creator.kycStatus === 'approved' && (
-              <span className="text-blue-500 flex-shrink-0 text-xs">✓</span>
-            )}
+        {/* Content — pt-12 clears the avatar that pokes below the banner */}
+        <div className="px-4 pb-4 pt-12">
+          <div className="mb-2">
+            <div className="flex items-center space-x-1.5 mb-0.5">
+              <h3 className="font-bold text-gray-900 text-base truncate">
+                {creator.displayName || 'Anonymous'}
+              </h3>
+              {creator.kycStatus === 'approved' && (
+                <span className="text-blue-500 text-xs flex-shrink-0">✓</span>
+              )}
+            </div>
+            <p className="text-xs text-gray-500 truncate">@{creator.username || 'user'}</p>
           </div>
-          <p className="text-xs text-gray-500 truncate">@{creator.username || 'user'}</p>
-        </div>
 
-        {/* Bio */}
-        {creator.bio && (
-          <p className="text-xs text-gray-500 mb-3 line-clamp-2 leading-relaxed">{creator.bio}</p>
+          {creator.bio && (
+            <p className="text-xs text-gray-500 mb-3 line-clamp-2 leading-relaxed">{creator.bio}</p>
+          )}
+
+          <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+            <div className="text-center">
+              <div className="flex items-center space-x-1">
+                <Users className="w-3.5 h-3.5 text-gray-400" />
+                <p className="text-sm font-bold text-gray-900">{creator.followers || 0}</p>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-0.5">Followers</p>
+            </div>
+            <div className="w-px h-6 bg-gray-200" />
+            <div className="text-center">
+              <div className="flex items-center space-x-1">
+                <ImageIcon className="w-3.5 h-3.5 text-gray-400" />
+                <p className="text-sm font-bold text-gray-900">{creator.mediaCount || 0}</p>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-0.5">Posts</p>
+            </div>
+            <div className="w-px h-6 bg-gray-200" />
+            <div className="text-center">
+              <p className="text-sm font-bold text-gray-900">
+                ${Number(creator.subscriptionPriceMonthly ?? creator.subscriptionPrice ?? 9.99).toFixed(2)}
+              </p>
+              <p className="text-[10px] text-gray-400 mt-0.5">/month</p>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Avatar — outside overflow-hidden, position matches banner height */}
+      <div className="absolute left-4 top-[120px] sm:top-[104px] z-20 w-20 h-20 rounded-full border-4 border-white shadow-lg bg-gradient-to-br from-rose-200 to-pink-200 overflow-hidden flex items-center justify-center">
+        {(creator.profilePicture || (creator.avatar && !creator.avatar.includes('👤'))) ? (
+          <img
+            src={creator.profilePicture || creator.avatar}
+            alt={creator.displayName}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <span className="text-2xl font-bold text-rose-400">
+            {creator.displayName?.charAt(0)?.toUpperCase() || '?'}
+          </span>
         )}
-
-        {/* Stats */}
-        <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-          <div className="text-center">
-            <div className="flex items-center space-x-1">
-              <Users className="w-3.5 h-3.5 text-gray-400" />
-              <p className="text-sm font-bold text-gray-900">{creator.followers || 0}</p>
-            </div>
-            <p className="text-[10px] text-gray-400 mt-0.5">Followers</p>
-          </div>
-
-          <div className="w-px h-6 bg-gray-200" />
-
-          <div className="text-center">
-            <div className="flex items-center space-x-1">
-              <ImageIcon className="w-3.5 h-3.5 text-gray-400" />
-              <p className="text-sm font-bold text-gray-900">{creator.mediaCount || 0}</p>
-            </div>
-            <p className="text-[10px] text-gray-400 mt-0.5">Posts</p>
-          </div>
-
-          <div className="w-px h-6 bg-gray-200" />
-
-          <div className="text-center">
-            <p className="text-sm font-bold text-gray-900">
-              ${Number(creator.subscriptionPriceMonthly ?? creator.subscriptionPrice ?? 9.99).toFixed(2)}
-            </p>
-            <p className="text-[10px] text-gray-400 mt-0.5">/month</p>
-          </div>
-        </div>
       </div>
-    </motion.div>
+    </div>
   );
 
   if (loading) {

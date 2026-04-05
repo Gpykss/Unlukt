@@ -479,9 +479,13 @@ export default function CreatorProfile() {
 
           {/* Banner */}
           <div className="relative h-36 sm:h-48 md:h-56 bg-gradient-to-br from-rose-200 via-pink-200 to-purple-200 overflow-hidden group">
-            {creator.banner
+          {/* Banner — only render as img if it's a real URL */}
+          {(() => {
+            const isRealUrl = creator.banner && (creator.banner.startsWith('http') || creator.banner.startsWith('blob:'));
+            return isRealUrl
               ? <img src={creator.banner} alt="Banner" className="w-full h-full object-cover" />
-              : <div className="w-full h-full flex items-center justify-center text-7xl opacity-30">🎨</div>}
+              : <div className="w-full h-full flex items-center justify-center text-7xl opacity-30">🎨</div>;
+          })()}
             {isOwnProfile && (
               <label className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition cursor-pointer">
                 <input type="file" accept="image/*" onChange={handleBannerUpload} className="hidden" disabled={uploadingBanner} />
@@ -502,9 +506,12 @@ export default function CreatorProfile() {
               {/* Avatar */}
               <div className="relative group flex-shrink-0 z-10">
                 <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 border-4 border-white flex items-center justify-center text-4xl shadow-lg overflow-hidden">
-                  {creator.avatar
-                    ? <img src={creator.avatar} alt={creator.name} className="w-full h-full object-cover" />
-                    : <span>👤</span>}
+                  {(() => {
+                    const isRealUrl = creator.avatar && (creator.avatar.startsWith('http') || creator.avatar.startsWith('blob:'));
+                    return isRealUrl
+                      ? <img src={creator.avatar} alt={creator.name} className="w-full h-full object-cover" />
+                      : <span className="text-3xl font-bold text-rose-400">{creator.name?.charAt(0)?.toUpperCase() || '👤'}</span>;
+                  })()}
                 </div>
                 {isOwnProfile && (
                   <label className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition rounded-full cursor-pointer">
