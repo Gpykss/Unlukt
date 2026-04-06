@@ -85,18 +85,20 @@ export const subscribeToCreator = async (userId, creatorId, duration = 'monthly'
   // 2. ✅ Credit creator using increment() — no getDoc needed
   const creatorEarning = parseFloat((price * 0.8).toFixed(2));
   const creatorBalRef = doc(db, 'creator_balances', creatorId);
+  const month = new Date().toLocaleString('default', { month: 'short' });
   try {
     await updateDoc(creatorBalRef, {
-      pendingBalance: increment(creatorEarning),
+      availableBalance: increment(creatorEarning),
       totalEarnings: increment(creatorEarning),
+      [`monthlyEarnings.${month}`]: increment(creatorEarning),
       updatedAt: serverTimestamp(),
     });
   } catch {
     await setDoc(creatorBalRef, {
       creatorId,
-      availableBalance: 0,
-      pendingBalance: creatorEarning,
+      availableBalance: creatorEarning,
       totalEarnings: creatorEarning,
+      monthlyEarnings: { [month]: creatorEarning },
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });

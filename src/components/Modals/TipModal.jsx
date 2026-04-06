@@ -73,10 +73,11 @@ export default function TipModal({ isOpen, onClose, creator }) {
       );
       const earning = tipAmount * 0.8;
       const creatorBalRef = doc(db, 'creator_balances', creator.uid);
+      const month = new Date().toLocaleString('default', { month: 'short' });
       try {
-        await updateDoc(creatorBalRef, { pendingBalance: increment(earning), totalEarnings: increment(earning), updatedAt: serverTimestamp() });
+        await updateDoc(creatorBalRef, { availableBalance: increment(earning), totalEarnings: increment(earning), [`monthlyEarnings.${month}`]: increment(earning), updatedAt: serverTimestamp() });
       } catch {
-        await setDoc(creatorBalRef, { creatorId: creator.uid, availableBalance: 0, pendingBalance: earning, totalEarnings: earning, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        await setDoc(creatorBalRef, { creatorId: creator.uid, availableBalance: earning, totalEarnings: earning, monthlyEarnings: { [month]: earning }, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
       }
       await setDoc(doc(db, 'tips', `${currentUser.uid}_${creator.uid}_${Date.now()}`), {
         fromUserId: currentUser.uid, toCreatorId: creator.uid, amount: tipAmount,

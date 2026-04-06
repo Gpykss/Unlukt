@@ -78,11 +78,13 @@ export default function Dashboard() {
       const snap = await getDoc(doc(db, 'creator_balances', currentUser.uid));
       if (snap.exists()) {
         const d = snap.data();
-        setBalance({ available: d.availableBalance || 0, pending: d.pendingBalance || 0, total: d.totalEarnings || 0 });
+        // Combine old pendingBalance + new availableBalance so historical data is not hidden
+        const available = (d.availableBalance || 0) + (d.pendingBalance || 0);
+        setBalance({ available, total: d.totalEarnings || available });
       } else {
-        setBalance({ available: 0, pending: 0, total: 0 });
+        setBalance({ available: 0, total: 0 });
       }
-    } catch { setBalance({ available: 0, pending: 0, total: 0 }); }
+    } catch { setBalance({ available: 0, total: 0 }); }
     finally { setLoadingBalance(false); }
   };
 
@@ -114,28 +116,56 @@ export default function Dashboard() {
 
   const fetchRecentActivity = async () => {
     try {
-      const snap = await getDocs(query(
-        collection(db, 'subscriptions'),
-        where('creatorId', '==', currentUser.uid)
-      ));
-      const sorted = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
+      // Fetch ALL historical activity across subscriptions, tips, and unlocks
+      const [subsSnap, tipsSnap, unlocksSnap] = await Promise.all([
+        getDocs(query(collection(db, 'subscriptions'), where('creatorId', '==', currentUser.uid))),
+        getDocs(query(collection(db, 'tips'), where('toCreatorId', '==', currentUser.uid))), // correctly uses toCreatorId
+        getDocs(query(collection(db, 'unlocked_content'), where('creatorId', '==', currentUser.uid))),
+      ]);
+
+      let allData = [];
+      subsSnap.docs.forEach(d => allData.push({ type: 'sub', fanId: d.data().userId, ...d.data(), id: d.id }));
+      tipsSnap.docs.forEach(d => allData.push({ type: 'tip', fanId: d.data().fromUserId, ...d.data(), id: d.id }));
+      unlocksSnap.docs.forEach(d => allData.push({ type: 'unlock', fanId: d.data().userId, ...d.data(), id: d.id }));
+
+      const sorted = allData
         .sort((a, b) => {
-          const ta = a.createdAt?.toDate?.()?.getTime?.() || 0;
-          const tb = b.createdAt?.toDate?.()?.getTime?.() || 0;
+          const ta = a.createdAt?.toDate?.()?.getTime?.() || a.unlockedAt?.toDate?.()?.getTime?.() || 0;
+          const tb = b.createdAt?.toDate?.()?.getTime?.() || b.unlockedAt?.toDate?.()?.getTime?.() || 0;
           return tb - ta;
         })
-        .slice(0, 10);
+        .slice(0, 15); // show more rows
+
       const activities = await Promise.all(sorted.map(async (data) => {
-        const userDoc = await getDoc(doc(db, 'users', data.userId));
-        const u = userDoc.exists() ? userDoc.data() : {};
+        // Fetch correct fan profile per activity type
+        let u = {};
+        if (data.fanId) {
+          const userDoc = await getDoc(doc(db, 'users', data.fanId));
+          if (userDoc.exists()) u = userDoc.data();
+        }
+        
+        let action = 'Interaction';
+        let amount = 0;
+        let timeTs = data.createdAt || data.unlockedAt;
+        
+        if (data.type === 'sub') {
+           action = `${data.durationLabel || 'Monthly'} subscription`;
+           amount = data.creatorEarning || data.amount || 0;
+        } else if (data.type === 'tip') {
+           action = 'Sent a tip';
+           amount = data.creatorEarning || (Number(data.amount || 0) * 0.8) || 0;
+        } else if (data.type === 'unlock') {
+           action = 'Unlocked content';
+           amount = data.creatorEarning || (Number(data.price || 0) * 0.8) || 0;
+        }
+
         return {
           id: data.id,
           user: u.displayName || 'Fan',
-          action: `${data.durationLabel || 'Monthly'} subscription`,
-          amount: `$${(data.creatorEarning || data.amount || 0).toFixed(2)}`,
-          time: formatTimeAgo(data.createdAt),
-          avatar: u.avatar || null,
+          action,
+          amount: `$${Number(amount).toFixed(2)}`,
+          time: formatTimeAgo(timeTs),
+          avatar: u.profilePicture || u.avatar || null,
         };
       }));
       setRecentActivity(activities);
@@ -176,7 +206,8 @@ export default function Dashboard() {
       const earnings = [];
       for (let i = 4; i >= 0; i--) {
         const idx = (cur - i + 12) % 12;
-        earnings.push({ month: months[idx], amount: monthlyEarnings[months[idx]] || 0 });
+        const amt = Number(monthlyEarnings[months[idx]] || 0);
+        earnings.push({ month: months[idx], amount: parseFloat(amt.toFixed(2)) });
       }
       setEarningsData(earnings);
     } catch { setEarningsData([]); }
@@ -292,11 +323,11 @@ export default function Dashboard() {
   };
 
   const formatTimeAgo = (ts) => {
-    if (!ts) return 'Recently';
+    if (!ts) return 'Just now';
     const date = ts.toDate ? ts.toDate() : new Date(ts);
     const s = Math.floor((new Date() - date) / 1000);
     if (s < 60) return 'Just now';
-    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 3600) return Math.floor(s / 60) + 'min ago';
     if (s < 86400) return Math.floor(s / 3600) + 'h ago';
     return Math.floor(s / 86400) + 'd ago';
   };
@@ -551,7 +582,7 @@ export default function Dashboard() {
               ? <div className="h-8 bg-gray-200 rounded animate-pulse" />
               : <p className="text-2xl sm:text-3xl font-bold text-gray-900">${balance?.total.toFixed(2)}</p>}
             <p className="text-gray-500 text-xs mt-1">
-              ${balance?.available.toFixed(2)} available · ${balance?.pending.toFixed(2)} pending
+              ${balance?.available.toFixed(2)} available
             </p>
           </motion.div>
 
@@ -616,7 +647,7 @@ export default function Dashboard() {
                       className="w-full bg-gradient-to-t from-rose-500 to-pink-400 rounded-t-lg min-h-[4px]"
                     />
                     <p className="text-xs text-gray-500 mt-2">{data.month}</p>
-                    <p className="text-xs font-bold text-gray-900">${data.amount}</p>
+                    <p className="text-xs font-bold text-gray-900">${data.amount.toFixed(2)}</p>
                   </div>
                 ))}
               </div>
@@ -717,16 +748,6 @@ export default function Dashboard() {
                 </button>
               </div>
             </div>
-
-            {!loadingBalance && balance?.pending > 0 && (
-              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
-                <Clock className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-bold text-amber-800">${balance.pending.toFixed(2)} pending</p>
-                  <p className="text-xs text-amber-600 mt-0.5">Earnings are held 3–5 days before becoming available for withdrawal.</p>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>

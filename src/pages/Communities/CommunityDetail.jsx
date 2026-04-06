@@ -19,7 +19,7 @@ import {
 import { uploadToBunny } from '../../services/bunnyUpload.service';
 import { getUserProfile } from '../../services/firestoreService';
 import { getWalletBalance, deductFromWallet } from '../../services/walletService';
-import { doc, updateDoc, setDoc, serverTimestamp, collection } from 'firebase/firestore';
+import { doc, updateDoc, setDoc, serverTimestamp, collection, increment } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 
 // ✅ Watermark component — same as PostModal
@@ -128,10 +128,11 @@ export default function CommunityDetail() {
 
       const earning = price * 0.85;
       const creatorBalRef = doc(db, 'creator_balances', community.creatorId);
+      const month = new Date().toLocaleString('default', { month: 'short' });
       try {
-        await updateDoc(creatorBalRef, { pendingBalance: earning, totalEarnings: earning, updatedAt: serverTimestamp() });
+        await updateDoc(creatorBalRef, { availableBalance: increment(earning), totalEarnings: increment(earning), [`monthlyEarnings.${month}`]: increment(earning), updatedAt: serverTimestamp() });
       } catch {
-        await setDoc(creatorBalRef, { creatorId: community.creatorId, availableBalance: 0, pendingBalance: earning, totalEarnings: earning, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        await setDoc(creatorBalRef, { creatorId: community.creatorId, availableBalance: earning, totalEarnings: earning, monthlyEarnings: { [month]: earning }, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
       }
 
       setIsMember(true);
@@ -560,9 +561,10 @@ function CommunityPostCard({ post, isOwner, communityCreatorId, canComment }) {
     if (!ts) return '';
     const d = ts.toDate ? ts.toDate() : new Date(ts);
     const diff = (Date.now() - d.getTime()) / 1000;
-    if (diff < 60) return 'just now';
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}min ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
     return d.toLocaleDateString();
   };
 

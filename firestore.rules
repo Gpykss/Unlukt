@@ -350,7 +350,7 @@ service cloud.firestore {
     match /creator_balances/{creatorId} {
       allow read: if isOwner(creatorId) || isAdmin();
       allow create: if isAuthenticated();
-      allow update: if isAdmin();
+      allow update: if isAuthenticated();
       allow delete: if isAdmin();
     }
 

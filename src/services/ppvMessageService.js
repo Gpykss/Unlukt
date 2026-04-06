@@ -79,19 +79,21 @@ export const unlockPPVMessage = async (conversationId, messageId, userId) => {
     // 3. ✅ Credit creator using increment() — no getDoc needed, avoids permission error
     const creatorEarning = message.unlockPrice * 0.80;
     const creatorBalRef = doc(db, 'creator_balances', message.senderId);
+    const month = new Date().toLocaleString('default', { month: 'short' });
     try {
       await updateDoc(creatorBalRef, {
-        pendingBalance: increment(creatorEarning),
+        availableBalance: increment(creatorEarning),
         totalEarnings: increment(creatorEarning),
+        [`monthlyEarnings.${month}`]: increment(creatorEarning),
         updatedAt: serverTimestamp(),
       });
     } catch {
       // Doc doesn't exist yet — create it
       await setDoc(creatorBalRef, {
         creatorId: message.senderId,
-        availableBalance: 0,
-        pendingBalance: creatorEarning,
+        availableBalance: creatorEarning,
         totalEarnings: creatorEarning,
+        monthlyEarnings: { [month]: creatorEarning },
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });

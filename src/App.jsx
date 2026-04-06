@@ -59,6 +59,7 @@ import NowPaymentsLogs from './pages/Admin/NowPaymentsLogs';
 import CryptoPayments from './pages/Admin/CryptoPayments';
 import NGNPayments from './pages/Admin/NGNPayments';
 import PlatformSettings from './pages/Admin/PlatformSettings';
+import AdminPayouts from './pages/Admin/Payouts';
 
 // Pages that should have NO navigation chrome
 const NO_NAV_PATHS = new Set([
@@ -153,6 +154,7 @@ function AppContent() {
           <Route path="/admin/crypto-payments" element={<AdminRoute><CryptoPayments /></AdminRoute>} />
           <Route path="/admin/ngn-payments" element={<AdminRoute><NGNPayments /></AdminRoute>} />
           <Route path="/admin/settings" element={<AdminRoute><PlatformSettings /></AdminRoute>} />
+          <Route path="/admin/payouts" element={<AdminRoute><AdminPayouts /></AdminRoute>} />
         </Routes>
       </div>
 

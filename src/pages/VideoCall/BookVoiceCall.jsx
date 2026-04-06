@@ -144,15 +144,15 @@ export default function BookVoiceCall() {
       const creatorBalRef = doc(db, 'creator_balances', creator.id);
       try {
         await updateDoc(creatorBalRef, {
-          pendingBalance: increment(creatorEarning),
+          availableBalance: increment(creatorEarning),
           totalEarnings: increment(creatorEarning),
           [`monthlyEarnings.${month}`]: increment(creatorEarning),
           updatedAt: serverTimestamp(),
         });
       } catch {
         await setDoc(creatorBalRef, {
-          creatorId: creator.id, availableBalance: 0,
-          pendingBalance: creatorEarning, totalEarnings: creatorEarning,
+          creatorId: creator.id, availableBalance: creatorEarning,
+          totalEarnings: creatorEarning,
           monthlyEarnings: { [month]: creatorEarning },
           createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
         });

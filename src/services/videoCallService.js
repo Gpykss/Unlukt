@@ -162,18 +162,19 @@ export const endVideoCall = async (bookingId, userId, reason = END_CALL_REASONS.
       // Release creator earnings
       if (!booking.creatorPaid && booking.creatorEarning) {
         const creatorBalRef = doc(db, 'creator_balances', booking.creatorId);
+        const month = new Date().toLocaleString('default', { month: 'short' });
         try {
           await updateDoc(creatorBalRef, {
-            pendingBalance: increment(-booking.creatorEarning),
             availableBalance: increment(booking.creatorEarning),
+            [`monthlyEarnings.${month}`]: increment(booking.creatorEarning),
             updatedAt: serverTimestamp(),
           });
         } catch {
           await setDoc(creatorBalRef, {
             creatorId: booking.creatorId,
             availableBalance: booking.creatorEarning,
-            pendingBalance: 0,
             totalEarnings: booking.creatorEarning,
+            monthlyEarnings: { [month]: booking.creatorEarning },
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           });
@@ -220,7 +221,7 @@ export const refundBooking = async (bookingId, bookingData) => {
       const creatorBalRef = doc(db, 'creator_balances', creatorId);
       try {
         await updateDoc(creatorBalRef, {
-          pendingBalance: increment(-creatorEarning),
+          availableBalance: increment(-creatorEarning),
           totalEarnings: increment(-creatorEarning),
           updatedAt: serverTimestamp(),
         });

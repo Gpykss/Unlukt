@@ -168,6 +168,17 @@ export default function Admin() {
       stat: null,
       statLabel: 'NGN Rate & Buffer'
     },
+    {
+      id: 'payouts',
+      title: 'Creator Payouts',
+      description: 'Manage creator withdrawal requests',
+      icon: DollarSign,
+      color: 'teal',
+      gradient: 'from-teal-500 to-cyan-500',
+      route: '/admin/payouts',
+      stat: 'View',
+      statLabel: 'Withdrawal Queue'
+    },
   ];
 
   return (

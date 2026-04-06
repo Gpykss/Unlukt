@@ -11,9 +11,9 @@ import { collection, addDoc, serverTimestamp, getDoc, doc } from 'firebase/fires
 import { uploadToBunny } from '../../services/bunnyUpload.service';
 
 // ── Config ──────────────────────────────────────────────────────────────────
-const BANK_NAME    = 'Opay';           // ← change to your bank
-const ACCOUNT_NAME = 'Unlukt Ltd';     // ← change to your account name
-const ACCOUNT_NO   = '8012345678';     // ← change to your account number
+const BANK_NAME    = 'Coming-Soon';           // ← change to your bank
+const ACCOUNT_NAME = 'Coming-Soon';     // ← change to your account name
+const ACCOUNT_NO   = 'Coming-Soon';     // ← change to your account number
 const NGN_BUFFER   = 25;              // ← default buffer (overridden by Firestore)
 const NGN_FALLBACK = 1550;            // ← fallback base rate if Firestore not set
 
