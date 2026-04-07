@@ -106,10 +106,7 @@ export default function TermsAndConditions() {
                 </ul>
               </div>
 
-              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">Referral Program</h3>
-              <p className="text-gray-700 leading-relaxed mb-4">
-                Referrers earn <strong>5% of a referred Creator's gross earnings</strong> for the <strong>first 4 months</strong> after the Creator joins the platform.
-              </p>
+
 
               <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">Payments</h3>
               <p className="text-gray-700 leading-relaxed mb-4">
@@ -331,9 +328,7 @@ export default function TermsAndConditions() {
               <p className="text-gray-700">
                 <strong>Compliance:</strong> <a href="mailto:compliance@unlukt.com" className="text-rose-500 hover:text-rose-600">compliance@unlukt.com</a>
               </p>
-              <p className="text-gray-700">
-                <strong>Address:</strong> Port Harcourt, Rivers State, Nigeria
-              </p>
+
             </div>
           </div>
 

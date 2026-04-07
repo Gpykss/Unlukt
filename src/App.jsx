@@ -37,6 +37,7 @@ import BecomeCreator from './pages/CreatorProfile/BecomeCreator';
 import TermsAndConditions from './pages/Legal/TermsAndConditions';
 import PrivacyPolicy from './pages/Legal/PrivacyPolicy';
 import HelpCenter from './pages/Legal/HelpCenter';
+import AboutUs from './pages/Legal/AboutUs';
 import Communities from './pages/Communities/Communities';
 import CommunityDetail from './pages/Communities/CommunityDetail';
 import CreateCommunity from './pages/Communities/CreateCommunity';
@@ -64,7 +65,7 @@ import AdminPayouts from './pages/Admin/Payouts';
 // Pages that should have NO navigation chrome
 const NO_NAV_PATHS = new Set([
   '/', '/login', '/register', '/verify-email', '/complete-profile',
-  '/legal/privacy', '/legal/terms', '/help',
+  '/legal/privacy', '/legal/terms', '/help', '/about',
 ]);
 
 function AppContent() {
@@ -109,6 +110,7 @@ function AppContent() {
           <Route path="/legal/terms" element={<TermsAndConditions />} />
           <Route path="/legal/privacy" element={<PrivacyPolicy />} />
           <Route path="/help" element={<HelpCenter />} />
+          <Route path="/about" element={<AboutUs />} />
           <Route path="/support" element={<Support />} />
 
           {/* Auth required but no email verification */}

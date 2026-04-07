@@ -63,12 +63,7 @@ export default function HelpCenter() {
       question: 'How much do Creators earn?',
       answer: 'Creators receive 80% of gross revenue from subscriptions, tips, and pay-per-view content. unlukt retains 20% for platform operations and security.'
     },
-    {
-      id: 5,
-      category: 'payments',
-      question: 'How does the referral program work?',
-      answer: 'Referrers earn 5% of a referred Creator\'s gross earnings for the first 4 months after they join. This is in addition to the Creator\'s 80% share.'
-    },
+
     {
       id: 6,
       category: 'payments',

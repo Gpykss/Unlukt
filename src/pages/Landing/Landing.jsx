@@ -24,41 +24,41 @@ export default function Landing() {
   ];
 
   const featuredCreators = [
-    { 
-      id: 1, 
-      name: 'Sophia Styles', 
-      username: '@sophia.styles', 
-      price: '$9.99', 
+    {
+      id: 1,
+      name: 'Sophia Styles',
+      username: '@sophia.styles',
+      price: '$9.99',
       subscribers: '2.5K',
       posts: 145,
       image: '🎨',
       verified: true
     },
-    { 
-      id: 2, 
-      name: 'Noah Grant', 
-      username: '@noah.grant', 
-      price: '$14.99', 
+    {
+      id: 2,
+      name: 'Noah Grant',
+      username: '@noah.grant',
+      price: '$14.99',
       subscribers: '5.2K',
       posts: 289,
       image: '📸',
       verified: true
     },
-    { 
-      id: 3, 
-      name: 'Olivia Pierce', 
-      username: '@liv.pierce', 
-      price: '$12.99', 
+    {
+      id: 3,
+      name: 'Olivia Pierce',
+      username: '@liv.pierce',
+      price: '$12.99',
       subscribers: '3.8K',
       posts: 198,
       image: '💃',
       verified: true
     },
-    { 
-      id: 4, 
-      name: 'Liam Hart', 
-      username: '@liam.hart', 
-      price: '$19.99', 
+    {
+      id: 4,
+      name: 'Liam Hart',
+      username: '@liam.hart',
+      price: '$19.99',
       subscribers: '8.1K',
       posts: 367,
       image: '🎵',
@@ -87,7 +87,7 @@ export default function Landing() {
       <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 sm:h-20">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               className="flex items-center cursor-pointer"
@@ -101,13 +101,13 @@ export default function Landing() {
             </motion.div>
 
             <div className="hidden md:flex items-center space-x-10">
-              <button 
+              <button
                 onClick={() => scrollToSection('featured')}
                 className="text-gray-700 hover:text-red-500 font-medium transition-colors"
               >
                 Features
               </button>
-              <button 
+              <button
                 onClick={() => scrollToSection('trending')}
                 className="text-gray-700 hover:text-red-500 font-medium transition-colors"
               >
@@ -115,18 +115,18 @@ export default function Landing() {
               </button>
             </div>
 
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               className="flex items-center space-x-2 sm:space-x-4"
             >
-              <button 
+              <button
                 onClick={() => navigate('/login')}
                 className="text-gray-700 hover:text-gray-900 font-semibold transition-colors px-2 sm:px-4 text-sm sm:text-base"
               >
                 Login
               </button>
-              <button 
+              <button
                 onClick={() => navigate('/register')}
                 className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl font-semibold transition-all shadow-lg shadow-red-200 hover:shadow-xl text-sm sm:text-base"
               >
@@ -160,10 +160,10 @@ export default function Landing() {
             >
               <div className="flex items-center justify-center mb-2">
                 <span className="text-gray-900 tracking-tight">Unl</span>
-                <LockKeyhole 
-                  className="w-8 h-8 sm:w-12 sm:h-12 md:w-16 md:h-16 lg:w-24 lg:h-24 text-red-600 mx-1 sm:mx-2" 
-                  strokeWidth={1.8} 
-                  fill="none" 
+                <LockKeyhole
+                  className="w-8 h-8 sm:w-12 sm:h-12 md:w-16 md:h-16 lg:w-24 lg:h-24 text-red-600 mx-1 sm:mx-2"
+                  strokeWidth={1.8}
+                  fill="none"
                 />
                 <span className="text-gray-900 tracking-tight">kt</span>
               </div>
@@ -189,9 +189,9 @@ export default function Landing() {
               className="flex flex-col items-center space-y-4 sm:space-y-6 mb-8 sm:mb-12"
             >
               <div className="flex items-center space-x-3">
-                <input 
-                  type="checkbox" 
-                  id="age-confirm" 
+                <input
+                  type="checkbox"
+                  id="age-confirm"
                   className="w-4 h-4 sm:w-5 sm:h-5 text-red-500 border-gray-300 rounded focus:ring-red-500 focus:ring-2"
                 />
                 <label htmlFor="age-confirm" className="text-sm sm:text-base text-gray-700 font-medium">
@@ -199,7 +199,7 @@ export default function Landing() {
                 </label>
               </div>
 
-              <button 
+              <button
                 onClick={() => navigate('/register')}
                 className="group bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white px-8 sm:px-10 py-4 sm:py-5 rounded-2xl text-base sm:text-lg font-bold transition-all shadow-2xl shadow-red-300 hover:shadow-red-400 hover:scale-105"
               >
@@ -211,14 +211,14 @@ export default function Landing() {
             </motion.div>
 
             {/* ✅ MOBILE RESPONSIVE STATS CAROUSEL */}
-            <motion.div
+            {/* <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.4 }}
               className="px-4"
-            >
-              {/* Desktop: 3 columns */}
-              <div className="hidden sm:flex items-center justify-center space-x-8 md:space-x-12">
+            > */}
+            {/* Desktop: 3 columns */}
+            {/* <div className="hidden sm:flex items-center justify-center space-x-8 md:space-x-12">
                 <div className="text-center">
                   <p className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-500 to-red-600 bg-clip-text text-transparent">2.5M+</p>
                   <p className="text-xs md:text-sm text-gray-600 font-medium mt-1">Active Creators</p>
@@ -233,10 +233,10 @@ export default function Landing() {
                   <p className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-500 to-red-600 bg-clip-text text-transparent">150+</p>
                   <p className="text-xs md:text-sm text-gray-600 font-medium mt-1">Countries</p>
                 </div>
-              </div>
+              </div> */}
 
-              {/* Mobile: Swiper Carousel */}
-              <div className="sm:hidden">
+            {/* Mobile: Swiper Carousel */}
+            {/* <div className="sm:hidden">
                 <Swiper
                   modules={[Autoplay]}
                   spaceBetween={20}
@@ -263,8 +263,8 @@ export default function Landing() {
                     </div>
                   </SwiperSlide>
                 </Swiper>
-              </div>
-            </motion.div>
+              </div> */}
+            {/* </motion.div> */}
           </div>
         </div>
       </section>
@@ -305,8 +305,8 @@ export default function Landing() {
               slidesPerView={2.2}
               loop={true}
               speed={3000}
-              autoplay={{ 
-                delay: 0, 
+              autoplay={{
+                delay: 0,
                 disableOnInteraction: false,
                 pauseOnMouseEnter: true
               }}
@@ -318,7 +318,7 @@ export default function Landing() {
             >
               {[...trendingCreators, ...trendingCreators].map((creator, idx) => (
                 <SwiperSlide key={`${creator.id}-${idx}`}>
-                  <div 
+                  <div
                     onClick={() => currentUser ? navigate('/feed') : navigate('/register')}
                     className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-4 sm:p-6 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all cursor-pointer h-48"
                   >
@@ -352,7 +352,7 @@ export default function Landing() {
               <div className="bg-white rounded-3xl overflow-hidden border-2 border-red-200 shadow-2xl hover:shadow-red-300 transition-all">
                 <div className="relative aspect-square bg-gradient-to-br from-red-100 via-red-50 to-orange-50 flex items-center justify-center overflow-hidden">
                   <span className="text-9xl">{featuredCreators[currentCreatorIndex].image}</span>
-                  
+
                   <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg border border-gray-100">
                     <p className="text-sm font-bold text-red-500">{featuredCreators[currentCreatorIndex].price}/mo</p>
                   </div>
@@ -385,7 +385,7 @@ export default function Landing() {
                     </div>
                   </div>
 
-                  <button className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white py-3.5 rounded-xl font-semibold transition-all shadow-lg shadow-red-200 hover:shadow-xl hover:scale-105">
+                  <button onClick={() => currentUser ? navigate('/feed') : navigate('/register')} className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white py-3.5 rounded-xl font-semibold transition-all shadow-lg shadow-red-200 hover:shadow-xl hover:scale-105">
                     Subscribe Now
                   </button>
                 </div>
@@ -397,11 +397,10 @@ export default function Landing() {
                   <button
                     key={idx}
                     onClick={() => setCurrentCreatorIndex(idx)}
-                    className={`w-2 h-2 rounded-full transition-all ${
-                      idx === currentCreatorIndex 
-                        ? 'bg-red-500 w-8' 
-                        : 'bg-gray-300 hover:bg-gray-400'
-                    }`}
+                    className={`w-2 h-2 rounded-full transition-all ${idx === currentCreatorIndex
+                      ? 'bg-red-500 w-8'
+                      : 'bg-gray-300 hover:bg-gray-400'
+                      }`}
                   />
                 ))}
               </div>
@@ -430,9 +429,7 @@ export default function Landing() {
             <div>
               <h4 className="font-bold text-gray-900 mb-4 text-sm sm:text-base">Company</h4>
               <ul className="space-y-3 text-xs sm:text-sm text-gray-600">
-                <li><a href="#" className="hover:text-red-500 transition-colors">About Us</a></li>
-                <li><a href="#" className="hover:text-red-500 transition-colors">Careers</a></li>
-                <li><a href="#" className="hover:text-red-500 transition-colors">Press Kit</a></li>
+                <li><a href="/about" className="hover:text-red-500 transition-colors">About Us</a></li>
               </ul>
             </div>
 

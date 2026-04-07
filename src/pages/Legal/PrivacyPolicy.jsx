@@ -212,9 +212,7 @@ export default function PrivacyPolicy() {
               <p className="text-gray-700">
                 <strong>Compliance:</strong> <a href="mailto:compliance@unlukt.com" className="text-blue-500 hover:text-blue-600">compliance@unlukt.com</a>
               </p>
-              <p className="text-gray-700">
-                <strong>Address:</strong> Port Harcourt, Rivers State, Nigeria
-              </p>
+
             </div>
           </div>
 

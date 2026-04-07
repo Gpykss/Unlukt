@@ -577,12 +577,12 @@ export default function Dashboard() {
                 <DollarSign className="w-5 h-5 sm:w-6 sm:h-6 text-rose-500" />
               </div>
             </div>
-            <p className="text-gray-600 text-xs sm:text-sm mb-1">Total Earnings</p>
+            <p className="text-gray-600 text-xs sm:text-sm mb-1">Available Balance</p>
             {loadingBalance
               ? <div className="h-8 bg-gray-200 rounded animate-pulse" />
-              : <p className="text-2xl sm:text-3xl font-bold text-gray-900">${balance?.total.toFixed(2)}</p>}
+              : <p className="text-2xl sm:text-3xl font-bold text-gray-900">${balance?.available.toFixed(2)}</p>}
             <p className="text-gray-500 text-xs mt-1">
-              ${balance?.available.toFixed(2)} available
+              ${balance?.total.toFixed(2)} lifetime earnings
             </p>
           </motion.div>
 
@@ -637,17 +637,11 @@ export default function Dashboard() {
                 <h2 className="text-lg font-bold text-gray-900">Revenue Overview</h2>
                 <span className="text-xs text-gray-400">Last 5 months</span>
               </div>
-              <div className="flex items-end justify-between h-48 space-x-3">
-                {earningsData.map((data, i) => (
-                  <div key={i} className="flex-1 flex flex-col items-center">
-                    <motion.div
-                      initial={{ height: 0 }}
-                      animate={{ height: `${(data.amount / maxEarning) * 100}%` }}
-                      transition={{ delay: i * 0.1, duration: 0.5 }}
-                      className="w-full bg-gradient-to-t from-rose-500 to-pink-400 rounded-t-lg min-h-[4px]"
-                    />
-                    <p className="text-xs text-gray-500 mt-2">{data.month}</p>
-                    <p className="text-xs font-bold text-gray-900">${data.amount.toFixed(2)}</p>
+              <div className="space-y-3">
+                {earningsData.slice().reverse().map((data, i) => (
+                  <div key={i} className="flex items-center justify-between p-3 border border-gray-100 bg-gray-50 rounded-xl hover:bg-gray-100 transition">
+                    <span className="font-semibold text-gray-600">{data.month}</span>
+                    <span className="font-bold text-gray-900">${data.amount.toFixed(2)}</span>
                   </div>
                 ))}
               </div>
