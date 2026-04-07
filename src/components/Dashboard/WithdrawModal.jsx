@@ -57,13 +57,21 @@ export default function WithdrawModal({ isOpen, onClose }) {
       const snap = await getDocs(
         query(
           collection(db, 'payout_requests'),
-          where('creatorId', '==', currentUser.uid),
-          orderBy('createdAt', 'desc')
+          where('creatorId', '==', currentUser.uid)
         )
       );
-      setHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Sort locally to avoid requiring composite index
+      data.sort((a, b) => {
+        const ta = a.createdAt?.toDate?.() || new Date(0);
+        const tb = b.createdAt?.toDate?.() || new Date(0);
+        return tb - ta;
+      });
+      
+      setHistory(data);
     } catch (e) {
-      console.error(e);
+      console.error('History error:', e);
     } finally {
       setLoadingHistory(false);
     }
