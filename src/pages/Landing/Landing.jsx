@@ -9,59 +9,78 @@ import { Autoplay } from 'swiper/modules';
 import 'swiper/css';
 import { useAuth } from '../../hooks/useAuth';
 
+// Import real creator images
+import feroniaImg1 from '../../assets/images/creators/Feronia Morris/sugarlab-26255.png';
+import feroniaImg2 from '../../assets/images/creators/Feronia Morris/sugarlab-43716.png';
+import lisaraImg from '../../assets/images/creators/Lisara Cook/sugarlab-61119.png';
+import claireImg1 from '../../assets/images/creators/claire/sugarlab-27463.png';
+import claireImg2 from '../../assets/images/creators/claire/sugarlab-90617.png';
+import jojoImg from '../../assets/images/creators/jojo/sugarlab-75371.png';
+import ogechiImg from '../../assets/images/creators/ogechi/sugarlab-33971.png';
+
 export default function Landing() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const [currentCreatorIndex, setCurrentCreatorIndex] = useState(0);
 
   const trendingCreators = [
-    { id: 1, name: 'Sarah', avatar: '👩', role: 'Model' },
-    { id: 2, name: 'Alex', avatar: '👨', role: 'Fitness' },
-    { id: 3, name: 'Emma', avatar: '👱‍♀️', role: 'Artist' },
-    { id: 4, name: 'Mike', avatar: '🧔', role: 'Chef' },
-    { id: 5, name: 'Lisa', avatar: '👩‍🦰', role: 'Dancer' },
-    { id: 6, name: 'Chris', avatar: '👨‍🦱', role: 'Musician' },
+    { id: 1, name: 'Feronia Morris', avatar: feroniaImg1, role: 'Influencer' },
+    { id: 2, name: 'Lisara Cook', avatar: lisaraImg, role: 'Influencer' },
+    { id: 3, name: 'Claire', avatar: claireImg1, role: 'Influencer' },
+    { id: 4, name: 'Jojo', avatar: jojoImg, role: 'Influencer' },
+    { id: 5, name: 'Ogechi', avatar: ogechiImg, role: 'Influencer' },
+    { id: 6, name: 'Feronia', avatar: feroniaImg2, role: 'Influencer' },
   ];
 
   const featuredCreators = [
     {
       id: 1,
-      name: 'Sophia Styles',
-      username: '@sophia.styles',
+      name: 'Feronia Morris',
+      username: '@feronia.morris',
       price: '$9.99',
       subscribers: '2.5K',
       posts: 145,
-      image: '🎨',
+      image: feroniaImg1,
       verified: true
     },
     {
       id: 2,
-      name: 'Noah Grant',
-      username: '@noah.grant',
+      name: 'Lisara Cook',
+      username: '@lisara.cook',
       price: '$14.99',
       subscribers: '5.2K',
       posts: 289,
-      image: '📸',
+      image: lisaraImg,
       verified: true
     },
     {
       id: 3,
-      name: 'Olivia Pierce',
-      username: '@liv.pierce',
+      name: 'Claire',
+      username: '@claire',
       price: '$12.99',
       subscribers: '3.8K',
       posts: 198,
-      image: '💃',
+      image: claireImg2,
       verified: true
     },
     {
       id: 4,
-      name: 'Liam Hart',
-      username: '@liam.hart',
+      name: 'Jojo',
+      username: '@jojo',
       price: '$19.99',
       subscribers: '8.1K',
       posts: 367,
-      image: '🎵',
+      image: jojoImg,
+      verified: true
+    },
+    {
+      id: 5,
+      name: 'Ogechi',
+      username: '@ogechi',
+      price: '$11.99',
+      subscribers: '4.3K',
+      posts: 231,
+      image: ogechiImg,
       verified: true
     },
   ];
@@ -139,7 +158,7 @@ export default function Landing() {
 
       {/* Hero Section */}
       <section className="relative overflow-hidden">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-16 lg:py-24">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:py-6 sm:py-8 lg:py-12">
           <div className="text-center">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -288,10 +307,12 @@ export default function Landing() {
                 onClick={() => currentUser ? navigate('/feed') : navigate('/register')}
                 className="group cursor-pointer"
               >
-                <div className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-6 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all h-44">
-                  <div className="text-6xl mb-4 text-center group-hover:scale-110 transition-transform">{creator.avatar}</div>
-                  <h3 className="font-bold text-gray-900 text-center mb-1">{creator.name}</h3>
-                  <p className="text-sm text-gray-500 text-center">{creator.role}</p>
+                <div className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-4 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all h-52 flex flex-col items-center justify-center">
+                  <div className="w-20 h-20 rounded-full overflow-hidden mb-3 border-2 border-red-200 group-hover:scale-110 transition-transform shadow-md">
+                    <img src={creator.avatar} alt={creator.name} className="w-full h-full object-cover" />
+                  </div>
+                  <h3 className="font-bold text-gray-900 text-center mb-1 text-sm">{creator.name}</h3>
+                  <p className="text-xs text-gray-500 text-center">{creator.role}</p>
                 </div>
               </motion.div>
             ))}
@@ -320,9 +341,11 @@ export default function Landing() {
                 <SwiperSlide key={`${creator.id}-${idx}`}>
                   <div
                     onClick={() => currentUser ? navigate('/feed') : navigate('/register')}
-                    className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-4 sm:p-6 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all cursor-pointer h-48"
+                    className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-4 sm:p-6 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all cursor-pointer h-52 flex flex-col items-center justify-center"
                   >
-                    <div className="text-5xl sm:text-6xl mb-3 sm:mb-4 text-center">{creator.avatar}</div>
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden mb-3 border-2 border-red-200 shadow-md">
+                      <img src={creator.avatar} alt={creator.name} className="w-full h-full object-cover" />
+                    </div>
                     <h3 className="font-bold text-gray-900 text-center mb-1 text-sm sm:text-base">{creator.name}</h3>
                     <p className="text-xs sm:text-sm text-gray-500 text-center">{creator.role}</p>
                   </div>
@@ -351,7 +374,7 @@ export default function Landing() {
             >
               <div className="bg-white rounded-3xl overflow-hidden border-2 border-red-200 shadow-2xl hover:shadow-red-300 transition-all">
                 <div className="relative aspect-square bg-gradient-to-br from-red-100 via-red-50 to-orange-50 flex items-center justify-center overflow-hidden">
-                  <span className="text-9xl">{featuredCreators[currentCreatorIndex].image}</span>
+                  <img src={featuredCreators[currentCreatorIndex].image} alt={featuredCreators[currentCreatorIndex].name} className="w-full h-full object-cover" />
 
                   <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg border border-gray-100">
                     <p className="text-sm font-bold text-red-500">{featuredCreators[currentCreatorIndex].price}/mo</p>
@@ -421,9 +444,22 @@ export default function Landing() {
                   kt
                 </span>
               </div>
-              <p className="text-gray-600 text-sm leading-relaxed">
+              <p className="text-gray-600 text-sm leading-relaxed mb-4">
                 Premium content platform empowering creators worldwide.
               </p>
+              <div className="flex items-center space-x-3">
+                <a
+                  href="https://x.com/unlokt"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-9 h-9 bg-gray-100 hover:bg-gray-900 rounded-full flex items-center justify-center transition-all group"
+                  aria-label="Follow us on X (Twitter)"
+                >
+                  <svg className="w-4 h-4 text-gray-600 group-hover:text-white transition-colors" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                  </svg>
+                </a>
+              </div>
             </div>
 
             <div>
