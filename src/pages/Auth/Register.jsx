@@ -6,14 +6,19 @@ import { Eye, EyeOff, Loader2, Mail, Lock, Phone, Check, X, LockKeyhole, Sparkle
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 
+// Import real creator images
+import feroniaImg from '../../assets/images/creators/Feronia Morris/sugarlab-26255.png';
+import lisaraImg from '../../assets/images/creators/Lisara Cook/sugarlab-61119.png';
+import claireImg from '../../assets/images/creators/claire/sugarlab-90617.png';
+
 // Animated Floating Creator Card Component
 function AnimatedCreatorCard() {
   const [currentIndex, setCurrentIndex] = useState(0);
 
   const creators = [
-    { emoji: '👩', name: 'Sarah M', role: 'Model', earnings: '$12.5K/mo', fans: '3.2K' },
-    { emoji: '🧔', name: 'Mike D', role: 'Fitness', earnings: '$8.9K/mo', fans: '2.1K' },
-    { emoji: '👱‍♀️', name: 'Emma L', role: 'Artist', earnings: '$15.2K/mo', fans: '4.8K' },
+    { image: feroniaImg, name: 'Feronia M', role: 'Influencer', earnings: '$12.5K/mo', fans: '3.2K' },
+    { image: lisaraImg, name: 'Lisara C', role: 'Influencer', earnings: '$8.9K/mo', fans: '2.1K' },
+    { image: claireImg, name: 'Claire', role: 'Influencer', earnings: '$15.2K/mo', fans: '4.8K' },
   ];
 
   useEffect(() => {
@@ -59,14 +64,12 @@ function AnimatedCreatorCard() {
             </motion.div>
           </div>
 
-          <div className="aspect-[3/4] bg-gradient-to-br from-red-100 via-red-50 to-orange-100 rounded-2xl mb-4 flex items-center justify-center overflow-hidden relative">
-            <motion.span
-              animate={{ scale: [1, 1.05, 1] }}
-              transition={{ duration: 2, repeat: Infinity }}
-              className="text-9xl"
-            >
-              {creators[currentIndex].emoji}
-            </motion.span>
+          <div className="aspect-[3/4] bg-gradient-to-br from-red-100 via-red-50 to-orange-100 rounded-2xl mb-4 overflow-hidden relative">
+            <img
+              src={creators[currentIndex].image}
+              alt={creators[currentIndex].name}
+              className="w-full h-full object-cover"
+            />
           </div>
 
           <div className="text-center mb-4">
