@@ -9,8 +9,7 @@ import {
   GoogleAuthProvider,
   TwitterAuthProvider,
   FacebookAuthProvider,
-  signInWithRedirect,
-  getRedirectResult
+  signInWithPopup
 } from 'firebase/auth';
 import { auth } from '../config/firebase';
 import { createUserProfile, getUserProfile } from '../services/firestoreService';
@@ -22,96 +21,6 @@ export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  // Handle redirect result when app mounts (Google/Twitter/Facebook login)
-  useEffect(() => {
-    const handleRedirectResult = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-
-        // No redirect result — user just opened the app normally
-        if (!result) return;
-
-        const user = result.user;
-
-        // ✅ Fetch all available data from the provider
-        const uid = user.uid;
-        const displayName = user.displayName || '';
-        const photoURL = user.photoURL || '';
-        const providerData = user.providerData?.[0] || {};
-        const providerName = providerData.providerId || '';
-
-        // ⚠️ Twitter often returns null email — we handle this below
-        const email = user.email || providerData.email || null;
-
-        console.log('Social auth success:', { uid, email, displayName, providerName });
-
-        // ✅ Check if user already exists in Firestore
-        const existingProfile = await getUserProfile(uid);
-
-        if (!existingProfile) {
-          // 🆕 Brand new user — save whatever data we have from provider
-          await createUserProfile(uid, {
-            email: email || '',          // may be empty for Twitter — filled in on complete-profile
-            displayName: displayName || '',
-            avatar: photoURL || '',
-            phoneNumber: '',
-            profileCompleted: false,
-            emailVerified: email ? true : false,  // Google email is verified, Twitter may not have one
-            provider: providerName,
-            needsEmail: !email,          // flag so complete-profile knows to ask for email
-            createdAt: new Date().toISOString(),
-          });
-
-          // Send welcome + verification email if we have their email
-          if (email) {
-            await sendWelcomeEmailForSocialUser(uid, email, displayName);
-          }
-
-          // New user always goes to complete-profile
-          window.location.href = '/complete-profile';
-
-        } else {
-          // 👤 Existing user
-
-          // If we now have an email but didn't before, update it
-          if (email && !existingProfile.email) {
-            const { doc, updateDoc } = await import('firebase/firestore');
-            const { db } = await import('../config/firebase');
-            await updateDoc(doc(db, 'users', uid), {
-              email,
-              emailVerified: true,
-              needsEmail: false,
-            });
-          }
-
-          if (!existingProfile.profileCompleted) {
-            window.location.href = '/complete-profile';
-          } else {
-            window.location.href = '/feed';
-          }
-        }
-
-      } catch (error) {
-        console.error('Redirect login error:', error);
-
-        // User cancelled — just stay on the page
-        if (
-          error.code === 'auth/popup-closed-by-user' ||
-          error.code === 'auth/cancelled-popup-request' ||
-          error.code === 'auth/user-cancelled'
-        ) {
-          console.log('User cancelled social login');
-          return;
-        }
-
-        // Other errors — go back to register
-        window.location.href = '/register?error=social_auth_failed';
-      }
-    };
-
-    handleRedirectResult();
-  }, []);
 
   // Helper: send welcome email for social users via Firebase Function
   const sendWelcomeEmailForSocialUser = async (uid, email, displayName) => {
@@ -184,29 +93,79 @@ export function AuthProvider({ children }) {
     return signOut(auth);
   };
 
+  // ✅ Helper: process social auth result (shared by Google/Twitter/Facebook)
+  const handleSocialAuthResult = async (result) => {
+    const user = result.user;
+    const uid = user.uid;
+    const displayName = user.displayName || '';
+    const photoURL = user.photoURL || '';
+    const providerData = user.providerData?.[0] || {};
+    const providerName = providerData.providerId || '';
+    const email = user.email || providerData.email || null;
+
+    console.log('Social auth success:', { uid, email, displayName, providerName });
+
+    // Check if user already exists in Firestore
+    const existingProfile = await getUserProfile(uid);
+
+    if (!existingProfile) {
+      // New user — create profile
+      await createUserProfile(uid, {
+        email: email || '',
+        displayName: displayName || '',
+        avatar: photoURL || '',
+        phoneNumber: '',
+        profileCompleted: false,
+        emailVerified: email ? true : false,
+        provider: providerName,
+        needsEmail: !email,
+        createdAt: new Date().toISOString(),
+      });
+
+      if (email) {
+        await sendWelcomeEmailForSocialUser(uid, email, displayName);
+      }
+
+      return { isNew: true, profileCompleted: false };
+    } else {
+      // Existing user — update email if newly available
+      if (email && !existingProfile.email) {
+        const { doc, updateDoc } = await import('firebase/firestore');
+        const { db } = await import('../config/firebase');
+        await updateDoc(doc(db, 'users', uid), {
+          email,
+          emailVerified: true,
+          needsEmail: false,
+        });
+      }
+
+      return { isNew: false, profileCompleted: !!existingProfile.profileCompleted };
+    }
+  };
+
   const signInWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
     provider.addScope('email');
     provider.addScope('profile');
-    // ✅ Force account selection — prevents auto-login with cached session
     provider.setCustomParameters({ prompt: 'select_account' });
-    return signInWithRedirect(auth, provider);
+    // ✅ Using signInWithPopup — returns result directly, no redirect issues
+    const result = await signInWithPopup(auth, provider);
+    return await handleSocialAuthResult(result);
   };
 
   const signInWithTwitter = async () => {
     const provider = new TwitterAuthProvider();
-    // ✅ Firebase uses OAuth 1.0a for Twitter — no extra scopes needed
-    // Twitter will show its own login/authorization screen
-    // force_login=true ensures Twitter always shows the login page
     provider.setCustomParameters({ force_login: 'true' });
-    return signInWithRedirect(auth, provider);
+    const result = await signInWithPopup(auth, provider);
+    return await handleSocialAuthResult(result);
   };
 
   const signInWithFacebook = async () => {
     const provider = new FacebookAuthProvider();
     provider.addScope('email');
     provider.addScope('public_profile');
-    return signInWithRedirect(auth, provider);
+    const result = await signInWithPopup(auth, provider);
+    return await handleSocialAuthResult(result);
   };
 
   const resendVerificationEmail = async () => {
@@ -270,17 +229,23 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (currentUser && !loading) {
-      updateUserOnlineStatus(currentUser.uid, true);
+      // Safe wrapper — silently catches errors if user was signed out mid-update
+      const safeUpdateStatus = (uid, isOnline) => {
+        if (!auth.currentUser) return; // user was signed out
+        updateUserOnlineStatus(uid, isOnline).catch(() => {});
+      };
+
+      safeUpdateStatus(currentUser.uid, true);
 
       const handleBeforeUnload = () => {
-        updateUserOnlineStatus(currentUser.uid, false);
+        safeUpdateStatus(currentUser.uid, false);
       };
 
       const handleVisibilityChange = () => {
         if (document.hidden) {
-          updateUserOnlineStatus(currentUser.uid, false);
+          safeUpdateStatus(currentUser.uid, false);
         } else {
-          updateUserOnlineStatus(currentUser.uid, true);
+          safeUpdateStatus(currentUser.uid, true);
         }
       };
 
@@ -290,7 +255,7 @@ export function AuthProvider({ children }) {
       return () => {
         window.removeEventListener('beforeunload', handleBeforeUnload);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
-        updateUserOnlineStatus(currentUser.uid, false);
+        safeUpdateStatus(currentUser.uid, false);
       };
     }
   }, [currentUser, loading]);

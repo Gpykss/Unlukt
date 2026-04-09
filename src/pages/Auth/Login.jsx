@@ -160,10 +160,18 @@ export default function Login() {
     setIsLoading(true);
     
     try {
-      // ✅ signInWithRedirect() redirects the browser — result handled by AuthContext
-      await signInWithGoogle();
+      const result = await signInWithGoogle();
+      if (!result.profileCompleted) {
+        navigate('/complete-profile');
+      } else {
+        navigate('/feed');
+      }
     } catch (err) {
       console.error('Google login error:', err);
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+        setIsLoading(false);
+        return;
+      }
       setError(err.message || 'Failed to login with Google. Please try again.');
       setIsLoading(false);
     }
@@ -174,10 +182,18 @@ export default function Login() {
     setIsLoading(true);
     
     try {
-      // ✅ signInWithRedirect() redirects the browser — result handled by AuthContext
-      await signInWithTwitter();
+      const result = await signInWithTwitter();
+      if (!result.profileCompleted) {
+        navigate('/complete-profile');
+      } else {
+        navigate('/feed');
+      }
     } catch (err) {
       console.error('Twitter login error:', err);
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+        setIsLoading(false);
+        return;
+      }
       setError(err.message || 'Failed to login with Twitter. Please try again.');
       setIsLoading(false);
     }
@@ -188,10 +204,18 @@ export default function Login() {
     setIsLoading(true);
     
     try {
-      // ✅ signInWithRedirect() redirects the browser — result handled by AuthContext
-      await signInWithFacebook();
+      const result = await signInWithFacebook();
+      if (!result.profileCompleted) {
+        navigate('/complete-profile');
+      } else {
+        navigate('/feed');
+      }
     } catch (err) {
       console.error('Facebook login error:', err);
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+        setIsLoading(false);
+        return;
+      }
       setError(err.message || 'Failed to login with Facebook. Please try again.');
       setIsLoading(false);
     }

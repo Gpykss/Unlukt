@@ -140,6 +140,18 @@ export default function Register() {
   const [error, setError] = useState('');
   const [showVerificationMessage, setShowVerificationMessage] = useState(false);
 
+  // ✅ Pick up social auth errors from URL (redirected from AuthContext)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('error') === 'social_auth_failed') {
+      const code = params.get('code') || 'unknown';
+      const msg = params.get('msg') || 'Social login failed. Please try again.';
+      setError(`Social login failed [${code}]: ${msg}`);
+      // Clean the URL
+      window.history.replaceState({}, '', '/register');
+    }
+  }, []);
+
   const getPasswordStrength = (password) => {
     if (password.length === 0) return { strength: 0, label: '', color: '' };
     if (password.length < 6) return { strength: 1, label: 'Weak', color: 'bg-red-500' };
@@ -223,11 +235,20 @@ export default function Register() {
     setIsLoading(true);
 
     try {
-      // ✅ signInWithRedirect() redirects the browser — it never returns here
-      // The result is handled by getRedirectResult() in AuthContext
-      await signInWithTwitter();
+      const result = await signInWithTwitter();
+      // Navigate based on profile status
+      if (!result.profileCompleted) {
+        navigate('/complete-profile');
+      } else {
+        navigate('/feed');
+      }
     } catch (err) {
       console.error('Twitter signup error:', err);
+      // Don't show error if user just closed the popup
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+        setIsLoading(false);
+        return;
+      }
       setError(err.message || 'Failed to sign up with Twitter. Please try again.');
       setIsLoading(false);
     }
@@ -238,11 +259,18 @@ export default function Register() {
     setIsLoading(true);
 
     try {
-      // ✅ signInWithRedirect() redirects the browser — it never returns here
-      // The result is handled by getRedirectResult() in AuthContext
-      await signInWithGoogle();
+      const result = await signInWithGoogle();
+      if (!result.profileCompleted) {
+        navigate('/complete-profile');
+      } else {
+        navigate('/feed');
+      }
     } catch (err) {
       console.error('Google signup error:', err);
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+        setIsLoading(false);
+        return;
+      }
       setError(err.message || 'Failed to sign up with Google. Please try again.');
       setIsLoading(false);
     }
