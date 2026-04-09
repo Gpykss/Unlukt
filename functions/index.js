@@ -514,6 +514,7 @@ exports.sendCustomVerification = onRequest(
   {
     region: "us-central1",
     secrets: [RESEND_API_KEY],
+    cors: true,
   },
   (req, res) => {
     corsHandler(req, res, async () => {
@@ -560,6 +561,7 @@ exports.sendSocialWelcomeEmail = onRequest(
   {
     region: "us-central1",
     secrets: [RESEND_API_KEY],
+    cors: true,
   },
   (req, res) => {
     corsHandler(req, res, async () => {
@@ -614,6 +616,7 @@ exports.sendCustomPasswordReset = onRequest(
   {
     region: "us-central1",
     secrets: [RESEND_API_KEY],
+    cors: true,
   },
   (req, res) => {
     corsHandler(req, res, async () => {
