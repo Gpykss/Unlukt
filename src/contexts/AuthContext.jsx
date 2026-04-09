@@ -1,4 +1,4 @@
-// src/contexts/AuthContext.jsx - FIXED: All social auth sets profileCompleted: false
+// src/contexts/AuthContext.jsx
 
 import { createContext, useState, useEffect } from 'react';
 import {
@@ -23,7 +23,7 @@ export function AuthProvider({ children }) {
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Intercept the redirect result when the app mounts
+  // Handle redirect result when app mounts (Google/Twitter/Facebook login)
   useEffect(() => {
     const handleRedirectResult = async () => {
       try {
@@ -31,12 +31,20 @@ export function AuthProvider({ children }) {
         if (result && result.user) {
           const existingProfile = await getUserProfile(result.user.uid);
           if (!existingProfile) {
+            // Brand new user — create profile and send to complete profile
             await createUserProfile(result.user.uid, {
               email: result.user.email || '',
               displayName: result.user.displayName || 'Social User',
-              avatar: result.user.photoURL || '👤',
+              avatar: result.user.photoURL || '',
               profileCompleted: false
             });
+            window.location.href = '/complete-profile';
+          } else if (!existingProfile.profileCompleted) {
+            // Existing user but profile not completed
+            window.location.href = '/complete-profile';
+          } else {
+            // Fully set up user — go to feed
+            window.location.href = '/feed';
           }
         }
       } catch (error) {
@@ -50,7 +58,6 @@ export function AuthProvider({ children }) {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
 
-      // ✅ Avoid profile duplication edge cases
       const existingProfile = await getUserProfile(userCredential.user.uid);
       if (!existingProfile) {
         await createUserProfile(userCredential.user.uid, {
@@ -60,10 +67,10 @@ export function AuthProvider({ children }) {
         });
       }
 
-      // ✅ Send custom verification email via Resend Cloud Function
+      // Send custom verification email via Firebase Function
       const token = await userCredential.user.getIdToken();
       const functionsUrl = import.meta.env.VITE_FIREBASE_FUNCTIONS_URL || 'https://us-central1-ogfans-2d4a6.cloudfunctions.net';
-      
+
       await fetch(`${functionsUrl}/sendCustomVerification`, {
         method: 'POST',
         headers: {
@@ -114,7 +121,7 @@ export function AuthProvider({ children }) {
     }
     const token = await currentUser.getIdToken();
     const functionsUrl = import.meta.env.VITE_FIREBASE_FUNCTIONS_URL || 'https://us-central1-ogfans-2d4a6.cloudfunctions.net';
-    
+
     const response = await fetch(`${functionsUrl}/sendCustomVerification`, {
       method: 'POST',
       headers: {
@@ -126,7 +133,7 @@ export function AuthProvider({ children }) {
     if (!response.ok) {
       throw new Error('Failed to send verification email. Please try again later.');
     }
-    
+
     return true;
   };
 
