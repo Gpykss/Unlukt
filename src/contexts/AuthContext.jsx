@@ -1,6 +1,6 @@
 // src/contexts/AuthContext.jsx
 
-import { createContext, useState, useEffect } from 'react';
+import { createContext, useState, useEffect, useRef } from 'react';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -21,6 +21,11 @@ export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // ✅ Flag to prevent onAuthStateChanged from signing out during social auth
+  // When social auth is in progress, the handler needs time to create the profile
+  // before onAuthStateChanged checks for it
+  const socialAuthInProgress = useRef(false);
 
   // Helper: send welcome email for social users via Firebase Function
   const sendWelcomeEmailForSocialUser = async (uid, email, displayName) => {
@@ -126,6 +131,9 @@ export function AuthProvider({ children }) {
         await sendWelcomeEmailForSocialUser(uid, email, displayName);
       }
 
+      // ✅ Refresh the profile in context now that it's created
+      await fetchUserProfile(uid);
+
       return { isNew: true, profileCompleted: false };
     } else {
       // Existing user — update email if newly available
@@ -139,6 +147,9 @@ export function AuthProvider({ children }) {
         });
       }
 
+      // ✅ Refresh the profile in context
+      await fetchUserProfile(uid);
+
       return { isNew: false, profileCompleted: !!existingProfile.profileCompleted };
     }
   };
@@ -148,24 +159,51 @@ export function AuthProvider({ children }) {
     provider.addScope('email');
     provider.addScope('profile');
     provider.setCustomParameters({ prompt: 'select_account' });
-    // ✅ Using signInWithPopup — returns result directly, no redirect issues
-    const result = await signInWithPopup(auth, provider);
-    return await handleSocialAuthResult(result);
+
+    // ✅ Set flag BEFORE popup — prevents onAuthStateChanged from signing out
+    socialAuthInProgress.current = true;
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const authResult = await handleSocialAuthResult(result);
+      socialAuthInProgress.current = false;
+      return authResult;
+    } catch (error) {
+      socialAuthInProgress.current = false;
+      throw error;
+    }
   };
 
   const signInWithTwitter = async () => {
     const provider = new TwitterAuthProvider();
     provider.setCustomParameters({ force_login: 'true' });
-    const result = await signInWithPopup(auth, provider);
-    return await handleSocialAuthResult(result);
+
+    socialAuthInProgress.current = true;
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const authResult = await handleSocialAuthResult(result);
+      socialAuthInProgress.current = false;
+      return authResult;
+    } catch (error) {
+      socialAuthInProgress.current = false;
+      throw error;
+    }
   };
 
   const signInWithFacebook = async () => {
     const provider = new FacebookAuthProvider();
     provider.addScope('email');
     provider.addScope('public_profile');
-    const result = await signInWithPopup(auth, provider);
-    return await handleSocialAuthResult(result);
+
+    socialAuthInProgress.current = true;
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const authResult = await handleSocialAuthResult(result);
+      socialAuthInProgress.current = false;
+      return authResult;
+    } catch (error) {
+      socialAuthInProgress.current = false;
+      throw error;
+    }
   };
 
   const resendVerificationEmail = async () => {
@@ -209,11 +247,19 @@ export function AuthProvider({ children }) {
       if (user) await user.reload().catch(() => {});
       setCurrentUser(user ? auth.currentUser : null);
       if (user) {
+        // ✅ If social auth is in progress, DON'T check profile yet
+        // The social auth handler will create the profile — let it finish first
+        if (socialAuthInProgress.current) {
+          console.log('⏳ Social auth in progress — skipping profile check');
+          setLoading(false);
+          return;
+        }
+
         const profile = await fetchUserProfile(user.uid);
 
-        // ⚠️ Firestore profile missing (deleted manually from Firebase Console)
-        // DO NOT auto-recreate — sign the user out so they must re-register properly
-        if (!profile) {
+        // Firestore profile missing (deleted manually from Firebase Console)
+        // Only sign out if this is NOT during a social auth flow
+        if (!profile && !socialAuthInProgress.current) {
           console.warn('⚠️ User authenticated but no Firestore profile found. Signing out.');
           await signOut(auth);
           setCurrentUser(null);
