@@ -9,7 +9,8 @@ import {
   GoogleAuthProvider,
   TwitterAuthProvider,
   FacebookAuthProvider,
-  signInWithPopup
+  signInWithRedirect,
+  getRedirectResult
 } from 'firebase/auth';
 import { auth } from '../config/firebase';
 import { createUserProfile, getUserProfile } from '../services/firestoreService';
@@ -21,6 +22,29 @@ export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Intercept the redirect result when the app mounts
+  useEffect(() => {
+    const handleRedirectResult = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result && result.user) {
+          const existingProfile = await getUserProfile(result.user.uid);
+          if (!existingProfile) {
+            await createUserProfile(result.user.uid, {
+              email: result.user.email || '',
+              displayName: result.user.displayName || 'Social User',
+              avatar: result.user.photoURL || '👤',
+              profileCompleted: false
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Redirect login error:', error);
+      }
+    };
+    handleRedirectResult();
+  }, []);
 
   const signup = async (email, password, additionalData = {}) => {
     try {
@@ -68,90 +92,20 @@ export function AuthProvider({ children }) {
   };
 
   const signInWithGoogle = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account' });
-      const result = await signInWithPopup(auth, provider);
-
-      const existingProfile = await getUserProfile(result.user.uid);
-      if (!existingProfile) {
-        await createUserProfile(result.user.uid, {
-          email: result.user.email,
-          displayName: result.user.displayName,
-          avatar: result.user.photoURL,
-          profileCompleted: false
-        });
-      }
-      return result;
-    } catch (error) {
-      console.error('Google sign in error:', error);
-      if (error.code === 'auth/popup-closed-by-user') {
-        throw new Error('Sign-in popup was closed. Please try again.');
-      }
-      throw error;
-    }
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    return signInWithRedirect(auth, provider);
   };
 
   const signInWithTwitter = async () => {
-    try {
-      const provider = new TwitterAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-
-      console.log('Twitter login successful:', result);
-
-      const existingProfile = await getUserProfile(result.user.uid);
-      if (!existingProfile) {
-        await createUserProfile(result.user.uid, {
-          email: result.user.email || '',
-          displayName: result.user.displayName || 'Twitter User',
-          avatar: result.user.photoURL || '🐦',
-          profileCompleted: false
-        });
-      }
-      return result;
-    } catch (error) {
-      console.error('Twitter sign in error:', error);
-      console.error('Error code:', error.code);
-      console.error('Error message:', error.message);
-
-      if (error.code === 'auth/popup-closed-by-user') {
-        throw new Error('Twitter sign-in popup was closed. Please try again.');
-      } else if (error.code === 'auth/account-exists-with-different-credential') {
-        throw new Error('An account already exists with this email. Please use a different sign-in method.');
-      } else if (error.code === 'auth/invalid-credential') {
-        throw new Error('Twitter authentication failed. Please make sure Twitter login is properly configured in Firebase Console.');
-      } else if (error.code === 'auth/unauthorized-domain') {
-        throw new Error('This domain is not authorized for Twitter login. Please add it to Firebase authorized domains.');
-      } else if (error.code === 'auth/operation-not-allowed') {
-        throw new Error('Twitter login is not enabled. Please enable it in Firebase Console.');
-      }
-      throw error;
-    }
+    const provider = new TwitterAuthProvider();
+    return signInWithRedirect(auth, provider);
   };
 
   const signInWithFacebook = async () => {
-    try {
-      const provider = new FacebookAuthProvider();
-      provider.setCustomParameters({ display: 'popup' });
-      const result = await signInWithPopup(auth, provider);
-
-      const existingProfile = await getUserProfile(result.user.uid);
-      if (!existingProfile) {
-        await createUserProfile(result.user.uid, {
-          email: result.user.email || '',
-          displayName: result.user.displayName || 'Facebook User',
-          avatar: result.user.photoURL || '📘',
-          profileCompleted: false
-        });
-      }
-      return result;
-    } catch (error) {
-      console.error('Facebook sign in error:', error);
-      if (error.code === 'auth/popup-closed-by-user') {
-        throw new Error('Facebook sign-in popup was closed. Please try again.');
-      }
-      throw error;
-    }
+    const provider = new FacebookAuthProvider();
+    provider.setCustomParameters({ display: 'popup' });
+    return signInWithRedirect(auth, provider);
   };
 
   const resendVerificationEmail = async () => {

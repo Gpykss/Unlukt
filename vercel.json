@@ -1,8 +1,8 @@
 {
   "rewrites": [
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "source": "/__/auth/(.*)",
+      "destination": "https://ogfans-2d4a6.firebaseapp.com/__/auth/$1"
     }
   ]
 }
