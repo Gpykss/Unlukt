@@ -3,6 +3,10 @@
     {
       "source": "/__/auth/:match*",
       "destination": "https://ogfans-2d4a6.firebaseapp.com/__/auth/:match*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
