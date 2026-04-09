@@ -1,6 +1,6 @@
 // src/utils/currencySupport.js
 
-// ✅ Minimal MVP list (add more anytime)
+// Minimal MVP list (add more anytime)
 export const COUNTRIES = [
   { code: 'NG', name: 'Nigeria', currency: 'NGN' },
   { code: 'GH', name: 'Ghana', currency: 'GHS' },
@@ -8,7 +8,7 @@ export const COUNTRIES = [
   { code: 'ZA', name: 'South Africa', currency: 'ZAR' },
   { code: 'UG', name: 'Uganda', currency: 'UGX' },
   { code: 'TZ', name: 'Tanzania', currency: 'TZS' },
-  { code: 'CI', name: "Côte d’Ivoire", currency: 'XOF' },
+  { code: 'CI', name: "Cote d'Ivoire", currency: 'XOF' },
   { code: 'SN', name: 'Senegal', currency: 'XOF' },
   { code: 'CM', name: 'Cameroon', currency: 'XAF' },
   { code: 'GA', name: 'Gabon', currency: 'XAF' },
@@ -18,30 +18,12 @@ export const COUNTRIES = [
   { code: 'MA', name: 'Morocco', currency: 'MAD' },
   { code: 'TN', name: 'Tunisia', currency: 'TND' },
 
-  // 👇 catch-all for unsupported / not listed
+  // catch-all for unsupported / not listed
   { code: 'OTHER', name: 'Other / Not listed', currency: 'USD' }
 ];
 
 // For your PaymentModal dropdown if you want names only:
 export const COUNTRY_NAMES = COUNTRIES.map((c) => c.name);
-
-// ✅ Currency support (bank transfer) – keep this list in sync with what your Korapay setup supports.
-// Start small; expand when you confirm more currencies work in your Korapay account.
-const KORAPAY_SUPPORTED_CURRENCIES = new Set([
-  'NGN',
-  'GHS',
-  'KES',
-  'ZAR',
-  'UGX',
-  'TZS',
-  'XOF',
-  'XAF'
-]);
-
-export const isKorapayCurrencySupported = (currency) => {
-  const cur = String(currency || '').toUpperCase();
-  return KORAPAY_SUPPORTED_CURRENCIES.has(cur);
-};
 
 export const getCountryByCode = (code) => {
   const c = String(code || '').toUpperCase();

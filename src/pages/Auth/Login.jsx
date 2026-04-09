@@ -6,7 +6,6 @@ import { Eye, EyeOff, Loader2, Mail, Lock, LockKeyhole, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { auth } from '../../config/firebase';
-import { sendPasswordResetEmail } from 'firebase/auth';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -114,7 +113,19 @@ export default function Login() {
     }
 
     try {
-      await sendPasswordResetEmail(auth, resetEmail);
+      const functionsUrl = import.meta.env.VITE_FIREBASE_FUNCTIONS_URL || 'https://us-central1-ogfans-2d4a6.cloudfunctions.net';
+      const response = await fetch(`${functionsUrl}/sendCustomPasswordReset`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email: resetEmail })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send reset email');
+      }
+
       setResetSuccess(true);
       setResetLoading(false);
     } catch (err) {

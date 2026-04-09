@@ -211,7 +211,6 @@ VITE_USDT_TRC20_ADDRESS=TWXh8n73LuT5MJ23pd8dCjFskRZckveFbP
 ### Remove Unused Files:
 ```bash
 # Already removed:
-- src/services/korapay.service.js ✅
 - src/services/paymentService.js ✅
 
 # Keep all other files (in use)

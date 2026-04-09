@@ -6,7 +6,6 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  sendEmailVerification,
   GoogleAuthProvider,
   TwitterAuthProvider,
   FacebookAuthProvider,
@@ -37,8 +36,17 @@ export function AuthProvider({ children }) {
         });
       }
 
-      // ✅ Send verification email
-      await sendEmailVerification(userCredential.user);
+      // ✅ Send custom verification email via Resend Cloud Function
+      const token = await userCredential.user.getIdToken();
+      const functionsUrl = import.meta.env.VITE_FIREBASE_FUNCTIONS_URL || 'https://us-central1-ogfans-2d4a6.cloudfunctions.net';
+      
+      await fetch(`${functionsUrl}/sendCustomVerification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
 
       return userCredential;
     } catch (error) {
@@ -150,7 +158,22 @@ export function AuthProvider({ children }) {
     if (!currentUser) {
       throw new Error('No authenticated user. Please log in again.');
     }
-    return sendEmailVerification(currentUser);
+    const token = await currentUser.getIdToken();
+    const functionsUrl = import.meta.env.VITE_FIREBASE_FUNCTIONS_URL || 'https://us-central1-ogfans-2d4a6.cloudfunctions.net';
+    
+    const response = await fetch(`${functionsUrl}/sendCustomVerification`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to send verification email. Please try again later.');
+    }
+    
+    return true;
   };
 
   const fetchUserProfile = async (userId) => {

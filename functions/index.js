@@ -14,6 +14,7 @@ const NOWPAYMENTS_API_KEY = defineSecret("NOWPAYMENTS_API_KEY");
 const NOWPAYMENTS_IPN_SECRET = defineSecret("NOWPAYMENTS_IPN_SECRET");
 const AGORA_APP_ID = defineSecret("AGORA_APP_ID");
 const AGORA_APP_CERTIFICATE = defineSecret("AGORA_APP_CERTIFICATE");
+const RESEND_API_KEY = defineSecret("RESEND_API_KEY");
 
 // ✅ NOT secrets (safe to hardcode)
 const BUNNY_STORAGE_ZONE = "unlukt";
@@ -503,5 +504,137 @@ exports.uploadToBunny = onRequest(
         return res.status(500).json({ error: err.message || "Server error" });
       }
     });
+  }
+);
+
+// ========== RESEND EMAIL FUNCTIONS ==========
+const { Resend } = require("resend");
+
+exports.sendCustomVerification = onRequest(
+  {
+    region: "us-central1",
+    secrets: [RESEND_API_KEY],
+  },
+  (req, res) => {
+    corsHandler(req, res, async () => {
+      try {
+        if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+        
+        const authHeader = req.headers.authorization || "";
+        const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+        if (!token) return res.status(401).json({ error: "Missing auth token" });
+
+        const decoded = await admin.auth().verifyIdToken(token);
+        const email = decoded.email;
+
+        const actionLink = await admin.auth().generateEmailVerificationLink(email);
+        const resend = new Resend(RESEND_API_KEY.value());
+        
+        await resend.emails.send({
+          from: "Unlukt Support <support@unlukt.com>",
+          to: email,
+          subject: "Verify Your Email Address",
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; padding: 20px; border-radius: 8px;">
+              <h2 style="color: #333; text-align: center;">Welcome to Unlukt!</h2>
+              <p style="color: #555; font-size: 16px; line-height: 1.5;">Thank you for joining our community. Please verify your email address to unlock your full access.</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${actionLink}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">Verify Email Address</a>
+              </div>
+              <p style="color: #777; font-size: 14px; text-align: center;">If you didn't create this account, you can safely ignore this email.</p>
+            </div>
+          `,
+        });
+
+        return res.status(200).json({ success: true });
+      } catch (err) {
+        console.error("sendCustomVerification error:", err);
+        return res.status(500).json({ error: err?.message || "Server error" });
+      }
+    });
+  }
+);
+
+exports.sendCustomPasswordReset = onRequest(
+  {
+    region: "us-central1",
+    secrets: [RESEND_API_KEY],
+  },
+  (req, res) => {
+    corsHandler(req, res, async () => {
+      try {
+        if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+        
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ error: "Missing email" });
+
+        const actionLink = await admin.auth().generatePasswordResetLink(email);
+        const resend = new Resend(RESEND_API_KEY.value());
+        
+        await resend.emails.send({
+          from: "Unlukt Security <support@unlukt.com>",
+          to: email,
+          subject: "Reset Your Password",
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; padding: 20px; border-radius: 8px;">
+              <h2 style="color: #333; text-align: center;">Password Reset Request</h2>
+              <p style="color: #555; font-size: 16px; line-height: 1.5;">We received a request to reset your password. Click the button below to choose a new password.</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${actionLink}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">Reset Password</a>
+              </div>
+              <p style="color: #777; font-size: 14px; text-align: center;">If you didn't request a password reset, you can safely ignore this email.</p>
+            </div>
+          `,
+        });
+
+        return res.status(200).json({ success: true });
+      } catch (err) {
+        console.error("sendCustomPasswordReset error:", err);
+        return res.status(200).json({ success: true }); 
+      }
+    });
+  }
+);
+
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+
+exports.onUserCreatedWelcome = onDocumentCreated(
+  {
+    document: "user_profiles/{uid}",
+    region: "us-central1",
+    secrets: [RESEND_API_KEY],
+  },
+  async (event) => {
+    try {
+      const snapshot = event.data;
+      if (!snapshot) return;
+
+      const profile = snapshot.data();
+      const email = profile.email;
+      const displayName = profile.displayName || "there";
+
+      if (!email) return;
+
+      const resend = new Resend(RESEND_API_KEY.value());
+
+      await resend.emails.send({
+        from: "Unlukt Team <support@unlukt.com>",
+        to: email,
+        subject: "Welcome to Unlukt! \uD83C\uDF89",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; padding: 20px; border-radius: 8px;">
+            <h2 style="color: #333; text-align: center;">Welcome to the Community, ${displayName}!</h2>
+            <p style="color: #555; font-size: 16px; line-height: 1.5;">We are thrilled to have you here at Unlukt. Dive in to explore the best content from your favorite creators.</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="https://unlukt.com/discover" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">Start Exploring</a>
+            </div>
+            <p style="color: #777; font-size: 14px; text-align: center;">If you run into any issues, you can reply directly to this email.</p>
+          </div>
+        `,
+      });
+      console.log(`✅ Welcome email sent to ${email}`);
+    } catch (error) {
+      console.error("onUserCreatedWelcome error:", error);
+    }
   }
 );

@@ -184,7 +184,7 @@ npm install dompurify
 ## 🔥 Known Vulnerabilities (From Previous Audit)
 
 ### ✅ FIXED:
-- ~~Exposed Korapay secret in frontend~~ (removed, crypto-only now)
+
 - ~~No security rules~~ (now implemented)
 - ~~48+ console.logs exposing data~~ (replaced with logger.js)
 

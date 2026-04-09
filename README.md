@@ -15,7 +15,7 @@ Premium content monetization platform for creators.
 
 - React + Vite
 - Firebase (Auth, Firestore, Storage)
-- Korapay (Bank payments)
+
 - Cloudinary (Media storage)
 - Tailwind CSS
 
