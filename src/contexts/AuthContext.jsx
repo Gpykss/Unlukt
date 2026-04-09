@@ -34,15 +34,15 @@ export function AuthProvider({ children }) {
 
         const user = result.user;
 
-        // ✅ User authorized the app — now fetch their data from the provider
-        const displayName = user.displayName || '';
-        const email = user.email || '';
-        const photoURL = user.photoURL || '';
+        // ✅ Fetch all available data from the provider
         const uid = user.uid;
-
-        // ✅ Additional provider data (Twitter gives extra info)
+        const displayName = user.displayName || '';
+        const photoURL = user.photoURL || '';
         const providerData = user.providerData?.[0] || {};
         const providerName = providerData.providerId || '';
+
+        // ⚠️ Twitter often returns null email — we handle this below
+        const email = user.email || providerData.email || null;
 
         console.log('Social auth success:', { uid, email, displayName, providerName });
 
@@ -50,48 +50,91 @@ export function AuthProvider({ children }) {
         const existingProfile = await getUserProfile(uid);
 
         if (!existingProfile) {
-          // 🆕 Brand new user — save ALL their data from provider
+          // 🆕 Brand new user — save whatever data we have from provider
           await createUserProfile(uid, {
-            email,
-            displayName: displayName || email.split('@')[0] || 'User',
+            email: email || '',          // may be empty for Twitter — filled in on complete-profile
+            displayName: displayName || '',
             avatar: photoURL || '',
             phoneNumber: '',
             profileCompleted: false,
+            emailVerified: email ? true : false,  // Google email is verified, Twitter may not have one
             provider: providerName,
+            needsEmail: !email,          // flag so complete-profile knows to ask for email
             createdAt: new Date().toISOString(),
           });
 
-          // Send to complete profile to fill in remaining info
-          window.location.href = '/complete-profile';
+          // Send welcome + verification email if we have their email
+          if (email) {
+            await sendWelcomeEmailForSocialUser(uid, email, displayName);
+          }
 
-        } else if (!existingProfile.profileCompleted) {
-          // 👤 Existing user but never finished setting up profile
+          // New user always goes to complete-profile
           window.location.href = '/complete-profile';
 
         } else {
-          // ✅ Returning user — fully set up, go to feed
-          window.location.href = '/feed';
+          // 👤 Existing user
+
+          // If we now have an email but didn't before, update it
+          if (email && !existingProfile.email) {
+            const { doc, updateDoc } = await import('firebase/firestore');
+            const { db } = await import('../config/firebase');
+            await updateDoc(doc(db, 'user_profiles', uid), {
+              email,
+              emailVerified: true,
+              needsEmail: false,
+            });
+          }
+
+          if (!existingProfile.profileCompleted) {
+            window.location.href = '/complete-profile';
+          } else {
+            window.location.href = '/feed';
+          }
         }
 
       } catch (error) {
         console.error('Redirect login error:', error);
 
-        // ❌ User denied authorization or something went wrong
-        if (error.code === 'auth/popup-closed-by-user' ||
-            error.code === 'auth/cancelled-popup-request' ||
-            error.code === 'auth/user-cancelled') {
-          // User cancelled — just stay on the page, no redirect needed
+        // User cancelled — just stay on the page
+        if (
+          error.code === 'auth/popup-closed-by-user' ||
+          error.code === 'auth/cancelled-popup-request' ||
+          error.code === 'auth/user-cancelled'
+        ) {
           console.log('User cancelled social login');
           return;
         }
 
-        // Other errors — redirect back to register with error
+        // Other errors — go back to register
         window.location.href = '/register?error=social_auth_failed';
       }
     };
 
     handleRedirectResult();
   }, []);
+
+  // Helper: send welcome email for social users via Firebase Function
+  const sendWelcomeEmailForSocialUser = async (uid, email, displayName) => {
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) return;
+
+      const functionsUrl = import.meta.env.VITE_FIREBASE_FUNCTIONS_URL ||
+        'https://us-central1-ogfans-2d4a6.cloudfunctions.net';
+
+      await fetch(`${functionsUrl}/sendSocialWelcomeEmail`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ email, displayName })
+      });
+    } catch (err) {
+      // Non-critical — don't block auth flow
+      console.warn('Welcome email failed:', err);
+    }
+  };
 
   const signup = async (email, password, additionalData = {}) => {
     try {
@@ -102,13 +145,17 @@ export function AuthProvider({ children }) {
         await createUserProfile(userCredential.user.uid, {
           email,
           profileCompleted: false,
+          emailVerified: false,
+          provider: 'email',
+          needsEmail: false,
           ...additionalData
         });
       }
 
       // Send custom verification email via Firebase Function
       const token = await userCredential.user.getIdToken();
-      const functionsUrl = import.meta.env.VITE_FIREBASE_FUNCTIONS_URL || 'https://us-central1-ogfans-2d4a6.cloudfunctions.net';
+      const functionsUrl = import.meta.env.VITE_FIREBASE_FUNCTIONS_URL ||
+        'https://us-central1-ogfans-2d4a6.cloudfunctions.net';
 
       await fetch(`${functionsUrl}/sendCustomVerification`, {
         method: 'POST',
@@ -139,7 +186,6 @@ export function AuthProvider({ children }) {
 
   const signInWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
-    // Request these scopes so we get name, email, and photo
     provider.addScope('email');
     provider.addScope('profile');
     provider.setCustomParameters({ prompt: 'select_account' });
@@ -148,8 +194,9 @@ export function AuthProvider({ children }) {
 
   const signInWithTwitter = async () => {
     const provider = new TwitterAuthProvider();
-    // Request email from Twitter
-    provider.addScope('email');
+    // Request email — Twitter may or may not return it depending on their app settings
+    provider.addScope('users.read');
+    provider.addScope('tweet.read');
     return signInWithRedirect(auth, provider);
   };
 
@@ -157,7 +204,6 @@ export function AuthProvider({ children }) {
     const provider = new FacebookAuthProvider();
     provider.addScope('email');
     provider.addScope('public_profile');
-    provider.setCustomParameters({ display: 'popup' });
     return signInWithRedirect(auth, provider);
   };
 
@@ -166,7 +212,8 @@ export function AuthProvider({ children }) {
       throw new Error('No authenticated user. Please log in again.');
     }
     const token = await currentUser.getIdToken();
-    const functionsUrl = import.meta.env.VITE_FIREBASE_FUNCTIONS_URL || 'https://us-central1-ogfans-2d4a6.cloudfunctions.net';
+    const functionsUrl = import.meta.env.VITE_FIREBASE_FUNCTIONS_URL ||
+      'https://us-central1-ogfans-2d4a6.cloudfunctions.net';
 
     const response = await fetch(`${functionsUrl}/sendCustomVerification`, {
       method: 'POST',

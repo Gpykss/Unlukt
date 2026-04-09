@@ -555,6 +555,61 @@ exports.sendCustomVerification = onRequest(
   }
 );
 
+// ========== SEND WELCOME EMAIL FOR SOCIAL AUTH USERS (Google/Twitter) ==========
+exports.sendSocialWelcomeEmail = onRequest(
+  {
+    region: "us-central1",
+    secrets: [RESEND_API_KEY],
+  },
+  (req, res) => {
+    corsHandler(req, res, async () => {
+      try {
+        if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+        const authHeader = req.headers.authorization || "";
+        const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+        if (!token) return res.status(401).json({ error: "Missing auth token" });
+
+        await admin.auth().verifyIdToken(token);
+
+        const { email, displayName } = req.body;
+        if (!email) return res.status(400).json({ error: "Missing email" });
+
+        const name = displayName || "there";
+        const resend = new Resend(RESEND_API_KEY.value());
+
+        await resend.emails.send({
+          from: "Unlukt Team <support@unlukt.com>",
+          to: email,
+          subject: "Welcome to Unlukt! 🎉",
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; padding: 20px; border-radius: 8px;">
+              <h2 style="color: #333; text-align: center;">Welcome to Unlukt, ${name}! 🎉</h2>
+              <p style="color: #555; font-size: 16px; line-height: 1.5;">
+                You've successfully signed up using your social account. You're all set to start exploring the best content from your favorite creators.
+              </p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="https://unlukt.com/discover" style="background-color: #ef4444; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
+                  Start Exploring
+                </a>
+              </div>
+              <p style="color: #777; font-size: 14px; text-align: center;">
+                If you have any questions, reply directly to this email — we're happy to help!
+              </p>
+            </div>
+          `,
+        });
+
+        console.log(`✅ Social welcome email sent to ${email}`);
+        return res.status(200).json({ success: true });
+      } catch (err) {
+        console.error("sendSocialWelcomeEmail error:", err);
+        return res.status(500).json({ error: err?.message || "Server error" });
+      }
+    });
+  }
+);
+
 exports.sendCustomPasswordReset = onRequest(
   {
     region: "us-central1",
