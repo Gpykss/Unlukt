@@ -166,7 +166,13 @@ export default function CompleteProfile() {
 
       await fetchUserProfile(currentUser.uid);
       await new Promise(resolve => setTimeout(resolve, 800));
-      navigate('/feed');
+
+      // Twitter users who just provided email must verify it first
+      if (needsEmail && formData.email) {
+        navigate('/verify-email');
+      } else {
+        navigate('/feed');
+      }
 
     } catch (err) {
       console.error('Error completing profile:', err);

@@ -1,8 +1,11 @@
+// src/pages/Auth/VerifyEmail.jsx
+
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Heart, Mail, RefreshCw, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { getUserProfile } from '../../services/firestoreService';
 
 export default function VerifyEmail() {
   const navigate = useNavigate();
@@ -13,31 +16,66 @@ export default function VerifyEmail() {
   const [isChecking, setIsChecking] = useState(false);
   const [autoChecking, setAutoChecking] = useState(true);
   const [lastChecked, setLastChecked] = useState(new Date());
+  const [displayEmail, setDisplayEmail] = useState('');
+
+  // Determine if user is a Twitter/social user (check Firestore profile)
+  const isTwitterUser = currentUser?.providerData?.[0]?.providerId === 'twitter.com';
 
   useEffect(() => {
-    if (currentUser?.emailVerified) {
-      navigate('/feed');
-    }
-  }, [currentUser, navigate]);
+    const loadEmail = async () => {
+      if (!currentUser) return;
+
+      if (isTwitterUser) {
+        // Twitter users — get email from Firestore profile
+        const profile = await getUserProfile(currentUser.uid);
+        setDisplayEmail(profile?.email || '');
+
+        // If already verified in Firestore → go to feed
+        if (profile?.emailVerified === true) {
+          navigate('/feed');
+        }
+      } else {
+        // Regular email users — use Firebase Auth email
+        setDisplayEmail(currentUser.email || '');
+
+        // If already verified in Firebase Auth → go to feed
+        if (currentUser.emailVerified) {
+          navigate('/feed');
+        }
+      }
+    };
+
+    loadEmail();
+  }, [currentUser, navigate, isTwitterUser]);
 
   // Auto-check every 5 seconds
   useEffect(() => {
-    if (!currentUser?.emailVerified && autoChecking) {
-      const interval = setInterval(async () => {
-        try {
+    if (!currentUser || !autoChecking) return;
+
+    const interval = setInterval(async () => {
+      try {
+        if (isTwitterUser) {
+          // For Twitter users — check Firestore emailVerified flag
+          const profile = await getUserProfile(currentUser.uid);
+          setLastChecked(new Date());
+          if (profile?.emailVerified === true) {
+            navigate('/feed');
+          }
+        } else {
+          // For regular users — check Firebase Auth emailVerified
           await currentUser.reload();
           setLastChecked(new Date());
           if (currentUser.emailVerified) {
             navigate('/feed');
           }
-        } catch (err) {
-          console.error('Auto-check error:', err);
         }
-      }, 5000);
+      } catch (err) {
+        console.error('Auto-check error:', err);
+      }
+    }, 5000);
 
-      return () => clearInterval(interval);
-    }
-  }, [currentUser, autoChecking, navigate]);
+    return () => clearInterval(interval);
+  }, [currentUser, autoChecking, navigate, isTwitterUser]);
 
   const handleResendEmail = async () => {
     setIsResending(true);
@@ -47,13 +85,9 @@ export default function VerifyEmail() {
     try {
       await resendVerificationEmail();
       setResendSuccess(true);
-      
-      setTimeout(() => {
-        setResendSuccess(false);
-      }, 5000);
+      setTimeout(() => setResendSuccess(false), 5000);
     } catch (err) {
       console.error('Resend error:', err);
-      
       if (err.code === 'auth/too-many-requests') {
         setResendError('Too many requests. Please wait a few minutes before trying again.');
       } else {
@@ -66,16 +100,28 @@ export default function VerifyEmail() {
 
   const handleCheckVerification = async () => {
     setIsChecking(true);
-    
+
     try {
-      await currentUser.reload();
-      setLastChecked(new Date());
-      
-      if (currentUser.emailVerified) {
-        navigate('/feed');
+      if (isTwitterUser) {
+        // Check Firestore for Twitter users
+        const profile = await getUserProfile(currentUser.uid);
+        setLastChecked(new Date());
+        if (profile?.emailVerified === true) {
+          navigate('/feed');
+        } else {
+          setResendError('Email not verified yet. Please check your inbox and click the verification link.');
+          setTimeout(() => setResendError(''), 4000);
+        }
       } else {
-        setResendError('Email not verified yet. Please check your inbox and click the verification link.');
-        setTimeout(() => setResendError(''), 4000);
+        // Check Firebase Auth for regular users
+        await currentUser.reload();
+        setLastChecked(new Date());
+        if (currentUser.emailVerified) {
+          navigate('/feed');
+        } else {
+          setResendError('Email not verified yet. Please check your inbox and click the verification link.');
+          setTimeout(() => setResendError(''), 4000);
+        }
       }
     } catch (err) {
       console.error('Check verification error:', err);
@@ -124,12 +170,13 @@ export default function VerifyEmail() {
 
           <div className="text-center mb-6">
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Verify Your Email</h1>
-            <p className="text-gray-600 text-sm">
-              We sent a verification link to
-            </p>
-            <p className="text-gray-900 font-semibold mt-1">
-              {currentUser?.email}
-            </p>
+            <p className="text-gray-600 text-sm">We sent a verification link to</p>
+            <p className="text-gray-900 font-semibold mt-1">{displayEmail || 'your email'}</p>
+            {isTwitterUser && (
+              <p className="text-xs text-blue-600 mt-2 bg-blue-50 px-3 py-1 rounded-full inline-block">
+                Signed in with Twitter
+              </p>
+            )}
           </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
@@ -153,9 +200,7 @@ export default function VerifyEmail() {
               className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center space-x-2"
             >
               <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
-              <p className="text-sm text-green-700">
-                Verification email sent successfully! Check your inbox.
-              </p>
+              <p className="text-sm text-green-700">Verification email sent! Check your inbox.</p>
             </motion.div>
           )}
 
@@ -176,15 +221,9 @@ export default function VerifyEmail() {
               className="w-full bg-rose-500 hover:bg-rose-600 text-white py-3 rounded-lg font-semibold transition shadow-sm flex items-center justify-center space-x-2 disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
               {isChecking ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Checking...</span>
-                </>
+                <><Loader2 className="w-5 h-5 animate-spin" /><span>Checking...</span></>
               ) : (
-                <>
-                  <CheckCircle className="w-5 h-5" />
-                  <span>I've Verified My Email</span>
-                </>
+                <><CheckCircle className="w-5 h-5" /><span>I've Verified My Email</span></>
               )}
             </button>
 
@@ -194,20 +233,11 @@ export default function VerifyEmail() {
               className="w-full bg-white hover:bg-gray-50 text-gray-700 py-3 rounded-lg font-semibold transition border border-gray-200 flex items-center justify-center space-x-2 disabled:bg-gray-100 disabled:cursor-not-allowed"
             >
               {isResending ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Sending...</span>
-                </>
+                <><Loader2 className="w-5 h-5 animate-spin" /><span>Sending...</span></>
               ) : resendSuccess ? (
-                <>
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                  <span>Email Sent!</span>
-                </>
+                <><CheckCircle className="w-5 h-5 text-green-600" /><span>Email Sent!</span></>
               ) : (
-                <>
-                  <RefreshCw className="w-5 h-5" />
-                  <span>Resend Verification Email</span>
-                </>
+                <><RefreshCw className="w-5 h-5" /><span>Resend Verification Email</span></>
               )}
             </button>
           </div>
@@ -230,23 +260,13 @@ export default function VerifyEmail() {
             )}
           </div>
 
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-200"></div>
-            </div>
-          </div>
-
-          <div className="text-center space-y-3">
+          <div className="border-t border-gray-200 mt-6 pt-6 text-center space-y-3">
             <p className="text-sm text-gray-600">
               Wrong email address?{' '}
-              <button
-                onClick={handleLogout}
-                className="text-rose-500 hover:text-rose-600 font-semibold"
-              >
+              <button onClick={handleLogout} className="text-rose-500 hover:text-rose-600 font-semibold">
                 Sign out and try again
               </button>
             </p>
-            
             <p className="text-xs text-gray-500">
               Need help?{' '}
               <button
@@ -257,17 +277,6 @@ export default function VerifyEmail() {
               </button>
             </p>
           </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
-          className="text-center mt-6"
-        >
-          <p className="text-sm text-gray-600">
-            💡 {autoChecking ? 'Auto-checking...' : 'Click "I\'ve Verified My Email" after verifying'}
-          </p>
         </motion.div>
       </div>
     </div>

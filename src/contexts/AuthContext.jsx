@@ -246,7 +246,24 @@ export function AuthProvider({ children }) {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
-        await fetchUserProfile(user.uid);
+        const profile = await fetchUserProfile(user.uid);
+
+        // ⚠️ Firestore profile missing (deleted manually or new social user)
+        // Create a blank profile so ProtectedRoute can redirect to complete-profile
+        if (!profile) {
+          const isEmailUser = user.providerData?.[0]?.providerId === 'password';
+          await createUserProfile(user.uid, {
+            email: user.email || '',
+            displayName: user.displayName || '',
+            avatar: user.photoURL || '',
+            profileCompleted: false,
+            emailVerified: isEmailUser ? user.emailVerified : false,
+            needsEmail: !user.email,
+            provider: user.providerData?.[0]?.providerId || 'unknown',
+            createdAt: new Date().toISOString(),
+          });
+          await fetchUserProfile(user.uid);
+        }
       } else {
         setUserProfile(null);
       }
