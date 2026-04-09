@@ -28,29 +28,68 @@ export function AuthProvider({ children }) {
     const handleRedirectResult = async () => {
       try {
         const result = await getRedirectResult(auth);
-        if (result && result.user) {
-          const existingProfile = await getUserProfile(result.user.uid);
-          if (!existingProfile) {
-            // Brand new user — create profile and send to complete profile
-            await createUserProfile(result.user.uid, {
-              email: result.user.email || '',
-              displayName: result.user.displayName || 'Social User',
-              avatar: result.user.photoURL || '',
-              profileCompleted: false
-            });
-            window.location.href = '/complete-profile';
-          } else if (!existingProfile.profileCompleted) {
-            // Existing user but profile not completed
-            window.location.href = '/complete-profile';
-          } else {
-            // Fully set up user — go to feed
-            window.location.href = '/feed';
-          }
+
+        // No redirect result — user just opened the app normally
+        if (!result) return;
+
+        const user = result.user;
+
+        // ✅ User authorized the app — now fetch their data from the provider
+        const displayName = user.displayName || '';
+        const email = user.email || '';
+        const photoURL = user.photoURL || '';
+        const uid = user.uid;
+
+        // ✅ Additional provider data (Twitter gives extra info)
+        const providerData = user.providerData?.[0] || {};
+        const providerName = providerData.providerId || '';
+
+        console.log('Social auth success:', { uid, email, displayName, providerName });
+
+        // ✅ Check if user already exists in Firestore
+        const existingProfile = await getUserProfile(uid);
+
+        if (!existingProfile) {
+          // 🆕 Brand new user — save ALL their data from provider
+          await createUserProfile(uid, {
+            email,
+            displayName: displayName || email.split('@')[0] || 'User',
+            avatar: photoURL || '',
+            phoneNumber: '',
+            profileCompleted: false,
+            provider: providerName,
+            createdAt: new Date().toISOString(),
+          });
+
+          // Send to complete profile to fill in remaining info
+          window.location.href = '/complete-profile';
+
+        } else if (!existingProfile.profileCompleted) {
+          // 👤 Existing user but never finished setting up profile
+          window.location.href = '/complete-profile';
+
+        } else {
+          // ✅ Returning user — fully set up, go to feed
+          window.location.href = '/feed';
         }
+
       } catch (error) {
         console.error('Redirect login error:', error);
+
+        // ❌ User denied authorization or something went wrong
+        if (error.code === 'auth/popup-closed-by-user' ||
+            error.code === 'auth/cancelled-popup-request' ||
+            error.code === 'auth/user-cancelled') {
+          // User cancelled — just stay on the page, no redirect needed
+          console.log('User cancelled social login');
+          return;
+        }
+
+        // Other errors — redirect back to register with error
+        window.location.href = '/register?error=social_auth_failed';
       }
     };
+
     handleRedirectResult();
   }, []);
 
@@ -100,17 +139,24 @@ export function AuthProvider({ children }) {
 
   const signInWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
+    // Request these scopes so we get name, email, and photo
+    provider.addScope('email');
+    provider.addScope('profile');
     provider.setCustomParameters({ prompt: 'select_account' });
     return signInWithRedirect(auth, provider);
   };
 
   const signInWithTwitter = async () => {
     const provider = new TwitterAuthProvider();
+    // Request email from Twitter
+    provider.addScope('email');
     return signInWithRedirect(auth, provider);
   };
 
   const signInWithFacebook = async () => {
     const provider = new FacebookAuthProvider();
+    provider.addScope('email');
+    provider.addScope('public_profile');
     provider.setCustomParameters({ display: 'popup' });
     return signInWithRedirect(auth, provider);
   };
