@@ -160,14 +160,8 @@ export default function Login() {
     setIsLoading(true);
     
     try {
-      const result = await signInWithGoogle();
-      const userProfileData = await fetchUserProfile(result.user.uid);
-      
-      if (!userProfileData?.profileCompleted) {
-        navigate('/complete-profile');
-      } else {
-        navigate('/feed');
-      }
+      // ✅ signInWithRedirect() redirects the browser — result handled by AuthContext
+      await signInWithGoogle();
     } catch (err) {
       console.error('Google login error:', err);
       setError(err.message || 'Failed to login with Google. Please try again.');
@@ -176,39 +170,26 @@ export default function Login() {
   };
 
   const handleTwitterLogin = async () => {
-  setError('');
-  setIsLoading(true);
-  
-  try {
-    const result = await signInWithTwitter();
-    const userProfileData = await fetchUserProfile(result.user.uid);
+    setError('');
+    setIsLoading(true);
     
-    // ✅ Always redirect Twitter users to complete profile if not completed
-    if (!userProfileData?.profileCompleted || !userProfileData?.username) {
-      navigate('/complete-profile');
-    } else {
-      navigate('/feed');
+    try {
+      // ✅ signInWithRedirect() redirects the browser — result handled by AuthContext
+      await signInWithTwitter();
+    } catch (err) {
+      console.error('Twitter login error:', err);
+      setError(err.message || 'Failed to login with Twitter. Please try again.');
+      setIsLoading(false);
     }
-  } catch (err) {
-    console.error('Twitter login error:', err);
-    setError(err.message || 'Failed to login with Twitter. Please try again.');
-    setIsLoading(false);
-  }
-};
+  };
 
   const handleFacebookLogin = async () => {
     setError('');
     setIsLoading(true);
     
     try {
-      const result = await signInWithFacebook();
-      const userProfileData = await fetchUserProfile(result.user.uid);
-      
-      if (!userProfileData?.profileCompleted) {
-        navigate('/complete-profile');
-      } else {
-        navigate('/feed');
-      }
+      // ✅ signInWithRedirect() redirects the browser — result handled by AuthContext
+      await signInWithFacebook();
     } catch (err) {
       console.error('Facebook login error:', err);
       setError(err.message || 'Failed to login with Facebook. Please try again.');

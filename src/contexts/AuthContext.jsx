@@ -78,7 +78,7 @@ export function AuthProvider({ children }) {
           if (email && !existingProfile.email) {
             const { doc, updateDoc } = await import('firebase/firestore');
             const { db } = await import('../config/firebase');
-            await updateDoc(doc(db, 'user_profiles', uid), {
+            await updateDoc(doc(db, 'users', uid), {
               email,
               emailVerified: true,
               needsEmail: false,
@@ -188,15 +188,17 @@ export function AuthProvider({ children }) {
     const provider = new GoogleAuthProvider();
     provider.addScope('email');
     provider.addScope('profile');
+    // ✅ Force account selection — prevents auto-login with cached session
     provider.setCustomParameters({ prompt: 'select_account' });
     return signInWithRedirect(auth, provider);
   };
 
   const signInWithTwitter = async () => {
     const provider = new TwitterAuthProvider();
-    // Request email — Twitter may or may not return it depending on their app settings
-    provider.addScope('users.read');
-    provider.addScope('tweet.read');
+    // ✅ Firebase uses OAuth 1.0a for Twitter — no extra scopes needed
+    // Twitter will show its own login/authorization screen
+    // force_login=true ensures Twitter always shows the login page
+    provider.setCustomParameters({ force_login: 'true' });
     return signInWithRedirect(auth, provider);
   };
 
@@ -244,25 +246,19 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
+      // Force reload to get fresh token and emailVerified status
+      if (user) await user.reload().catch(() => {});
+      setCurrentUser(user ? auth.currentUser : null);
       if (user) {
         const profile = await fetchUserProfile(user.uid);
 
-        // ⚠️ Firestore profile missing (deleted manually or new social user)
-        // Create a blank profile so ProtectedRoute can redirect to complete-profile
+        // ⚠️ Firestore profile missing (deleted manually from Firebase Console)
+        // DO NOT auto-recreate — sign the user out so they must re-register properly
         if (!profile) {
-          const isEmailUser = user.providerData?.[0]?.providerId === 'password';
-          await createUserProfile(user.uid, {
-            email: user.email || '',
-            displayName: user.displayName || '',
-            avatar: user.photoURL || '',
-            profileCompleted: false,
-            emailVerified: isEmailUser ? user.emailVerified : false,
-            needsEmail: !user.email,
-            provider: user.providerData?.[0]?.providerId || 'unknown',
-            createdAt: new Date().toISOString(),
-          });
-          await fetchUserProfile(user.uid);
+          console.warn('⚠️ User authenticated but no Firestore profile found. Signing out.');
+          await signOut(auth);
+          setCurrentUser(null);
+          setUserProfile(null);
         }
       } else {
         setUserProfile(null);
