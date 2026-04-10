@@ -13,10 +13,11 @@ export default function ProtectedRoute({ children, requireVerification = false }
   }
 
   // Step 2: Email verification check — ONLY when requireVerification={true}
-  // Routes like /verify-email and /complete-profile pass requireVerification={false}
-  // so unverified email users can still access them
+  // Checks BOTH Firebase Auth emailVerified AND Firestore profile emailVerified
+  // So you can manually verify by setting emailVerified=true in Firestore users collection
   const isEmailUser = currentUser.providerData?.[0]?.providerId === 'password';
-  if (requireVerification && isEmailUser && !currentUser.emailVerified) {
+  const isEmailVerified = currentUser.emailVerified || userProfile?.emailVerified === true;
+  if (requireVerification && isEmailUser && !isEmailVerified) {
     return <Navigate to="/verify-email" replace />;
   }
 
