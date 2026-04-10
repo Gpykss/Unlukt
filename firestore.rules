@@ -34,7 +34,17 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isOwner(userId);
       allow delete: if isAdmin();
-      allow update: if isOwner(userId) || isAdmin();
+
+      // Owner or admin can update anything on their own profile
+      // Any authenticated user can update ONLY follower/following counts (for follow/unfollow)
+      allow update: if isOwner(userId)
+        || isAdmin()
+        || (
+          isAuthenticated() &&
+          // Only allow updating these specific counter fields — nothing else
+         request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['followers', 'following', 'followerCount', 'followingCount', 'updatedAt'])
+        );
     }
 
     // ── Creator tiers ─────────────────────────────────────────────────────────
@@ -242,7 +252,6 @@ service cloud.firestore {
         resource.data.creatorId == request.auth.uid ||
         isAdmin()
       );
-      // ✅ FIX: admin snapshot listeners query the full collection — allow list for admins
       allow list: if isAuthenticated() && (
         request.auth.uid == resource.data.userId || isAdmin()
       );
@@ -256,7 +265,6 @@ service cloud.firestore {
       allow get: if isAuthenticated() && (
         resource.data.userId == request.auth.uid || isAdmin()
       );
-      // ✅ FIX: NGN admin tab lists all pending payments
       allow list: if isAuthenticated() && (
         request.auth.uid == resource.data.userId || isAdmin()
       );
@@ -338,7 +346,6 @@ service cloud.firestore {
 
     // ── Notifications ─────────────────────────────────────────────────────────
     match /notifications/{notificationId} {
-      // ✅ FIX: separate get vs list — list queries use where('userId','==',uid)
       allow get: if isAuthenticated() && resource.data.userId == request.auth.uid;
       allow list: if isAuthenticated();
       allow create: if isAuthenticated();
@@ -380,7 +387,8 @@ service cloud.firestore {
         resource.data.toCreatorId == request.auth.uid ||
         isAdmin()
       );
-      allow list: if isAdmin();
+      // Allow users to list their own tips
+      allow list: if isAuthenticated();
       allow create: if isAuthenticated();
       allow update, delete: if isAdmin();
     }
