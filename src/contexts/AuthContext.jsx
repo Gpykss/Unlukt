@@ -26,6 +26,9 @@ export function AuthProvider({ children }) {
   // When social auth is in progress, the handler needs time to create the profile
   // before onAuthStateChanged checks for it
   const socialAuthInProgress = useRef(false);
+  // ✅ Flag to prevent onAuthStateChanged from signing out during email signup
+  // When email signup is in progress, the profile is being created in Firestore
+  const emailSignupInProgress = useRef(false);
 
   // Helper: send welcome email for social users via Firebase Function
   const sendWelcomeEmailForSocialUser = async (uid, email, displayName) => {
@@ -51,6 +54,8 @@ export function AuthProvider({ children }) {
   };
 
   const signup = async (email, password, additionalData = {}) => {
+    // ✅ Set flag BEFORE creating user — prevents onAuthStateChanged from signing out
+    emailSignupInProgress.current = true;
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
 
@@ -79,8 +84,15 @@ export function AuthProvider({ children }) {
         }
       });
 
+      // ✅ Profile is created, clear the flag
+      emailSignupInProgress.current = false;
+
+      // ✅ Now manually refresh the profile in context so onAuthStateChanged picks it up
+      await fetchUserProfile(userCredential.user.uid);
+
       return userCredential;
     } catch (error) {
+      emailSignupInProgress.current = false;
       console.error('Signup error:', error);
       throw error;
     }
@@ -247,10 +259,10 @@ export function AuthProvider({ children }) {
       if (user) await user.reload().catch(() => {});
       setCurrentUser(user ? auth.currentUser : null);
       if (user) {
-        // ✅ If social auth is in progress, DON'T check profile yet
-        // The social auth handler will create the profile — let it finish first
-        if (socialAuthInProgress.current) {
-          console.log('⏳ Social auth in progress — skipping profile check');
+        // ✅ If social auth or email signup is in progress, DON'T check profile yet
+        // The auth handler will create the profile — let it finish first
+        if (socialAuthInProgress.current || emailSignupInProgress.current) {
+          console.log('⏳ Auth signup in progress — skipping profile check');
           setLoading(false);
           return;
         }
@@ -259,7 +271,7 @@ export function AuthProvider({ children }) {
 
         // Firestore profile missing (deleted manually from Firebase Console)
         // Only sign out if this is NOT during a social auth flow
-        if (!profile && !socialAuthInProgress.current) {
+        if (!profile && !socialAuthInProgress.current && !emailSignupInProgress.current) {
           console.warn('⚠️ User authenticated but no Firestore profile found. Signing out.');
           await signOut(auth);
           setCurrentUser(null);
