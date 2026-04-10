@@ -6,7 +6,7 @@ import { Loader2, ShieldAlert } from 'lucide-react';
 
 export default function AdminRoute({ children }) {
   const { currentUser, loading: authLoading } = useAuth();
-  const { profile, loading: profileLoading } = useUserProfile();
+  const { profile, isLoading: profileLoading } = useUserProfile();
 
   // Show loading while checking authentication and profile
   if (authLoading || profileLoading) {
@@ -51,3 +51,4 @@ export default function AdminRoute({ children }) {
   // User is admin - render children
   return children;
 }
+
