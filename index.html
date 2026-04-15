@@ -9,8 +9,8 @@
 
   <!-- Primary SEO -->
   <title>Unlukt — Exclusive Creator Platform | Subscribe & Support Creators</title>
-  <meta name="description" content="Unlukt is the ultimate creator platform. Subscribe to your favorite creators, unlock exclusive content, and support them directly. Join thousands of creators earning on Unlukt." />
-  <meta name="keywords" content="unlukt, creator platform, exclusive content, subscribe creators, support creators, content creators, fan subscription, creator economy" />
+  <meta name="description" content="Unlukt is the ultimate creator platform. Subscribe to your favorite creators, unlock exclusive content, and support them directly. Creators keep 80% of earnings. Join now." />
+  <meta name="keywords" content="unlukt, creator platform, exclusive content, subscribe creators, support creators, content creators, fan subscription, creator economy, monetize content, creator earnings" />
   <meta name="author" content="Unlukt" />
   <link rel="canonical" href="https://unlukt.com" />
 
@@ -20,7 +20,10 @@
   <meta property="og:title" content="Unlukt — Exclusive Creator Platform" />
   <meta property="og:description" content="Subscribe to your favorite creators, unlock exclusive content, and support them directly. 80% payout to creators." />
   <meta property="og:image" content="https://unlukt.com/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
   <meta property="og:site_name" content="Unlukt" />
+  <meta property="og:locale" content="en_US" />
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image" />
@@ -28,6 +31,7 @@
   <meta name="twitter:title" content="Unlukt — Exclusive Creator Platform" />
   <meta name="twitter:description" content="Subscribe to your favorite creators, unlock exclusive content, and support them directly." />
   <meta name="twitter:image" content="https://unlukt.com/og-image.png" />
+  <meta name="twitter:site" content="@unlokt" />
 
   <!-- Theme & PWA -->
   <meta name="theme-color" content="#ef4444" />
@@ -35,14 +39,15 @@
 
   <!-- Search Engine Directives -->
   <meta name="robots" content="index, follow" />
-  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
 
-  <!-- Structured Data (JSON-LD) -->
+  <!-- Structured Data (JSON-LD) - WebSite -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "WebSite",
     "name": "Unlukt",
+    "alternateName": "Unlokt",
     "url": "https://unlukt.com",
     "description": "The ultimate creator platform. Subscribe, unlock exclusive content, and support creators directly.",
     "potentialAction": {
@@ -52,11 +57,64 @@
     }
   }
   </script>
+
+  <!-- Structured Data (JSON-LD) - Organization -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "Unlukt",
+    "url": "https://unlukt.com",
+    "logo": "https://unlukt.com/favicon.png",
+    "sameAs": [
+      "https://x.com/unlokt"
+    ],
+    "description": "Unlukt is a premium content platform empowering creators worldwide. Creators keep 80% of their earnings."
+  }
+  </script>
 </head>
 
 <body>
   <div id="root"></div>
   <script type="module" src="/src/main.jsx"></script>
+
+  <!-- SEO: Fallback content for crawlers that don't execute JavaScript -->
+  <noscript>
+    <div style="max-width:800px;margin:0 auto;padding:40px 20px;font-family:system-ui,sans-serif;">
+      <h1>Unlukt — Exclusive Creator Platform</h1>
+      <p>Unlukt is the ultimate platform for creators to monetize exclusive content. Connect with your fans and keep 80% of your earnings.</p>
+
+      <h2>Why Creators Choose Unlukt</h2>
+      <ul>
+        <li><strong>80% Creator Payout</strong> — Keep the majority of what you earn</li>
+        <li><strong>Exclusive Content</strong> — Share premium content with paying subscribers</li>
+        <li><strong>Direct Fan Connection</strong> — Build real relationships with your audience</li>
+        <li><strong>Multiple Payment Options</strong> — Accept crypto (USDT), bank transfers, and more</li>
+        <li><strong>Creator Dashboard</strong> — Track analytics, manage subscribers, and grow your brand</li>
+      </ul>
+
+      <h2>For Fans</h2>
+      <p>Subscribe to your favorite creators, unlock exclusive content, send tips, and join communities. Discover trending creators on Unlukt today.</p>
+
+      <h2>Get Started</h2>
+      <p><a href="https://unlukt.com/register">Sign up now</a> to start creating or subscribing. Already have an account? <a href="https://unlukt.com/login">Log in here</a>.</p>
+
+      <h2>Explore</h2>
+      <nav>
+        <ul>
+          <li><a href="https://unlukt.com/discover">Discover Creators</a></li>
+          <li><a href="https://unlukt.com/about">About Us</a></li>
+          <li><a href="https://unlukt.com/help">Help Center</a></li>
+          <li><a href="https://unlukt.com/legal/terms">Terms of Service</a></li>
+          <li><a href="https://unlukt.com/legal/privacy">Privacy Policy</a></li>
+        </ul>
+      </nav>
+
+      <footer>
+        <p>© 2025 Unlukt. All rights reserved. Made with ❤️ for creators.</p>
+      </footer>
+    </div>
+  </noscript>
 </body>
 
 </html>
