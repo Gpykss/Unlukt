@@ -10,6 +10,7 @@ import { useUserProfile } from '../hooks/useUserProfile';
 import { useAuth } from '../hooks/useAuth';
 import NotificationBell from '../components/common/NotificationBell';
 import MessageBell from '../components/common/MessageBell';
+import LanguageSelector from '../components/common/LanguageSelector';
 import { useEffect, useState } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -197,6 +198,9 @@ export default function GlobalSidebar({ isOpen, onClose }) {
             )}
           </nav>
         </div>
+
+        {/* Language Selector */}
+        <LanguageSelector variant="sidebar" />
 
         {/* Logout */}
         <div className="p-4 border-t border-gray-200 bg-white flex-shrink-0 lg:mb-0 mb-20">

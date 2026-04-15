@@ -8,6 +8,7 @@ import { Swiper, SwiperSlide } from 'swiper/react';
 import { Autoplay } from 'swiper/modules';
 import 'swiper/css';
 import { useAuth } from '../../hooks/useAuth';
+import LanguageSelector from '../../components/common/LanguageSelector';
 
 // Import real creator images
 import feroniaImg1 from '../../assets/images/creators/Feronia Morris/sugarlab-26255.png';
@@ -139,6 +140,7 @@ export default function Landing() {
               animate={{ opacity: 1, x: 0 }}
               className="flex items-center space-x-2 sm:space-x-4"
             >
+              <LanguageSelector variant="navbar" />
               <button
                 onClick={() => navigate('/login')}
                 className="text-gray-700 hover:text-gray-900 font-semibold transition-colors px-2 sm:px-4 text-sm sm:text-base"
