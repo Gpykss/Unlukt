@@ -202,26 +202,28 @@ function UnlockModal({ isOpen, onClose, post, creator, onUnlocked }) {
 // ── Diagonal Watermark ───────────────────────────────────────────────────────
 function DiagonalWatermark({ username }) {
   if (!username) return null;
-  // Repeat the username across a diagonal SVG overlay
   const text = `@${username}`;
-  const repeats = 6;
+  // Use a fixed viewBox so we can use pixel coordinates in transforms
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden select-none z-10">
       <svg
-        className="w-full h-full opacity-20"
+        className="w-full h-full opacity-[0.18]"
         xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 400 600"
+        preserveAspectRatio="xMidYMid slice"
         style={{ position: 'absolute', inset: 0 }}
       >
-        {Array.from({ length: repeats }).map((_, i) => (
+        {/* Fixed pixel coords inside viewBox — rotate(angle, cx, cy) all numbers ✅ */}
+        {[80, 180, 280, 380, 480, 560].map((y, i) => (
           <text
             key={i}
-            x="50%"
-            y={`${10 + i * (90 / repeats)}%`}
+            x="200"
+            y={y}
             textAnchor="middle"
             dominantBaseline="middle"
-            transform={`rotate(-35, 50%, ${10 + i * (90 / repeats)}%)`}
+            transform={`rotate(-35, 200, ${y})`}
             fill="white"
-            fontSize="14"
+            fontSize="18"
             fontWeight="bold"
             fontFamily="monospace"
             letterSpacing="2"

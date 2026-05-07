@@ -5,8 +5,9 @@ import { X, Gift, Wallet, Loader2, CheckCircle, AlertCircle, Zap } from 'lucide-
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { getWalletBalance, deductFromWallet } from '../../services/walletService';
-import { doc, updateDoc, setDoc, serverTimestamp, increment } from 'firebase/firestore';
+import { doc, updateDoc, setDoc, serverTimestamp, increment, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { getCreatorSplit, creditAmbassadorCommission } from '../../services/commissionService';
 
 const QUICK_AMOUNTS = [1, 2, 5, 10, 20, 50];
 
@@ -32,10 +33,20 @@ export default function TipModal({ isOpen, onClose, creator }) {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
   const [balance, setBalance] = useState(null);
+  const [creatorRate, setCreatorRate] = useState(0.8); // default 80%, updated on open
 
   useEffect(() => {
     if (isOpen && currentUser) {
       getWalletBalance(currentUser.uid).then(setBalance);
+      // ✅ Load creator's actual split rate using already-imported db + getDoc
+      if (creator?.uid) {
+        getDoc(doc(db, 'users', creator.uid))
+          .then(snap => {
+            if (!snap.exists()) return;
+            setCreatorRate(snap.data().role === 'ambassador' ? 0.9 : 0.8);
+          })
+          .catch(() => {});
+      }
     } else if (!isOpen) {
       setBalance(null);
       setSuccess(false);
@@ -45,8 +56,9 @@ export default function TipModal({ isOpen, onClose, creator }) {
       setCustomAmount('');
       setMessage('');
       setTab('gifts');
+      setCreatorRate(0.8);
     }
-  }, [isOpen, currentUser]);
+  }, [isOpen, currentUser, creator?.uid]);
 
   const getTipAmount = () => {
     if (tab === 'gifts' && selectedGift) return selectedGift.price;
@@ -56,7 +68,8 @@ export default function TipModal({ isOpen, onClose, creator }) {
   };
 
   const tipAmount = getTipAmount();
-  const creatorEarns = tipAmount * 0.8;
+  const creatorEarns = tipAmount * creatorRate;
+  const creatorRatePct = Math.round(creatorRate * 100);
 
   const handleSend = async () => {
     if (!currentUser) { navigate('/login'); return; }
@@ -71,17 +84,27 @@ export default function TipModal({ isOpen, onClose, creator }) {
         `Tip to ${creator?.name || 'creator'}${selectedGift ? ` (${selectedGift.emoji} ${selectedGift.name})` : ''}`,
         { contentType: 'tip', creatorId: creator?.uid, giftId: selectedGift?.id || null, tipMessage: message || null }
       );
-      const earning = tipAmount * 0.8;
+
+      // ✅ Dynamic split via commission service
+      const { creatorEarning, platformFee, ambassadorCommission, ambassadorId } =
+        await getCreatorSplit(creator.uid, tipAmount);
+
       const creatorBalRef = doc(db, 'creator_balances', creator.uid);
       const month = new Date().toLocaleString('default', { month: 'short' });
       try {
-        await updateDoc(creatorBalRef, { availableBalance: increment(earning), totalEarnings: increment(earning), [`monthlyEarnings.${month}`]: increment(earning), updatedAt: serverTimestamp() });
+        await updateDoc(creatorBalRef, { availableBalance: increment(creatorEarning), totalEarnings: increment(creatorEarning), [`monthlyEarnings.${month}`]: increment(creatorEarning), updatedAt: serverTimestamp() });
       } catch {
-        await setDoc(creatorBalRef, { creatorId: creator.uid, availableBalance: earning, totalEarnings: earning, monthlyEarnings: { [month]: earning }, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        await setDoc(creatorBalRef, { creatorId: creator.uid, availableBalance: creatorEarning, totalEarnings: creatorEarning, monthlyEarnings: { [month]: creatorEarning }, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
       }
+
+      // ✅ Credit ambassador commission if referred
+      await creditAmbassadorCommission(ambassadorId, ambassadorCommission, creator.uid, 'tip');
+
       await setDoc(doc(db, 'tips', `${currentUser.uid}_${creator.uid}_${Date.now()}`), {
         fromUserId: currentUser.uid, toCreatorId: creator.uid, amount: tipAmount,
-        creatorEarning: earning, platformFee: tipAmount * 0.2,
+        creatorEarning, platformFee,
+        ambassadorCommission: ambassadorCommission || 0,
+        ambassadorId: ambassadorId || null,
         giftId: selectedGift?.id || null, giftEmoji: selectedGift?.emoji || null,
         giftName: selectedGift?.name || null, message: message || null, createdAt: serverTimestamp(),
       });
@@ -137,7 +160,7 @@ export default function TipModal({ isOpen, onClose, creator }) {
                 You sent <span className="font-bold text-rose-600">${tipAmount.toFixed(2)}</span> to{' '}
                 <span className="font-bold">{creator.name}</span>
               </p>
-              <p className="text-sm text-gray-400 mb-6">They'll receive ${creatorEarns.toFixed(2)} after platform fee</p>
+              <p className="text-sm text-gray-400 mb-6">They'll receive ${creatorEarns.toFixed(2)} ({creatorRatePct}% creator share)</p>
               <button onClick={handleClose} className="w-full py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-bold transition">
                 Done
               </button>
@@ -256,7 +279,7 @@ export default function TipModal({ isOpen, onClose, creator }) {
                 </button>
                 {tipAmount >= 1 && (
                   <p className="text-center text-xs text-gray-400 mt-2">
-                    {creator.name} receives ${creatorEarns.toFixed(2)} (80%)
+                    {creator.name} receives ${creatorEarns.toFixed(2)} ({creatorRatePct}%)
                   </p>
                 )}
               </div>

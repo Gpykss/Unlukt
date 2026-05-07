@@ -4,6 +4,7 @@ import { doc, getDoc, setDoc, updateDoc, addDoc, collection, serverTimestamp, ar
 import { db } from '../config/firebase';
 import logger from '../utils/logger';
 import { deductFromWallet } from './walletService';
+import { getCreatorSplit, creditAmbassadorCommission } from './commissionService';
 
 export const sendPPVMessage = async (conversationId, senderId, messageData) => {
   try {
@@ -76,8 +77,10 @@ export const unlockPPVMessage = async (conversationId, messageId, userId) => {
       updatedAt: serverTimestamp(),
     });
 
-    // 3. ✅ Credit creator using increment() — no getDoc needed, avoids permission error
-    const creatorEarning = message.unlockPrice * 0.80;
+    // 3. ✅ Dynamic split via commission service
+    const { creatorEarning, platformFee, ambassadorCommission, ambassadorId } =
+      await getCreatorSplit(message.senderId, message.unlockPrice);
+
     const creatorBalRef = doc(db, 'creator_balances', message.senderId);
     const month = new Date().toLocaleString('default', { month: 'short' });
     try {
@@ -88,7 +91,6 @@ export const unlockPPVMessage = async (conversationId, messageId, userId) => {
         updatedAt: serverTimestamp(),
       });
     } catch {
-      // Doc doesn't exist yet — create it
       await setDoc(creatorBalRef, {
         creatorId: message.senderId,
         availableBalance: creatorEarning,
@@ -98,6 +100,9 @@ export const unlockPPVMessage = async (conversationId, messageId, userId) => {
         updatedAt: serverTimestamp(),
       });
     }
+
+    // ✅ Credit ambassador commission if referred creator
+    await creditAmbassadorCommission(ambassadorId, ambassadorCommission, message.senderId, 'ppv');
 
     logger.success('PPV message unlocked:', messageId);
     return { success: true, unlocked: true };

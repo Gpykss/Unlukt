@@ -5,6 +5,9 @@ import { motion } from 'framer-motion';
 import { Eye, EyeOff, Loader2, Mail, Lock, Phone, Check, X, LockKeyhole, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { auth } from '../../config/firebase';
+import { collection, query, where, getDocs, getDoc, doc, updateDoc } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 
 // Import real creator images
 import feroniaImg from '../../assets/images/creators/Feronia Morris/sugarlab-26255.png';
@@ -147,10 +150,86 @@ export default function Register() {
       const code = params.get('code') || 'unknown';
       const msg = params.get('msg') || 'Social login failed. Please try again.';
       setError(`Social login failed [${code}]: ${msg}`);
-      // Clean the URL
       window.history.replaceState({}, '', '/register');
     }
+    // ✅ Capture referral code from URL and persist in localStorage (uppercase for consistent matching)
+    const ref = params.get('ref');
+    if (ref) {
+      const upperRef = ref.trim().toUpperCase();
+      localStorage.setItem('unlukt_ref', upperRef);
+      console.log('🔗 Referral code saved to localStorage:', upperRef);
+    }
   }, []);
+
+  // ✅ Resolve referral code → find ambassador uid
+  const resolveReferral = async () => {
+    const refCode = localStorage.getItem('unlukt_ref');
+    if (!refCode) return null;
+    try {
+      console.log('🔍 Looking up referral code:', refCode);
+      const snap = await getDocs(
+        query(collection(db, 'users'), where('referralCode', '==', refCode.trim().toUpperCase()))
+      );
+      if (!snap.empty) {
+        const ambassadorId = snap.docs[0].id;
+        console.log('✅ Found ambassador:', ambassadorId);
+        return ambassadorId;
+      }
+      console.warn('⚠️ No ambassador found for code:', refCode);
+    } catch (err) {
+      console.warn('Referral lookup failed:', err.message);
+    }
+    return null;
+  };
+
+  // ✅ Write referredBy to an existing user doc (post-signup fallback)
+  // Safe to call for any auth path — it no-ops if:
+  //   - no ref code in localStorage
+  //   - ambassador not found
+  //   - user already has referredBy set
+  const applyReferral = async (userId) => {
+    try {
+      const refCode = localStorage.getItem('unlukt_ref');
+      if (!refCode || !userId) {
+        console.log('applyReferral: no refCode or userId — skipping', { refCode, userId });
+        return;
+      }
+      console.log('🔗 Applying referral:', refCode, 'for user:', userId);
+
+      // Check if user already has a referredBy (avoid overwriting)
+      const existingDoc = await getDoc(doc(db, 'users', userId));
+      if (existingDoc.exists() && existingDoc.data().referredBy) {
+        console.log('⚠️ User already has referredBy — skipping');
+        localStorage.removeItem('unlukt_ref');
+        return;
+      }
+
+      // Query by referralCode ONLY — avoids needing a composite index
+      const q = query(
+        collection(db, 'users'),
+        where('referralCode', '==', refCode.trim().toUpperCase())
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const ambassadorId = snap.docs[0].id;
+        // Don’t self-refer
+        if (ambassadorId === userId) {
+          console.warn('⚠️ Self-referral blocked');
+          localStorage.removeItem('unlukt_ref');
+          return;
+        }
+        await updateDoc(doc(db, 'users', userId), {
+          referredBy: ambassadorId,
+        });
+        console.log('✅ Referral attributed to ambassador:', ambassadorId);
+      } else {
+        console.warn('⚠️ No ambassador found with referralCode:', refCode);
+      }
+      localStorage.removeItem('unlukt_ref');
+    } catch (err) {
+      console.warn('Referral attribution failed (non-blocking):', err.message);
+    }
+  };
 
   const getPasswordStrength = (password) => {
     if (password.length === 0) return { strength: 0, label: '', color: '' };
@@ -200,9 +279,21 @@ export default function Register() {
     }
 
     try {
-      await signup(formData.email, formData.password, {
-        phoneNumber: formData.phoneNumber
+      // ✅ Resolve referral BEFORE creating account so it goes into the profile doc
+      const ambassadorId = await resolveReferral();
+
+      const result = await signup(formData.email, formData.password, {
+        phoneNumber: formData.phoneNumber,
+        ...(ambassadorId ? { referredBy: ambassadorId } : {}),
       });
+
+      // ✅ Also write via updateDoc as a safety net (in case setDoc didn't include it)
+      const newUid = result?.user?.uid;
+      if (newUid && ambassadorId) {
+        await applyReferral(newUid);
+      } else {
+        localStorage.removeItem('unlukt_ref');
+      }
 
       setShowVerificationMessage(true);
       setIsLoading(false);
@@ -236,7 +327,9 @@ export default function Register() {
 
     try {
       const result = await signInWithTwitter();
-      // Navigate based on profile status
+      // ✅ Always try referral if ref is in localStorage — applyReferral guards against double-write
+      const uid = auth.currentUser?.uid;
+      if (uid) await applyReferral(uid);
       if (!result.profileCompleted) {
         navigate('/complete-profile');
       } else {
@@ -260,6 +353,9 @@ export default function Register() {
 
     try {
       const result = await signInWithGoogle();
+      // ✅ Always try referral if ref is in localStorage — applyReferral guards against double-write
+      const uid = auth.currentUser?.uid;
+      if (uid) await applyReferral(uid);
       if (!result.profileCompleted) {
         navigate('/complete-profile');
       } else {

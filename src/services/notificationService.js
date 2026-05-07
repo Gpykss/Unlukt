@@ -237,6 +237,9 @@ export const subscribeToNotifications = (userId, callback) => {
         ...doc.data()
       }));
       callback(notifications);
+    }, (error) => {
+      console.warn('⚠️ Notifications listener error (non-fatal):', error.message);
+      callback([]);
     });
     
     return unsubscribe;
@@ -339,6 +342,9 @@ export const subscribeToUnreadCount = (userId, callback) => {
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       callback(snapshot.size);
+    }, (error) => {
+      console.warn('⚠️ Unread notification count listener error (non-fatal):', error.message);
+      callback(0);
     });
     
     return unsubscribe;

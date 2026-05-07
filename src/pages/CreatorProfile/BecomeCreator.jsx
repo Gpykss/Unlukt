@@ -1,22 +1,15 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Crown, 
-  Check, 
-  ArrowRight, 
-  Loader2,
-  Shield,
-  AlertCircle,
-  User,
-  MapPin,
-  Phone,
-  CreditCard,
-  Calendar
+import {
+  Crown, Check, ArrowRight, Loader2, Shield,
+  AlertCircle, User, MapPin, Phone, CreditCard,
+  Calendar, Upload, X, Camera
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { submitKYCApplication } from '../../services/firestoreService';
+import { uploadToBunny } from '../../services/bunnyUpload.service';
 
 export default function BecomeCreator() {
   const navigate = useNavigate();
@@ -36,8 +29,14 @@ export default function BecomeCreator() {
     idType: 'drivers_license',
     idNumber: '',
     phoneNumber: profile?.phoneNumber || '',
-    documentLinks: '', // NEW: for Google Drive/Dropbox links
   });
+
+  // ✅ ID image states
+  const [idFront, setIdFront]   = useState(null); // { preview, url }
+  const [idBack, setIdBack]     = useState(null);
+  const [selfie, setSelfie]     = useState(null);
+  const [uploadingImg, setUploadingImg] = useState({ front: false, back: false, selfie: false });
+  const [imgError, setImgError] = useState('');
 
   const benefits = [
     'Earn money from your content',
@@ -59,37 +58,51 @@ export default function BecomeCreator() {
     setStep(step + 1);
   };
 
+  // ✅ Upload a single ID image to Bunny
+  const handleImageUpload = async (e, slot) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { setImgError('Image must be under 10MB'); return; }
+    if (!file.type.startsWith('image/')) { setImgError('Please upload an image file'); return; }
+    setImgError('');
+    const preview = URL.createObjectURL(file);
+    setUploadingImg(p => ({ ...p, [slot]: true }));
+    try {
+      const result = await uploadToBunny(file, { folder: `kyc/${currentUser.uid}`, contentType: 'media' });
+      const payload = { preview, url: result.cdnUrl };
+      if (slot === 'front')  setIdFront(payload);
+      if (slot === 'back')   setIdBack(payload);
+      if (slot === 'selfie') setSelfie(payload);
+    } catch { setImgError('Upload failed — please try again'); }
+    finally { setUploadingImg(p => ({ ...p, [slot]: false })); }
+  };
+
   const handleSubmitKYC = async (e) => {
     e.preventDefault();
-    
-    // Validation
-    if (!kycForm.fullName || !kycForm.dateOfBirth || !kycForm.address || 
+    if (!kycForm.fullName || !kycForm.dateOfBirth || !kycForm.address ||
         !kycForm.city || !kycForm.country || !kycForm.idNumber || !kycForm.phoneNumber) {
-      alert('Please fill in all required fields');
-      return;
+      alert('Please fill in all required fields'); return;
     }
-
-    // Age verification (must be 18+)
+    if (!idFront?.url || !idBack?.url || !selfie?.url) {
+      alert('Please upload all three ID images (front, back, and selfie)'); return;
+    }
     const birthDate = new Date(kycForm.dateOfBirth);
     const age = new Date().getFullYear() - birthDate.getFullYear();
-    if (age < 18) {
-      alert('You must be 18 or older to become a creator');
-      return;
-    }
-
+    if (age < 18) { alert('You must be 18 or older to become a creator'); return; }
     try {
       setIsSubmitting(true);
-      
-      await submitKYCApplication(currentUser.uid, kycForm);
+      await submitKYCApplication(currentUser.uid, {
+        ...kycForm,
+        idFrontUrl:  idFront.url,
+        idBackUrl:   idBack.url,
+        selfieUrl:   selfie.url,
+      });
       await fetchUserProfile(currentUser.uid);
-      
       setStep(3);
     } catch (error) {
       console.error('Error submitting KYC:', error);
       alert('Failed to submit application. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    } finally { setIsSubmitting(false); }
   };
 
   // Show status if already applied
@@ -421,11 +434,10 @@ export default function BecomeCreator() {
                   <span>ID Verification</span>
                 </h3>
 
-                <div className="space-y-4">
+                <div className="space-y-5">
+                  {/* ID Type */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      ID Type *
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">ID Type *</label>
                     <select
                       value={kycForm.idType}
                       onChange={(e) => setKycForm({ ...kycForm, idType: e.target.value })}
@@ -438,10 +450,9 @@ export default function BecomeCreator() {
                     </select>
                   </div>
 
+                  {/* ID Number */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      ID Number *
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">ID Number *</label>
                     <input
                       type="text"
                       value={kycForm.idNumber}
@@ -452,32 +463,67 @@ export default function BecomeCreator() {
                     />
                   </div>
 
-                  {/* Document Links (Optional) */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Document Links (Optional)
-                    </label>
-                    <input
-                      type="url"
-                      value={kycForm.documentLinks}
-                      onChange={(e) => setKycForm({ ...kycForm, documentLinks: e.target.value })}
-                      placeholder="Google Drive, Dropbox, or other secure link to your ID"
-                      className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Upload your ID to Google Drive or Dropbox and share the link here
-                    </p>
-                  </div>
+                  {/* Image uploads */}
+                  {imgError && (
+                    <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />{imgError}
+                    </div>
+                  )}
+
+                  {[{
+                    slot: 'front', label: 'ID Front *', hint: 'Clear photo of the front of your ID',
+                    state: idFront, icon: <CreditCard className="w-6 h-6 text-rose-400" />
+                  }, {
+                    slot: 'back', label: 'ID Back *', hint: 'Clear photo of the back of your ID',
+                    state: idBack, icon: <CreditCard className="w-6 h-6 text-rose-400" />
+                  }, {
+                    slot: 'selfie', label: 'Selfie Holding ID *', hint: 'Hold your ID next to your face — both must be visible',
+                    state: selfie, icon: <Camera className="w-6 h-6 text-rose-400" />
+                  }].map(({ slot, label, hint, state, icon }) => (
+                    <div key={slot}>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
+                      <label className={`relative flex flex-col items-center justify-center w-full rounded-xl border-2 border-dashed cursor-pointer transition overflow-hidden ${
+                        state ? 'border-rose-400 bg-rose-50' : 'border-gray-200 bg-gray-50 hover:border-rose-300 hover:bg-rose-50'
+                      }`} style={{ minHeight: 140 }}>
+                        <input type="file" accept="image/*" className="hidden"
+                          disabled={uploadingImg[slot]}
+                          onChange={(e) => handleImageUpload(e, slot)} />
+                        {uploadingImg[slot] ? (
+                          <Loader2 className="w-8 h-8 text-rose-400 animate-spin" />
+                        ) : state ? (
+                          <>
+                            <img src={state.preview} alt="" className="absolute inset-0 w-full h-full object-cover opacity-80" />
+                            <div className="relative z-10 bg-white/80 rounded-full p-1">
+                              <Check className="w-6 h-6 text-green-600" />
+                            </div>
+                            <p className="relative z-10 text-xs font-semibold text-green-700 mt-1">Uploaded ✓</p>
+                          </>
+                        ) : (
+                          <>
+                            {icon}
+                            <p className="text-sm font-semibold text-gray-600 mt-2">Click to upload</p>
+                            <p className="text-xs text-gray-400">{hint}</p>
+                          </>
+                        )}
+                      </label>
+                      {state && (
+                        <button type="button" onClick={() => {
+                          if (slot === 'front')  setIdFront(null);
+                          if (slot === 'back')   setIdBack(null);
+                          if (slot === 'selfie') setSelfie(null);
+                        }} className="mt-1 text-xs text-rose-500 hover:text-rose-700 flex items-center gap-1">
+                          <X className="w-3 h-3" /> Remove & re-upload
+                        </button>
+                      )}
+                    </div>
+                  ))}
 
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <div className="flex items-start space-x-3">
                       <Shield className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
                       <div className="text-sm text-blue-800">
-                        <p className="font-semibold mb-1">Document Verification Process</p>
-                        <p>
-                          Our team will contact you via email within 24-48 hours to complete identity verification. 
-                          You'll be asked to provide your ID documents securely through our verification partner.
-                        </p>
+                        <p className="font-semibold mb-1">🔒 Your documents are encrypted & secure</p>
+                        <p>Images are stored securely and only viewed by our verification team. We never share your documents with third parties.</p>
                       </div>
                     </div>
                   </div>

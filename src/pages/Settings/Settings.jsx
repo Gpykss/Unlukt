@@ -374,7 +374,11 @@ export default function Settings() {
                         <span className="font-bold text-gray-900">${parseFloat(priceDaily).toFixed(2)}</span>
                       </div>
                     )}
-                    <p className="text-xs text-gray-400 pt-1 border-t border-gray-200 mt-1">Platform fee: 20% · You receive 80% of each payment</p>
+                    <p className="text-xs text-gray-400 pt-1 border-t border-gray-200 mt-1">
+                      {profile?.role === 'ambassador'
+                        ? 'Platform fee: 10% · You receive 90% of each payment (Ambassador rate 🏆)'
+                        : 'Platform fee: 20% · You receive 80% of each payment'}
+                    </p>
                   </div>
                 )}
 

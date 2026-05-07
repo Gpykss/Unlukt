@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Home, Search, User, BarChart3, Wallet,
   Settings, LogOut, Plus, Crown, Shield,
-  Users, X, Phone
+  Users, X, Phone, Award
 } from 'lucide-react';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useAuth } from '../hooks/useAuth';
@@ -50,12 +50,15 @@ export default function GlobalSidebar({ isOpen, onClose }) {
     return () => clearInterval(interval);
   }, [currentUser, isCreator]);
 
+  const isAmbassador = profile?.role === 'ambassador';
+
   const creatorMenuItems = [
     { id: 'home', label: 'Home', icon: Home, path: '/feed' },
     { id: 'communities', label: 'Communities', icon: Users, path: '/communities' },
     { id: 'profile', label: 'Profile', icon: User, path: `/creator/${username || 'your-profile'}` },
     { id: 'search', label: 'Search', icon: Search, path: '/search' },
     { id: 'dashboard', label: 'Dashboard', icon: BarChart3, path: '/dashboard' },
+    ...(isAmbassador ? [{ id: 'ambassador', label: 'Ambassador', icon: Award, path: '/ambassador-dashboard', highlight: false }] : []),
     { id: 'wallet', label: 'Wallet', icon: Wallet, path: '/wallet', highlight: true },
     { id: 'settings', label: 'Settings', icon: Settings, path: '/settings' },
   ];

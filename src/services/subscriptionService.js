@@ -7,6 +7,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { deductFromWallet } from './walletService';
+import { getCreatorSplit, creditAmbassadorCommission } from './commissionService';
 
 export const DURATIONS = {
   daily:   { label: 'Daily',   days: 1,  badge: '24hrs'   },
@@ -82,8 +83,10 @@ export const subscribeToCreator = async (userId, creatorId, duration = 'monthly'
     duration,
   });
 
-  // 2. ✅ Credit creator using increment() — no getDoc needed
-  const creatorEarning = parseFloat((price * 0.8).toFixed(2));
+  // 2. ✅ Dynamic split: ambassador=90%, referred creator=80+5amb+15plat, normal=80/20
+  const { creatorEarning, platformFee, ambassadorCommission, ambassadorId } =
+    await getCreatorSplit(creatorId, price);
+
   const creatorBalRef = doc(db, 'creator_balances', creatorId);
   const month = new Date().toLocaleString('default', { month: 'short' });
   try {
@@ -104,6 +107,9 @@ export const subscribeToCreator = async (userId, creatorId, duration = 'monthly'
     });
   }
 
+  // ✅ Credit ambassador 5% commission if referred creator
+  await creditAmbassadorCommission(ambassadorId, ambassadorCommission, creatorId, 'subscription');
+
   // 3. Create or extend subscription
   const subId = `${userId}_${creatorId}`;
   const subRef = doc(db, 'subscriptions', subId);
@@ -118,7 +124,9 @@ export const subscribeToCreator = async (userId, creatorId, duration = 'monthly'
     amount: price,
     monthlyPrice: Number(monthlyPrice),
     creatorEarning,
-    platformFee: parseFloat((price * 0.2).toFixed(2)),
+    platformFee,
+    ambassadorCommission: ambassadorCommission || 0,
+    ambassadorId: ambassadorId || null,
     expiresAt: Timestamp.fromDate(expiresAt),
     updatedAt: serverTimestamp(),
   };
@@ -133,7 +141,6 @@ export const subscribeToCreator = async (userId, creatorId, duration = 'monthly'
     await updateDoc(subRef, { ...subData, expiresAt: Timestamp.fromDate(newExpiry) });
   } else {
     await setDoc(subRef, { ...subData, createdAt: serverTimestamp() });
-    // ✅ Increment subscribersCount on creator's user doc for NEW subscriptions
     try {
       const creatorUserRef = doc(db, 'users', creatorId);
       await updateDoc(creatorUserRef, {
@@ -153,7 +160,9 @@ export const subscribeToCreator = async (userId, creatorId, duration = 'monthly'
     durationLabel,
     amount: price,
     creatorEarning,
-    platformFee: parseFloat((price * 0.2).toFixed(2)),
+    platformFee,
+    ambassadorCommission: ambassadorCommission || 0,
+    ambassadorId: ambassadorId || null,
     expiresAt: Timestamp.fromDate(expiresAt),
     createdAt: serverTimestamp(),
   });

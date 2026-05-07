@@ -12,7 +12,8 @@ import {
   Clock,
   ArrowRight,
   Wallet,
-  Settings
+  Settings,
+  Award
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs, getCountFromServer } from 'firebase/firestore';
@@ -178,6 +179,17 @@ export default function Admin() {
       route: '/admin/payouts',
       stat: 'View',
       statLabel: 'Withdrawal Queue'
+    },
+    {
+      id: 'ambassadors',
+      title: 'Ambassadors',
+      description: 'View ambassador referral stats and commissions',
+      icon: Award,
+      color: 'amber',
+      gradient: 'from-amber-500 to-orange-500',
+      route: '/admin/ambassadors',
+      stat: 'View',
+      statLabel: 'Ambassador Panel'
     },
   ];
 

@@ -442,6 +442,10 @@ exports.uploadToBunny = onRequest(
     region: "us-central1",
     secrets: [BUNNY_STORAGE_PASSWORD],
     rawBody: true,
+    memory: "2GiB",          // ✅ Raises body buffer limit — handles large video uploads
+    timeoutSeconds: 300,     // ✅ 5 min timeout for large files
+    maxInstances: 10,
+    invoker: "public",       // ✅ Auth is handled manually via Bearer token
   },
   (req, res) => {
     corsHandler(req, res, async () => {
@@ -532,7 +536,7 @@ exports.sendCustomVerification = onRequest(
         const resend = new Resend(RESEND_API_KEY.value());
         
         await resend.emails.send({
-          from: "Unlukt Support <support@unlukt.com>",
+          from: "Unlukt <noreply@unlukt.com>",
           to: email,
           subject: "Verify Your Email Address",
           html: `
@@ -581,7 +585,7 @@ exports.sendSocialWelcomeEmail = onRequest(
         const resend = new Resend(RESEND_API_KEY.value());
 
         await resend.emails.send({
-          from: "Unlukt Team <support@unlukt.com>",
+          from: "Unlukt <noreply@unlukt.com>",
           to: email,
           subject: "Welcome to Unlukt! 🎉",
           html: `
@@ -630,7 +634,7 @@ exports.sendCustomPasswordReset = onRequest(
         const resend = new Resend(RESEND_API_KEY.value());
         
         await resend.emails.send({
-          from: "Unlukt Security <support@unlukt.com>",
+          from: "Unlukt <noreply@unlukt.com>",
           to: email,
           subject: "Reset Your Password",
           html: `
@@ -654,7 +658,8 @@ exports.sendCustomPasswordReset = onRequest(
   }
 );
 
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 
 exports.onUserCreatedWelcome = onDocumentCreated(
   {
@@ -676,7 +681,7 @@ exports.onUserCreatedWelcome = onDocumentCreated(
       const resend = new Resend(RESEND_API_KEY.value());
 
       await resend.emails.send({
-        from: "Unlukt Team <support@unlukt.com>",
+        from: "Unlukt <noreply@unlukt.com>",
         to: email,
         subject: "Welcome to Unlukt! \uD83C\uDF89",
         html: `
@@ -693,6 +698,301 @@ exports.onUserCreatedWelcome = onDocumentCreated(
       console.log(`✅ Welcome email sent to ${email}`);
     } catch (error) {
       console.error("onUserCreatedWelcome error:", error);
+    }
+  }
+);
+
+// ========== AMBASSADOR COMMISSION ON PAYOUT ==========
+exports.onPayoutComplete = onDocumentCreated(
+  {
+    document: "transactions/{txId}",
+    region: "us-central1",
+  },
+  async (event) => {
+    try {
+      const snapshot = event.data;
+      if (!snapshot) return;
+
+      const tx = snapshot.data();
+      const db = admin.firestore();
+
+      // Only process completed/approved payouts
+      if (!['completed', 'approved', 'paid'].includes(tx.status)) {
+        console.log(`⏭ Skipping transaction — status: ${tx.status}`);
+        return;
+      }
+
+      if (!tx.creatorId || !tx.amount) {
+        console.log("⏭ Skipping — missing creatorId or amount");
+        return;
+      }
+
+      // Get the creator
+      const creatorSnap = await db.collection("users").doc(tx.creatorId).get();
+      if (!creatorSnap.exists) return;
+      const creator = { id: creatorSnap.id, ...creatorSnap.data() };
+
+      // Check referral
+      if (!creator.referredBy) {
+        console.log(`ℹ️ Creator ${creator.id} has no referredBy — no commission`);
+        return;
+      }
+
+      // Get the ambassador
+      const ambassadorSnap = await db.collection("users").doc(creator.referredBy).get();
+      if (!ambassadorSnap.exists) return;
+      const ambassador = { id: ambassadorSnap.id, ...ambassadorSnap.data() };
+
+      // Check 1-year referral expiry (from creator.createdAt)
+      const creatorCreatedAt = creator.createdAt?.toDate?.() || new Date(creator.createdAt);
+      const expiresAt = new Date(creatorCreatedAt);
+      expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+
+      if (new Date() > expiresAt) {
+        console.log(`⏭ Referral expired for creator ${creator.id}`);
+        return;
+      }
+
+      const commissionRate = ambassador.referralCommissionRate || 0.05;
+      const commission = tx.amount * commissionRate;
+
+      console.log(`💰 Commission: $${commission.toFixed(2)} (${commissionRate * 100}%) for ambassador ${ambassador.id}`);
+
+      // Add to ambassador's balance
+      await db.collection("users").doc(ambassador.id).update({
+        ambassadorBalance: admin.firestore.FieldValue.increment(commission),
+        totalCommissionEarned: admin.firestore.FieldValue.increment(commission),
+      });
+
+      // Create commission record
+      await db.collection("referralCommissions").add({
+        ambassadorId: ambassador.id,
+        referredCreatorId: creator.id,
+        transactionId: event.params.txId,
+        amount: commission,
+        commissionRate,
+        status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        expiresAt,
+      });
+
+      console.log(`✅ Commission recorded for ambassador ${ambassador.id}`);
+    } catch (err) {
+      console.error("onPayoutComplete error:", err);
+    }
+  }
+);
+
+// ============================================================
+// ✅ EMAIL NOTIFICATIONS (Resend)
+// ============================================================
+// (imports already declared above)
+
+const ADMIN_EMAIL = "support@unlukt.com"; // ← your inbox
+const FROM_EMAIL  = "Unlukt <noreply@unlukt.com>";
+
+// ── helper ──────────────────────────────────────────────────
+async function sendEmail(apiKey, { to, subject, html }) {
+  const resend = new Resend(apiKey);
+  try {
+    await resend.emails.send({ from: FROM_EMAIL, to, subject, html });
+    console.log(`📧 Email sent to ${to}: ${subject}`);
+  } catch (err) {
+    console.error("Email send error:", err);
+  }
+}
+
+// ── 1. KYC Submitted → notify admin ─────────────────────────
+exports.onKYCSubmitted = onDocumentUpdated(
+  { document: "users/{userId}", region: "us-central1", secrets: [RESEND_API_KEY] },
+  async (event) => {
+    const before = event.data.before.data();
+    const after  = event.data.after.data();
+    if (before.kycStatus === after.kycStatus) return; // no change
+    if (after.kycStatus !== "pending") return;
+
+    await sendEmail(RESEND_API_KEY.value(), {
+      to: ADMIN_EMAIL,
+      subject: `🔔 New KYC Application — ${after.displayName || after.email}`,
+      html: `
+        <h2>New Creator KYC Submitted</h2>
+        <p><b>Name:</b> ${after.displayName || "N/A"}</p>
+        <p><b>Email:</b> ${after.email || "N/A"}</p>
+        <p><b>Username:</b> @${after.username || "N/A"}</p>
+        <p><b>Submitted:</b> ${new Date().toLocaleString()}</p>
+        <p><a href="https://unlukt.com/admin/kyc" style="background:#e11d48;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">Review Application →</a></p>
+      `,
+    });
+  }
+);
+
+// ── 2. KYC Approved/Rejected → notify user ──────────────────
+exports.onKYCDecision = onDocumentUpdated(
+  { document: "users/{userId}", region: "us-central1", secrets: [RESEND_API_KEY] },
+  async (event) => {
+    const before = event.data.before.data();
+    const after  = event.data.after.data();
+    if (before.kycStatus === after.kycStatus) return;
+    if (!["approved", "rejected"].includes(after.kycStatus)) return;
+    if (!after.email) return;
+
+    const approved = after.kycStatus === "approved";
+    await sendEmail(RESEND_API_KEY.value(), {
+      to: after.email,
+      subject: approved
+        ? "🎉 Your Creator Application is Approved!"
+        : "❌ Creator Application Update",
+      html: approved ? `
+        <h2>Welcome to the Creator Family! 🎉</h2>
+        <p>Hi ${after.displayName || "there"},</p>
+        <p>Great news — your identity has been verified and your creator account is now <b>active</b>.</p>
+        <p>You can now start publishing content, set subscription prices, and earn money from your fans.</p>
+        <p><a href="https://unlukt.com/dashboard" style="background:#e11d48;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">Go to Dashboard →</a></p>
+        <p style="color:#888;font-size:12px;">The Unlukt Team</p>
+      ` : `
+        <h2>Application Status Update</h2>
+        <p>Hi ${after.displayName || "there"},</p>
+        <p>Unfortunately, your creator application was <b>not approved</b> at this time.</p>
+        ${after.kycRejectionReason ? `<p><b>Reason:</b> ${after.kycRejectionReason}</p>` : ""}
+        <p>If you believe this is an error or would like to reapply, please contact our support team.</p>
+        <p><a href="mailto:support@unlukt.com" style="background:#e11d48;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">Contact Support</a></p>
+        <p style="color:#888;font-size:12px;">The Unlukt Team</p>
+      `,
+    });
+  }
+);
+
+// ── 3. Withdrawal Requested → notify admin ───────────────────
+exports.onWithdrawalRequested = onDocumentCreated(
+  { document: "withdrawals/{wId}", region: "us-central1", secrets: [RESEND_API_KEY] },
+  async (event) => {
+    const w = event.data.data();
+    if (!w) return;
+
+    // Get user info
+    let userEmail = w.email || "";
+    let userName  = w.displayName || "Unknown";
+    if (w.userId) {
+      const uSnap = await admin.firestore().collection("users").doc(w.userId).get();
+      if (uSnap.exists) {
+        userEmail = uSnap.data().email || userEmail;
+        userName  = uSnap.data().displayName || userName;
+      }
+    }
+
+    await sendEmail(RESEND_API_KEY.value(), {
+      to: ADMIN_EMAIL,
+      subject: `💸 Withdrawal Request — ${userName} ($${Number(w.amount || 0).toFixed(2)})`,
+      html: `
+        <h2>New Withdrawal Request</h2>
+        <p><b>User:</b> ${userName} (${userEmail})</p>
+        <p><b>Amount:</b> $${Number(w.amount || 0).toFixed(2)}</p>
+        <p><b>Method:</b> ${w.method || "N/A"} ${w.currency ? `(${w.currency})` : ""}</p>
+        <p><b>Wallet/Account:</b> ${w.walletAddress || w.accountNumber || "N/A"}</p>
+        <p><b>Submitted:</b> ${new Date().toLocaleString()}</p>
+        <p><a href="https://unlukt.com/admin" style="background:#e11d48;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">Review in Admin →</a></p>
+      `,
+    });
+  }
+);
+
+// ── 4. Withdrawal Approved/Rejected → notify user ────────────
+exports.onWithdrawalDecision = onDocumentUpdated(
+  { document: "withdrawals/{wId}", region: "us-central1", secrets: [RESEND_API_KEY] },
+  async (event) => {
+    const before = event.data.before.data();
+    const after  = event.data.after.data();
+    if (before.status === after.status) return;
+    if (!["approved", "completed", "rejected"].includes(after.status)) return;
+
+    // Get user email
+    let toEmail = after.email || "";
+    let name    = after.displayName || "there";
+    if (after.userId && !toEmail) {
+      const uSnap = await admin.firestore().collection("users").doc(after.userId).get();
+      if (uSnap.exists) {
+        toEmail = uSnap.data().email || "";
+        name    = uSnap.data().displayName || name;
+      }
+    }
+    if (!toEmail) return;
+
+    const approved = ["approved", "completed"].includes(after.status);
+    await sendEmail(RESEND_API_KEY.value(), {
+      to: toEmail,
+      subject: approved
+        ? `✅ Withdrawal of $${Number(after.amount || 0).toFixed(2)} Approved`
+        : `❌ Withdrawal Request Update`,
+      html: approved ? `
+        <h2>Your Withdrawal is Approved! ✅</h2>
+        <p>Hi ${name},</p>
+        <p>Your withdrawal of <b>$${Number(after.amount || 0).toFixed(2)}</b> has been approved and is being processed.</p>
+        <p>Please allow 1–3 business days for the funds to arrive depending on your chosen method.</p>
+        <p style="color:#888;font-size:12px;">The Unlukt Team</p>
+      ` : `
+        <h2>Withdrawal Request Update</h2>
+        <p>Hi ${name},</p>
+        <p>Your withdrawal request of <b>$${Number(after.amount || 0).toFixed(2)}</b> could not be processed at this time.</p>
+        ${after.rejectionReason ? `<p><b>Reason:</b> ${after.rejectionReason}</p>` : ""}
+        <p>Your balance has been restored. Please contact support if you have questions.</p>
+        <p><a href="mailto:support@unlukt.com" style="background:#e11d48;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">Contact Support</a></p>
+        <p style="color:#888;font-size:12px;">The Unlukt Team</p>
+      `,
+    });
+  }
+);
+
+// ── 5. Subscription Expiry Reminder (runs every 6 hours) ─────
+exports.subscriptionExpiryReminder = onSchedule(
+  { schedule: "every 6 hours", region: "us-central1", secrets: [RESEND_API_KEY] },
+  async () => {
+    const db = admin.firestore();
+    const now = new Date();
+    const in48h = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+
+    // Find active subscriptions expiring within 48 hours
+    const snap = await db.collection("subscriptions")
+      .where("status", "==", "active")
+      .where("expiresAt", "<=", in48h)
+      .where("expiresAt", ">", now)
+      .get();
+
+    console.log(`⏰ Found ${snap.size} subscriptions expiring within 48h`);
+
+    for (const doc of snap.docs) {
+      const sub = doc.data();
+      if (sub.reminderSent) continue; // don't double-send
+
+      // Get subscriber info
+      const userSnap = await db.collection("users").doc(sub.userId).get();
+      if (!userSnap.exists) continue;
+      const user = userSnap.data();
+      if (!user.email) continue;
+
+      // Get creator info
+      const creatorSnap = await db.collection("users").doc(sub.creatorId).get();
+      const creator = creatorSnap.exists ? creatorSnap.data() : {};
+      const creatorName = creator.displayName || "your creator";
+
+      const expiresAt = sub.expiresAt?.toDate?.() || new Date(sub.expiresAt);
+      const hoursLeft = Math.round((expiresAt - now) / 3600000);
+
+      await sendEmail(RESEND_API_KEY.value(), {
+        to: user.email,
+        subject: `⏳ Your subscription to ${creatorName} expires in ${hoursLeft}h`,
+        html: `
+          <h2>Your Subscription is Expiring Soon ⏳</h2>
+          <p>Hi ${user.displayName || "there"},</p>
+          <p>Your subscription to <b>${creatorName}</b> will expire in approximately <b>${hoursLeft} hours</b>.</p>
+          <p>To keep enjoying their exclusive content, top up your wallet and renew your subscription before it expires.</p>
+          <p><a href="https://unlukt.com/wallet" style="background:#e11d48;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">Top Up Wallet →</a></p>
+          <p style="color:#888;font-size:12px;">This reminder was sent because your subscription ends on ${expiresAt.toLocaleDateString()}.</p>
+          <p style="color:#888;font-size:12px;">The Unlukt Team</p>
+        `,
+      });
+
+      // Mark reminder as sent so it doesn't send again
+      await doc.ref.update({ reminderSent: true });
     }
   }
 );

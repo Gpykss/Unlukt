@@ -87,7 +87,11 @@ export const createUserProfile = async (userId, profileData) => {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       isOnline: false,
-      lastSeen: serverTimestamp()
+      lastSeen: serverTimestamp(),
+
+      // ✅ Pass-through optional fields that callers may provide
+      ...(profileData.referredBy   ? { referredBy: profileData.referredBy }     : {}),
+      ...(profileData.phoneNumber  ? { phoneNumber: profileData.phoneNumber }    : {}),
     };
 
     await setDoc(userRef, userData);

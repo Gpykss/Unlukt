@@ -8,8 +8,7 @@ import { db } from '../../config/firebase';
 import { doc, getDoc, collection, addDoc, serverTimestamp, increment, setDoc, updateDoc, query, where, getDocs } from 'firebase/firestore';
 import { getWalletBalance, deductFromWallet } from '../../services/walletService';
 import { MINIMUM_VIDEO_PRICE, CALL_DURATIONS, MIN_BOOKING_LEAD_MINS } from '../../services/videoCallService';
-
-const PLATFORM_FEE = 0.15;
+import { getCreatorSplit, creditAmbassadorCommission } from '../../services/commissionService';
 
 export default function BookVideoCall() {
   const { creatorId } = useParams();
@@ -125,7 +124,9 @@ export default function BookVideoCall() {
         return;
       }
 
-      const creatorEarning = price * (1 - PLATFORM_FEE);
+      // ✅ Dynamic split via commission service
+      const { creatorEarning, platformFee, ambassadorCommission, ambassadorId } =
+        await getCreatorSplit(creator.id, price);
 
       await deductFromWallet(currentUser.uid, price, 'Video call booking', {
         contentType: 'video_call', creatorId: creator.id,
@@ -137,7 +138,9 @@ export default function BookVideoCall() {
         userId: currentUser.uid,
         duration: selectedDuration,
         price, creatorEarning,
-        platformFee: price * PLATFORM_FEE,
+        platformFee,
+        ambassadorCommission: ambassadorCommission || 0,
+        ambassadorId: ambassadorId || null,
         scheduledAt: scheduled,
         note, status: 'confirmed',
         creatorPaid: false,
@@ -161,6 +164,9 @@ export default function BookVideoCall() {
           createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
         });
       }
+
+      // ✅ Credit ambassador commission
+      await creditAmbassadorCommission(ambassadorId, ambassadorCommission, creator.id, 'video_call');
 
       await addDoc(collection(db, 'pending_releases'), {
         creatorId: creator.id, amount: creatorEarning,

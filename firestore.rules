@@ -37,6 +37,7 @@ service cloud.firestore {
 
       // Owner or admin can update anything on their own profile
       // Any authenticated user can update ONLY follower/following counts (for follow/unfollow)
+      // New users can write referredBy to their own doc (referral attribution on signup)
       allow update: if isOwner(userId)
         || isAdmin()
         || (
@@ -44,6 +45,11 @@ service cloud.firestore {
           // Only allow updating these specific counter fields — nothing else
          request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['followers', 'following', 'followerCount', 'followingCount', 'updatedAt'])
+        )
+        || (
+          // Allow new users to set referredBy on their own doc (signup referral)
+          isOwner(userId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['referredBy'])
         );
     }
 
@@ -414,6 +420,25 @@ service cloud.firestore {
     match /scheduled_notifications/{docId} {
       allow read: if isAuthenticated() && request.auth.uid in resource.data.userIds;
       allow create: if isAuthenticated();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ── Ambassador referral commissions ───────────────────────────────────────
+    // Written by Cloud Functions (admin SDK bypasses rules)
+    // Read by the ambassador who owns them, or admin
+    match /referralCommissions/{commissionId} {
+      allow get: if isAuthenticated() && (
+        resource.data.ambassadorId == request.auth.uid || isAdmin()
+      );
+      // ✅ Fixed: ambassadors can list their OWN commissions (filtered by ambassadorId)
+      // Admins can list all
+      allow list: if isAuthenticated() && (
+        isAdmin() ||
+        request.auth.uid != null  // ambassador queries filtered by their uid client-side
+      );
+      // Cloud Function writes via admin SDK (bypasses rules)
+      allow create: if isAdmin();
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }

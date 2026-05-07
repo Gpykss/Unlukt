@@ -61,6 +61,8 @@ import CryptoPayments from './pages/Admin/CryptoPayments';
 import NGNPayments from './pages/Admin/NGNPayments';
 import PlatformSettings from './pages/Admin/PlatformSettings';
 import AdminPayouts from './pages/Admin/Payouts';
+import Ambassadors from './pages/Admin/Ambassadors';
+import AmbassadorDashboard from './pages/Dashboard/AmbassadorDashboard';
 
 // Pages that should have NO navigation chrome
 const NO_NAV_PATHS = new Set([
@@ -157,6 +159,9 @@ function AppContent() {
           <Route path="/admin/ngn-payments" element={<AdminRoute><NGNPayments /></AdminRoute>} />
           <Route path="/admin/settings" element={<AdminRoute><PlatformSettings /></AdminRoute>} />
           <Route path="/admin/payouts" element={<AdminRoute><AdminPayouts /></AdminRoute>} />
+          <Route path="/admin/ambassadors" element={<AdminRoute><Ambassadors /></AdminRoute>} />
+          {/* Ambassador Dashboard */}
+          <Route path="/ambassador-dashboard" element={<ProtectedRoute><AmbassadorDashboard /></ProtectedRoute>} />
         </Routes>
       </div>
 

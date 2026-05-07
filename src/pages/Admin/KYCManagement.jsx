@@ -377,10 +377,10 @@ export default function KYCManagement() {
                   </div>
                 </div>
 
-                {/* ID Info */}
+                {/* ID Images */}
                 <div className="pt-4 border-t border-gray-200">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-3">ID Verification</h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <h4 className="text-lg font-semibold text-gray-900 mb-1">ID Verification</h4>
+                  <div className="grid grid-cols-2 gap-4 mb-4">
                     <div>
                       <p className="text-sm text-gray-500">ID Type</p>
                       <p className="font-medium text-gray-900">
@@ -391,21 +391,42 @@ export default function KYCManagement() {
                       <p className="text-sm text-gray-500">ID Number</p>
                       <p className="font-medium text-gray-900">{selectedApp.kycData?.idNumber || 'N/A'}</p>
                     </div>
-                    {selectedApp.kycData?.documentLinks && (
-                      <div className="col-span-2">
-                        <p className="text-sm text-gray-500 mb-2">Document Link</p>
-                        <a
-                          href={selectedApp.kycData.documentLinks}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center space-x-2 px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg font-medium transition"
-                        >
-                          <ExternalLink className="w-4 h-4" />
-                          <span>View Document</span>
-                        </a>
-                      </div>
-                    )}
                   </div>
+
+                  {/* Uploaded images */}
+                  <p className="text-sm font-semibold text-gray-700 mb-3">📎 Uploaded Documents</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { label: 'ID Front',        url: selectedApp.kycData?.idFrontUrl },
+                      { label: 'ID Back',         url: selectedApp.kycData?.idBackUrl  },
+                      { label: 'Selfie with ID',  url: selectedApp.kycData?.selfieUrl  },
+                    ].map(({ label, url }) => (
+                      <div key={label} className="flex flex-col items-center">
+                        <p className="text-xs text-gray-500 mb-1 font-medium">{label}</p>
+                        {url ? (
+                          <a href={url} target="_blank" rel="noopener noreferrer"
+                            className="block w-full rounded-xl overflow-hidden border-2 border-gray-200 hover:border-rose-400 transition group relative"
+                            style={{ aspectRatio: '4/3' }}
+                          >
+                            <img src={url} alt={label} className="w-full h-full object-cover group-hover:opacity-90 transition" />
+                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/30 transition">
+                              <ExternalLink className="w-6 h-6 text-white" />
+                            </div>
+                          </a>
+                        ) : (
+                          <div className="w-full rounded-xl border-2 border-dashed border-red-300 bg-red-50 flex items-center justify-center text-red-400 text-xs font-semibold"
+                            style={{ aspectRatio: '4/3' }}>
+                            Not uploaded
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {(!selectedApp.kycData?.idFrontUrl || !selectedApp.kycData?.idBackUrl || !selectedApp.kycData?.selfieUrl) && (
+                    <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
+                      ⚠️ Some images are missing — this applicant submitted before the image upload requirement was added.
+                    </p>
+                  )}
                 </div>
 
                 {/* Actions */}

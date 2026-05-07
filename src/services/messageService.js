@@ -233,6 +233,9 @@ export const subscribeToConversations = (userId, callback) => {
       }
 
       callback(conversations);
+    }, (error) => {
+      console.warn('⚠️ Conversations listener error (non-fatal):', error.message);
+      callback([]);
     });
 
     return unsubscribe;
@@ -290,7 +293,7 @@ export const subscribeToUnreadMessageCount = (userId, callback) => {
   try {
     const q = query(
       collection(db, 'conversations'),
-      where('participants', '==', userId)
+      where('participants', 'array-contains', userId)  // ✅ Fixed: was '==' which is wrong for arrays
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       let totalUnread = 0;
@@ -298,6 +301,9 @@ export const subscribeToUnreadMessageCount = (userId, callback) => {
         totalUnread += doc.data().unreadCount?.[userId] || 0;
       });
       callback(totalUnread);
+    }, (error) => {
+      console.warn('⚠️ Unread message count listener error (non-fatal):', error.message);
+      callback(0);
     });
     return unsubscribe;
   } catch (error) {

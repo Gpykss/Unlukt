@@ -1,4 +1,4 @@
-// src/pages/NewPost/NewPost.jsx - WITH CLOUDINARY + REQUIRED SFW/NSFW
+// src/pages/NewPost/NewPost.jsx - NO SIZE LIMIT + VIDEO COMPRESSION
 
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
@@ -13,13 +13,15 @@ import {
   Crown,
   Loader2,
   ShieldAlert,
-  ShieldCheck
+  ShieldCheck,
+  Zap
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { useAuth } from '../../hooks/useAuth';
 import { createPost } from '../../services/postService';
-import { uploadToBunny as uploadMedia } from '../../services/bunnyUpload.service';
+import { auth } from '../../config/firebase';
+import { compressVideo } from '../../utils/videoCompression';
 
 export default function NewPost() {
   const navigate = useNavigate();
@@ -33,9 +35,11 @@ export default function NewPost() {
   const [mediaType, setMediaType] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [fileError, setFileError] = useState(''); // ✅ inline file validation error
 
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadPhase, setUploadPhase] = useState(''); // 'compressing' | 'uploading'
   const [showSuccess, setShowSuccess] = useState(false);
 
   const [tags, setTags] = useState('');
@@ -70,16 +74,28 @@ export default function NewPost() {
     const file = e.target.files[0];
     if (!file) return;
 
-    const maxSize = 50 * 1024 * 1024; // 50MB
-    if (file.size > maxSize) {
-      alert('File is too large. Maximum size is 50MB.');
+    setFileError(''); // clear previous error
+
+    // ✅ 1GB limit for videos
+    const ONE_GB = 1 * 1024 * 1024 * 1024;
+    if (mediaType === 'video' && file.size > ONE_GB) {
+      setFileError('Video file is too large. Maximum size is 1GB. Please compress your video before uploading.');
+      e.target.value = '';
+      return;
+    }
+
+    // ✅ 50MB limit for images
+    const FIFTY_MB = 50 * 1024 * 1024;
+    if (mediaType === 'image' && file.size > FIFTY_MB) {
+      setFileError('Image file is too large. Maximum size is 50MB.');
+      e.target.value = '';
       return;
     }
 
     const fileType = file.type.split('/')[0];
     if ((mediaType === 'image' && fileType !== 'image') ||
         (mediaType === 'video' && fileType !== 'video')) {
-      alert('Invalid file type selected.');
+      setFileError('Invalid file type selected.');
       return;
     }
 
@@ -107,6 +123,56 @@ export default function NewPost() {
     !uploading &&
     contentRating !== '' &&
     (visibility !== 'paid' || (price && parseFloat(price) > 0));
+
+  // ✅ XHR upload with real progress — replaces fetch() in bunnyUpload.service
+  const uploadWithProgress = (file, originalName, onProgress) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const user = auth.currentUser;
+        if (!user) throw new Error('Not logged in');
+        const token = await user.getIdToken();
+        const endpoint = import.meta.env.VITE_UPLOAD_ENDPOINT;
+        if (!endpoint) throw new Error('Missing VITE_UPLOAD_ENDPOINT');
+
+        const form = new FormData();
+        // Use original filename for extension detection server-side
+        const blob = file instanceof Blob && !(file instanceof File)
+          ? new File([file], originalName || 'video.mp4', { type: file.type || 'video/mp4' })
+          : file;
+        form.append('file', blob);
+        form.append('folder', 'posts');
+        form.append('contentType', 'media');
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', endpoint);
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            onProgress(Math.round((e.loaded / e.total) * 100));
+          }
+        };
+
+        xhr.onload = () => {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (xhr.status >= 200 && xhr.status < 300 && data.success) {
+              resolve(data);
+            } else {
+              reject(new Error(data.error || 'Upload failed'));
+            }
+          } catch {
+            reject(new Error('Invalid server response'));
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+        xhr.send(form);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  };
 
   const handleSubmit = async () => {
     if (!isCreator) {
@@ -138,25 +204,42 @@ export default function NewPost() {
 
       // Upload media to Bunny if file is selected
       if (selectedFile) {
-        console.log('📤 Uploading media to Bunny...');
-        console.log('🔍 Selected file type:', selectedFile.type);
-        console.log('🔍 Selected file name:', selectedFile.name);
-        
-        // Show progress manually (since uploadToBunny doesn't support progress callback)
-       setUploadProgress(30);
+        const isVideoFile = selectedFile.type.startsWith('video');
 
-        const uploadResult = await uploadMedia(selectedFile, { 
-          folder: 'posts', 
-          contentType: 'media' 
-        });
+        let fileToUpload = selectedFile;
+
+        // ✅ Compress video client-side before upload
+        if (isVideoFile) {
+          setUploadPhase('compressing');
+          setUploadProgress(0);
+          console.log('🗜️ Compressing video...');
+          fileToUpload = await compressVideo(selectedFile, (pct) => {
+            setUploadProgress(Math.round(pct * 0.4)); // compression = 0-40%
+          });
+          console.log(`✅ Compressed: ${(fileToUpload.size / 1024 / 1024).toFixed(1)} MB`);
+        }
+
+        setUploadPhase('uploading');
+        setUploadProgress(isVideoFile ? 40 : 0);
+        console.log('📤 Uploading to Bunny...');
+
+        // ✅ XHR with real upload progress
+        const uploadResult = await uploadWithProgress(
+          fileToUpload,
+          selectedFile.name,
+          (pct) => {
+            // pct 0-100 maps to 40-100% (if video, 0-100% if image)
+            const base = isVideoFile ? 40 : 0;
+            setUploadProgress(Math.round(base + pct * (100 - base) / 100));
+          }
+        );
 
         setUploadProgress(100);
-
         console.log('✅ Full upload result:', uploadResult);
 
-        const cdnUrl = uploadResult.cdnUrl; // ✅ FIXED: was uploadResult.url
+        const cdnUrl = uploadResult.cdnUrl;
 
-        const isVideo = selectedFile.type.startsWith('video') || 
+        const isVideo = selectedFile.type.startsWith('video') ||
                         uploadResult.mimeType?.startsWith('video/') ||
                         /\.(mp4|mov|avi|webm|mkv)$/i.test(cdnUrl);
 
@@ -200,6 +283,7 @@ export default function NewPost() {
     } finally {
       setUploading(false);
       setUploadProgress(0);
+      setUploadPhase('');
     }
   };
 
@@ -435,9 +519,13 @@ export default function NewPost() {
             className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6"
           >
             <div className="flex items-center space-x-3 mb-2">
-              <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+              {uploadPhase === 'compressing'
+                ? <Zap className="w-5 h-5 text-amber-500 animate-pulse" />
+                : <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />}
               <span className="text-sm font-semibold text-blue-900">
-                Uploading... {uploadProgress}%
+                {uploadPhase === 'compressing'
+                  ? `Compressing video... ${uploadProgress}%`
+                  : `Uploading... ${uploadProgress}%`}
               </span>
             </div>
             <div className="w-full bg-blue-200 rounded-full h-2">
@@ -446,6 +534,30 @@ export default function NewPost() {
                 style={{ width: `${uploadProgress}%` }}
               />
             </div>
+            {uploadPhase === 'compressing' && (
+              <p className="text-xs text-blue-600 mt-1">Reducing file size before upload — won't take long.</p>
+            )}
+          </motion.div>
+        )}
+
+        {/* ✅ File validation error banner */}
+        {fileError && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4 flex items-start space-x-3"
+          >
+            <span className="text-red-500 text-lg">⚠️</span>
+            <div>
+              <p className="text-sm font-semibold text-red-700">File not accepted</p>
+              <p className="text-sm text-red-600 mt-0.5">{fileError}</p>
+            </div>
+            <button
+              onClick={() => setFileError('')}
+              className="ml-auto text-red-400 hover:text-red-600 transition"
+            >
+              ✕
+            </button>
           </motion.div>
         )}
 
@@ -472,7 +584,7 @@ export default function NewPost() {
                 </button>
               </div>
               <p className="text-sm text-gray-500 mb-2">Click to select media type</p>
-              <p className="text-xs text-gray-400">JPG, PNG, GIF, MP4 or MOV. Max 50MB</p>
+              <p className="text-xs text-gray-400">JPG, PNG, GIF · Max 50MB &nbsp;|&nbsp; MP4 or MOV · Max 1GB</p>
             </div>
           ) : (
             <div className="relative">
