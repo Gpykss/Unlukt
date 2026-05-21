@@ -25,19 +25,19 @@ export default function Landing() {
   const [currentCreatorIndex, setCurrentCreatorIndex] = useState(0);
 
   const trendingCreators = [
-    { id: 1, name: 'Feronia Morris', avatar: feroniaImg1, role: 'Influencer' },
-    { id: 2, name: 'Lisara Cook', avatar: lisaraImg, role: 'Influencer' },
-    { id: 3, name: 'Claire', avatar: claireImg1, role: 'Influencer' },
-    { id: 4, name: 'Jojo', avatar: jojoImg, role: 'Influencer' },
-    { id: 5, name: 'Ogechi', avatar: ogechiImg, role: 'Influencer' },
-    { id: 6, name: 'Feronia', avatar: feroniaImg2, role: 'Influencer' },
+    { id: 1, name: 'Feronia Morris', avatar: feroniaImg1, role: 'Influencer', username: 'feronia' },
+    { id: 2, name: 'Lisara Cook', avatar: lisaraImg, role: 'Influencer', username: 'shadylady' },
+    { id: 3, name: 'Claire', avatar: claireImg1, role: 'Influencer', username: 'claire' },
+    { id: 4, name: 'Jojo', avatar: jojoImg, role: 'Influencer', username: 'jojo' },
+    { id: 5, name: 'Ogechi', avatar: ogechiImg, role: 'Influencer', username: 'ogechi' },
+    { id: 6, name: 'Feronia', avatar: feroniaImg2, role: 'Influencer', username: 'feronia' },
   ];
 
   const featuredCreators = [
     {
       id: 1,
       name: 'Feronia Morris',
-      username: '@feronia.morris',
+      username: '@feronia',
       price: '$9.99',
       subscribers: '2.5K',
       posts: 145,
@@ -47,7 +47,7 @@ export default function Landing() {
     {
       id: 2,
       name: 'Lisara Cook',
-      username: '@lisara.cook',
+      username: '@shadylady',
       price: '$14.99',
       subscribers: '5.2K',
       posts: 289,
@@ -306,7 +306,7 @@ export default function Landing() {
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: index * 0.05 }}
-                onClick={() => currentUser ? navigate('/feed') : navigate('/register')}
+                onClick={() => navigate(`/creator/${creator.username}`)}
                 className="group cursor-pointer"
               >
                 <div className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-4 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all h-52 flex flex-col items-center justify-center">
@@ -342,7 +342,7 @@ export default function Landing() {
               {[...trendingCreators, ...trendingCreators].map((creator, idx) => (
                 <SwiperSlide key={`${creator.id}-${idx}`}>
                   <div
-                    onClick={() => currentUser ? navigate('/feed') : navigate('/register')}
+                    onClick={() => navigate(`/creator/${creator.username}`)}
                     className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-4 sm:p-6 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all cursor-pointer h-52 flex flex-col items-center justify-center"
                   >
                     <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden mb-3 border-2 border-red-200 shadow-md">
@@ -410,7 +410,7 @@ export default function Landing() {
                     </div>
                   </div>
 
-                  <button onClick={() => currentUser ? navigate('/feed') : navigate('/register')} className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white py-3.5 rounded-xl font-semibold transition-all shadow-lg shadow-red-200 hover:shadow-xl hover:scale-105">
+                  <button onClick={() => navigate(`/creator/${featuredCreators[currentCreatorIndex].username.replace('@', '')}`)} className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white py-3.5 rounded-xl font-semibold transition-all shadow-lg shadow-red-200 hover:shadow-xl hover:scale-105">
                     Subscribe Now
                   </button>
                 </div>
