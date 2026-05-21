@@ -21,26 +21,8 @@ import { getUserProfile } from '../../services/firestoreService';
 import { getWalletBalance, deductFromWallet } from '../../services/walletService';
 import { doc, updateDoc, setDoc, serverTimestamp, collection, increment } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-
-// ✅ Watermark component — same as PostModal
-function DiagonalWatermark({ username }) {
-  if (!username) return null;
-  const text = `@${username}`;
-  return (
-    <div className="absolute inset-0 pointer-events-none overflow-hidden select-none z-10">
-      <svg className="w-full h-full opacity-[0.15]" xmlns="http://www.w3.org/2000/svg" style={{ position: 'absolute', inset: 0 }}>
-        {Array.from({ length: 6 }).map((_, i) => (
-          <text key={i} x="50%" y={`${10 + i * 16}%`}
-            textAnchor="middle" dominantBaseline="middle"
-            transform={`rotate(-35, 50%, ${10 + i * 16}%)`}
-            fill="white" fontSize="13" fontWeight="bold" fontFamily="monospace" letterSpacing="2">
-            {text}
-          </text>
-        ))}
-      </svg>
-    </div>
-  );
-}
+import WatermarkedImage from '../../components/Media/WatermarkedImage';
+import WatermarkedVideo from '../../components/Media/WatermarkedVideo';
 
 export default function CommunityDetail() {
   const navigate = useNavigate();
@@ -600,12 +582,13 @@ function CommunityPostCard({ post, isOwner, communityCreatorId, canComment }) {
         <div className={`grid gap-1 px-4 pb-3 ${post.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
           {post.images.map((url, i) => (
             <div key={i} className="rounded-xl overflow-hidden bg-gray-100 relative">
-              <img
+              <WatermarkedImage
                 src={url} alt=""
                 className="w-full h-auto object-contain"
                 style={{ maxHeight: post.images.length === 1 ? '500px' : '240px' }}
+                showWatermark={showWatermark}
+                username={viewerUsername}
               />
-              {showWatermark && <DiagonalWatermark username={viewerUsername} />}
             </div>
           ))}
         </div>
@@ -616,8 +599,16 @@ function CommunityPostCard({ post, isOwner, communityCreatorId, canComment }) {
         <div className="space-y-1 px-4 pb-3">
           {post.videos.map((url, i) => (
             <div key={i} className="rounded-xl overflow-hidden bg-gray-900 relative">
-              <video src={url} controls playsInline preload="metadata" className="w-full" onClick={e => e.stopPropagation()} />
-              {showWatermark && <DiagonalWatermark username={viewerUsername} />}
+              <WatermarkedVideo
+                src={url}
+                controls
+                playsInline
+                preload="metadata"
+                className="w-full"
+                onClick={e => e.stopPropagation()}
+                showWatermark={showWatermark}
+                username={viewerUsername}
+              />
             </div>
           ))}
         </div>

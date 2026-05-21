@@ -88,11 +88,20 @@ export default function GlobalSidebar({ isOpen, onClose }) {
   };
 
   const handleNavigation = (path) => {
-    navigate(path);
+    if (!currentUser && path !== '/feed' && path !== '/search') {
+      navigate('/login');
+    } else {
+      navigate(path);
+    }
     if (onClose) onClose();
   };
 
   const handleProfileClick = () => {
+    if (!currentUser) {
+      navigate('/login');
+      if (onClose) onClose();
+      return;
+    }
     if (username) {
       navigate(`/creator/${username.replace('@', '')}`);
     } else {
@@ -120,26 +129,43 @@ export default function GlobalSidebar({ isOpen, onClose }) {
         </div>
 
         {/* Profile */}
-        <div onClick={handleProfileClick}
-          className="p-6 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition flex-shrink-0">
-          <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-semibold overflow-hidden">
-              {avatar
-                ? <img src={avatar} alt={displayName} className="w-full h-full object-cover" />
-                : <span className="text-xl">{displayName?.charAt(0).toUpperCase()}</span>}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center space-x-1">
-                <h3 className="font-bold text-gray-900 truncate">{displayName}</h3>
-                {isCreator && <Crown className="w-4 h-4 text-rose-500 flex-shrink-0" />}
-                {profile?.isAdmin && <Shield className="w-4 h-4 text-blue-500 flex-shrink-0" />}
+        {!currentUser ? (
+          <div className="p-6 border-b border-gray-200 flex-shrink-0 bg-gradient-to-br from-rose-50/50 to-pink-50/50">
+            <div className="flex flex-col space-y-3">
+              <div>
+                <h3 className="font-bold text-gray-900 text-sm">Welcome to OGFans</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Sign in to support creators and view content.</p>
               </div>
-              {username
-                ? <p className="text-sm text-gray-500 truncate">@{username}</p>
-                : <p className="text-xs text-rose-500 font-medium">Complete profile</p>}
+              <button 
+                onClick={() => handleNavigation('/login')}
+                className="w-full py-2.5 px-4 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-lg text-sm font-semibold transition shadow-md hover:shadow-lg flex items-center justify-center space-x-2 text-center"
+              >
+                <span>Sign In / Register</span>
+              </button>
             </div>
           </div>
-        </div>
+        ) : (
+          <div onClick={handleProfileClick}
+            className="p-6 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition flex-shrink-0">
+            <div className="flex items-center space-x-3">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-semibold overflow-hidden">
+                {avatar
+                  ? <img src={avatar} alt={displayName} className="w-full h-full object-cover" />
+                  : <span className="text-xl">{displayName?.charAt(0).toUpperCase()}</span>}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center space-x-1">
+                  <h3 className="font-bold text-gray-900 truncate">{displayName}</h3>
+                  {isCreator && <Crown className="w-4 h-4 text-rose-500 flex-shrink-0" />}
+                  {profile?.isAdmin && <Shield className="w-4 h-4 text-blue-500 flex-shrink-0" />}
+                </div>
+                {username
+                  ? <p className="text-sm text-gray-500 truncate">@{username}</p>
+                  : <p className="text-xs text-rose-500 font-medium">Complete profile</p>}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Nav */}
         <div className="flex-1 overflow-y-auto pb-4">
@@ -206,13 +232,15 @@ export default function GlobalSidebar({ isOpen, onClose }) {
         <LanguageSelector variant="sidebar" />
 
         {/* Logout */}
-        <div className="p-4 border-t border-gray-200 bg-white flex-shrink-0 lg:mb-0 mb-20">
-          <button onClick={handleLogout}
-            className="w-full flex items-center space-x-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-lg font-medium transition">
-            <LogOut className="w-5 h-5" />
-            <span>Sign Out</span>
-          </button>
-        </div>
+        {currentUser && (
+          <div className="p-4 border-t border-gray-200 bg-white flex-shrink-0 lg:mb-0 mb-20">
+            <button onClick={handleLogout}
+              className="w-full flex items-center space-x-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-lg font-medium transition">
+              <LogOut className="w-5 h-5" />
+              <span>Sign Out</span>
+            </button>
+          </div>
+        )}
       </aside>
     </>
   );

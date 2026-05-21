@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { UserPlus, UserCheck, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { followUser, unfollowUser, isFollowing, getFollowerCount } from '../../services/followService';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -13,6 +14,7 @@ export default function FollowButton({
   onFollowChange 
 }) {
   const { currentUser } = useAuth();
+  const navigate = useNavigate();
   const [following, setFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -39,7 +41,7 @@ export default function FollowButton({
 
   const handleFollow = async () => {
     if (!currentUser) {
-      alert('Please login to follow users');
+      navigate('/login');
       return;
     }
 
@@ -74,7 +76,7 @@ export default function FollowButton({
   };
 
   // Don't show button for own profile
-  if (!currentUser || currentUser.uid === userId) {
+  if (currentUser && currentUser.uid === userId) {
     return null;
   }
 

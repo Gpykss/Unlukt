@@ -682,6 +682,7 @@ export default function Dashboard() {
           </div>
 
           <div className="space-y-6">
+            <AvailabilityToggle />
             <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm">
               <h2 className="text-lg font-bold text-gray-900 mb-4">Recent Activity</h2>
               {recentActivity.length === 0 ? (

@@ -9,6 +9,7 @@ import { doc, getDoc, collection, addDoc, serverTimestamp, increment, setDoc, up
 import { getWalletBalance, deductFromWallet } from '../../services/walletService';
 import { MINIMUM_VIDEO_PRICE, CALL_DURATIONS, MIN_BOOKING_LEAD_MINS } from '../../services/videoCallService';
 import { getCreatorSplit, creditAmbassadorCommission } from '../../services/commissionService';
+import { getUserTier, getCallDiscount } from '../../services/tierService';
 
 export default function BookVideoCall() {
   const { creatorId } = useParams();
@@ -21,6 +22,7 @@ export default function BookVideoCall() {
   const [booked, setBooked] = useState(null);
   const [scheduledAt, setScheduledAt] = useState(null);
   const [walletBalance, setWalletBalance] = useState(0);
+  const [userTier, setUserTier] = useState(null);
   const [selectedDuration, setSelectedDuration] = useState(30);
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
@@ -39,7 +41,11 @@ export default function BookVideoCall() {
     try {
       const userDoc = await getDoc(doc(db, 'users', creatorId));
       if (userDoc.exists()) setCreator({ id: userDoc.id, ...userDoc.data() });
-      if (currentUser) setWalletBalance(await getWalletBalance(currentUser.uid));
+      if (currentUser) {
+        setWalletBalance(await getWalletBalance(currentUser.uid));
+        const tier = await getUserTier(currentUser.uid, creatorId);
+        setUserTier(tier);
+      }
     } catch (err) {
       console.error('Error loading:', err);
     } finally {
@@ -47,9 +53,18 @@ export default function BookVideoCall() {
     }
   };
 
-  const getPrice = () => {
+  const getOriginalPrice = () => {
     const base = Math.max(MINIMUM_VIDEO_PRICE, creator?.videoCallPrice || MINIMUM_VIDEO_PRICE);
     return parseFloat(((base * selectedDuration) / 30).toFixed(2));
+  };
+
+  const getDiscountedPrice = () => {
+    const orig = getOriginalPrice();
+    const discount = getCallDiscount(userTier);
+    if (discount > 0) {
+      return parseFloat((orig * (1 - discount)).toFixed(2));
+    }
+    return orig;
   };
 
   // ✅ Minimum 5 mins from now
@@ -101,7 +116,7 @@ export default function BookVideoCall() {
       return;
     }
 
-    const price = getPrice();
+    const price = getDiscountedPrice();
     if (walletBalance < price) {
       setError(`Insufficient balance ($${walletBalance.toFixed(2)}). Need $${price.toFixed(2)}.`);
       return;
@@ -244,7 +259,7 @@ export default function BookVideoCall() {
     );
   }
 
-  const price = getPrice();
+  const price = getDiscountedPrice();
   const canAfford = walletBalance >= price;
   const minDateTime = getMinDateTime();
   const minDate = minDateTime.toISOString().split('T')[0];
@@ -355,7 +370,19 @@ export default function BookVideoCall() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm opacity-80">Deducted from wallet</p>
-              <p className="text-3xl font-bold mt-1">${price.toFixed(2)}</p>
+              <div className="flex items-baseline space-x-2 mt-1 flex-wrap gap-y-1">
+                {userTier && getCallDiscount(userTier) > 0 ? (
+                  <>
+                    <p className="text-3xl font-bold">${price.toFixed(2)}</p>
+                    <p className="text-lg line-through opacity-60">${getOriginalPrice().toFixed(2)}</p>
+                    <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full font-semibold">
+                      {(getCallDiscount(userTier) * 100)}% Active Subscriber Discount
+                    </span>
+                  </>
+                ) : (
+                  <p className="text-3xl font-bold">${price.toFixed(2)}</p>
+                )}
+              </div>
               <p className="text-xs opacity-70 mt-1">{selectedDuration} min video call</p>
             </div>
             <Video className="w-12 h-12 opacity-30" />

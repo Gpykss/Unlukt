@@ -19,6 +19,8 @@ import { getWalletBalance, deductFromWallet } from '../../services/walletService
 import { db } from '../../config/firebase';
 import { getPostImage } from '../../utils/imageHelpers';
 import TipModal from '../Modals/TipModal';
+import WatermarkedImage from '../Media/WatermarkedImage';
+import WatermarkedVideo from '../Media/WatermarkedVideo';
 
 // ── Inline Unlock Modal ──────────────────────────────────────────────────────
 function UnlockModal({ isOpen, onClose, post, creator, onUnlocked }) {
@@ -199,42 +201,7 @@ function UnlockModal({ isOpen, onClose, post, creator, onUnlocked }) {
   );
 }
 
-// ── Diagonal Watermark ───────────────────────────────────────────────────────
-function DiagonalWatermark({ username }) {
-  if (!username) return null;
-  const text = `@${username}`;
-  // Use a fixed viewBox so we can use pixel coordinates in transforms
-  return (
-    <div className="absolute inset-0 pointer-events-none overflow-hidden select-none z-10">
-      <svg
-        className="w-full h-full opacity-[0.18]"
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 400 600"
-        preserveAspectRatio="xMidYMid slice"
-        style={{ position: 'absolute', inset: 0 }}
-      >
-        {/* Fixed pixel coords inside viewBox — rotate(angle, cx, cy) all numbers ✅ */}
-        {[80, 180, 280, 380, 480, 560].map((y, i) => (
-          <text
-            key={i}
-            x="200"
-            y={y}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            transform={`rotate(-35, 200, ${y})`}
-            fill="white"
-            fontSize="18"
-            fontWeight="bold"
-            fontFamily="monospace"
-            letterSpacing="2"
-          >
-            {text}
-          </text>
-        ))}
-      </svg>
-    </div>
-  );
-}
+// DiagonalWatermark is now imported from ../Media/WatermarkedImage and WatermarkedVideo
 
 // ── PostCard ─────────────────────────────────────────────────────────────────
 export default function PostCard({
@@ -374,6 +341,7 @@ export default function PostCard({
   };
 
   const handleCardClick = () => {
+    if (!currentUser) { navigate('/login'); return; }
     if (isBlockedByNSFW) {
       alert('NSFW is hidden. Turn on "Show NSFW" to view this content.');
       return;
@@ -399,9 +367,9 @@ export default function PostCard({
 
   const handleLike = async (e) => {
     e?.stopPropagation();
+    if (!currentUser) { navigate('/login'); return; }
     if (isBlockedByNSFW) { alert('NSFW is hidden.'); return; }
     if (isLocked) { setShowUnlockModal(true); return; }
-    if (!currentUser) { alert('Please login to like posts'); return; }
     try {
       if (isLiked) {
         await unlikePost(post.id, currentUser.uid);
@@ -417,7 +385,7 @@ export default function PostCard({
 
   const handleTipClick = (e) => {
     e?.stopPropagation();
-    if (!currentUser) { alert('Please login to send tips'); return; }
+    if (!currentUser) { navigate('/login'); return; }
     if (isBlockedByNSFW) { alert('Enable NSFW to interact.'); return; }
     setShowTipModal(true);
   };
@@ -600,29 +568,27 @@ export default function PostCard({
                 mediaItem?.mimeType?.startsWith('video/');
 
               return isVideo ? (
-                <div className="relative">
-                  <video
-                    src={imageUrl}
-                    controls
-                    playsInline
-                    preload="metadata"
-                    className={`w-full h-auto ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
-                    style={{ maxHeight: '600px', backgroundColor: 'black' }}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                  {showWatermark && <DiagonalWatermark username={viewerUsername} />}
-                </div>
+                <WatermarkedVideo
+                  src={imageUrl}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  className={`w-full h-auto ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
+                  style={{ maxHeight: '600px', backgroundColor: 'black' }}
+                  onClick={(e) => e.stopPropagation()}
+                  showWatermark={showWatermark}
+                  username={viewerUsername}
+                />
               ) : (
-                <div className="relative">
-                  <img
-                    src={imageUrl}
-                    alt="Post"
-                    className={`w-full h-auto object-contain ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
-                    style={{ maxHeight: '600px', backgroundColor: 'black' }}
-                    loading="lazy"
-                  />
-                  {showWatermark && <DiagonalWatermark username={viewerUsername} />}
-                </div>
+                <WatermarkedImage
+                  src={imageUrl}
+                  alt="Post"
+                  className={`w-full h-auto object-contain ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
+                  style={{ maxHeight: '600px', backgroundColor: 'black' }}
+                  loading="lazy"
+                  showWatermark={showWatermark}
+                  username={viewerUsername}
+                />
               );
             })()
           ) : (
@@ -669,6 +635,7 @@ export default function PostCard({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (!currentUser) { navigate('/login'); return; }
                       navigate('/wallet', {
                         state: {
                           action: 'subscribe',
@@ -685,7 +652,11 @@ export default function PostCard({
                 ) : (
                   <>
                     <button
-                      onClick={(e) => { e.stopPropagation(); setShowUnlockModal(true); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!currentUser) { navigate('/login'); return; }
+                        setShowUnlockModal(true);
+                      }}
                       className="w-full px-4 py-2.5 rounded-xl font-semibold bg-rose-500 hover:bg-rose-600 text-white transition"
                     >
                       Unlock • ${Number(post?.price || 0).toFixed(2)}
@@ -693,6 +664,7 @@ export default function PostCard({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (!currentUser) { navigate('/login'); return; }
                         navigate('/wallet', {
                           state: {
                             action: 'subscribe',
@@ -744,7 +716,6 @@ export default function PostCard({
               <button
                 onClick={handleLike}
                 className={`transition ${isLiked ? 'text-rose-500' : 'text-gray-600 hover:text-rose-500'}`}
-                disabled={isBlockedByNSFW || isLocked}
               >
                 <Heart className={`w-6 h-6 ${isLiked ? 'fill-rose-500' : ''}`} />
               </button>
@@ -752,6 +723,7 @@ export default function PostCard({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (!currentUser) { navigate('/login'); return; }
                   if (isBlockedByNSFW) { alert('Enable NSFW to view.'); return; }
                   if (isLocked) { setShowUnlockModal(true); return; }
                   if (onPostClick) onPostClick(post);
@@ -762,7 +734,7 @@ export default function PostCard({
               </button>
             </div>
 
-            {!isOwnPost && !isLocked && currentUser && tipCreator && (
+            {!isOwnPost && !isLocked && tipCreator && (
               <button
                 onClick={handleTipClick}
                 className="flex items-center space-x-1.5 px-3 py-1.5 bg-yellow-50 hover:bg-yellow-100 border border-yellow-200 rounded-full transition"

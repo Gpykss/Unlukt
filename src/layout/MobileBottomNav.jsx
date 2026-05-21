@@ -48,6 +48,10 @@ export default function MobileBottomNav() {
   }, [currentUser, isCreator]);
 
   const handleProfileClick = () => {
+    if (!currentUser) {
+      navigate('/login');
+      return;
+    }
     if (profile?.username) {
       navigate(`/creator/${profile.username.replace('@', '')}`);
     } else if (currentUser) {
@@ -56,6 +60,7 @@ export default function MobileBottomNav() {
   };
 
   const isOnOwnProfile = () => {
+    if (!currentUser) return false;
     const currentPath = location.pathname;
     const username = profile?.username?.replace('@', '');
     return currentPath === `/creator/${username}` || currentPath === `/creator/${currentUser?.uid}`;
@@ -76,7 +81,7 @@ export default function MobileBottomNav() {
           </button>
 
           {/* Messages */}
-          <button onClick={() => navigate('/messages')}
+          <button onClick={() => currentUser ? navigate('/messages') : navigate('/login')}
             className={`flex flex-col items-center justify-center py-2 px-3 min-w-[60px] relative ${
               isActive('/messages') ? 'text-red-500' : 'text-gray-600'
             }`}>
@@ -101,7 +106,7 @@ export default function MobileBottomNav() {
               <span className="text-xs font-medium text-gray-600">Create</span>
             </button>
           ) : (
-            <button onClick={() => navigate('/my-calls')}
+            <button onClick={() => currentUser ? navigate('/my-calls') : navigate('/login')}
               className={`flex flex-col items-center justify-center py-2 px-3 min-w-[60px] relative ${
                 isActive('/my-calls') ? 'text-red-500' : 'text-gray-600'
               }`}>
@@ -133,7 +138,7 @@ export default function MobileBottomNav() {
           </button>
 
           {/* Wallet */}
-          <button onClick={() => navigate('/wallet')}
+          <button onClick={() => currentUser ? navigate('/wallet') : navigate('/login')}
             className={`flex flex-col items-center justify-center py-2 px-3 min-w-[60px] ${
               isActive('/wallet') ? 'text-red-500' : 'text-gray-600'
             }`}>

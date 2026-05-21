@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, AuthContext } from './contexts/AuthContext';
 import { ContentSettingsProvider } from './contexts/ContentSettingsContext';
 import { DataLiteProvider } from './contexts/DataLiteContext';
+import { useAuth } from './hooks/useAuth';
 
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
@@ -120,14 +121,14 @@ function AppContent() {
           <Route path="/complete-profile" element={<ProtectedRoute requireVerification={false}><CompleteProfile /></ProtectedRoute>} />
 
           {/* Main app */}
-          <Route path="/feed" element={<ProtectedRoute requireVerification={true}><Feed /></ProtectedRoute>} />
-          <Route path="/creator/:username" element={<ProtectedRoute><CreatorProfile /></ProtectedRoute>} />
+          <Route path="/feed" element={<Feed />} />
+          <Route path="/creator/:username" element={<CreatorProfile />} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/analytics" element={<ProtectedRoute><CreatorAnalytics /></ProtectedRoute>} />
           <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-          <Route path="/search" element={<ProtectedRoute><SearchPage /></ProtectedRoute>} />
-          <Route path="/discover" element={<ProtectedRoute><Discover /></ProtectedRoute>} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/discover" element={<Discover />} />
           <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
           <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
           <Route path="/new-post" element={<ProtectedRoute><NewPost /></ProtectedRoute>} />
@@ -162,6 +163,9 @@ function AppContent() {
           <Route path="/admin/ambassadors" element={<AdminRoute><Ambassadors /></AdminRoute>} />
           {/* Ambassador Dashboard */}
           <Route path="/ambassador-dashboard" element={<ProtectedRoute><AmbassadorDashboard /></ProtectedRoute>} />
+
+          {/* Wildcard direct username route */}
+          <Route path="/:username" element={<CreatorProfile />} />
         </Routes>
       </div>
 
@@ -171,21 +175,19 @@ function AppContent() {
   );
 }
 
+function AppMain() {
+  const { loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  return <AppContent />;
+}
+
 function App() {
-  const [isLoading, setIsLoading] = useState(true);
-  useEffect(() => {
-    const t = setTimeout(() => setIsLoading(false), 3000);
-    return () => clearTimeout(t);
-  }, []);
-
-  if (isLoading) return <LoadingScreen />;
-
   return (
     <BrowserRouter>
       <AuthProvider>
         <ContentSettingsProvider>
           <DataLiteProvider>
-            <AppContent />
+            <AppMain />
           </DataLiteProvider>
         </ContentSettingsProvider>
       </AuthProvider>

@@ -82,7 +82,7 @@ export const createUserProfile = async (userId, profileData) => {
       followingCount: 0,
 
       // ✅ NEW: NSFW view preference (global toggle)
-      showNSFW: profileData.showNSFW !== undefined ? profileData.showNSFW : false,
+      showNSFW: profileData.showNSFW !== undefined ? profileData.showNSFW : true,
 
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),

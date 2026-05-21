@@ -24,26 +24,34 @@ export default function DiscoverSidebar() {
         if (data.isCreator) creators.push({ id: doc.id, ...data });
       });
 
-      const subsSnapshot = await getDocs(query(
-        collection(db, 'subscriptions'),
-        where('status', '==', 'active')
-      ));
-      const subCounts = {};
-      subsSnapshot.forEach((doc) => {
-        const creatorId = doc.data().creatorId;
-        if (creatorId) subCounts[creatorId] = (subCounts[creatorId] || 0) + 1;
-      });
+      let subCounts = {};
+      try {
+        const subsSnapshot = await getDocs(query(
+          collection(db, 'subscriptions'),
+          where('status', '==', 'active')
+        ));
+        subsSnapshot.forEach((doc) => {
+          const creatorId = doc.data().creatorId;
+          if (creatorId) subCounts[creatorId] = (subCounts[creatorId] || 0) + 1;
+        });
+      } catch (error) {
+        console.warn('Could not fetch active subscriptions count (expected for guest):', error);
+      }
 
-      const postsSnapshot = await getDocs(collection(db, 'posts'));
-      const postCounts = {};
-      postsSnapshot.forEach((doc) => {
-        const { userId, archived } = doc.data();
-        if (userId && !archived) postCounts[userId] = (postCounts[userId] || 0) + 1;
-      });
+      let postCounts = {};
+      try {
+        const postsSnapshot = await getDocs(collection(db, 'posts'));
+        postsSnapshot.forEach((doc) => {
+          const { userId, archived } = doc.data();
+          if (userId && !archived) postCounts[userId] = (postCounts[userId] || 0) + 1;
+        });
+      } catch (error) {
+        console.warn('Could not fetch posts count for sidebar:', error);
+      }
 
       creators.forEach((c) => {
-        c.subscriberCount = subCounts[c.id] || 0;
-        c.postCount = postCounts[c.id] || 0;
+        c.subscriberCount = subCounts[c.id] || c.subscribersCount || 0;
+        c.postCount = postCounts[c.id] || c.postCount || 0;
       });
 
       creators.sort((a, b) =>

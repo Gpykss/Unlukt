@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Loader2, Users, Sparkles, ChevronRight, EyeOff, Eye, Crown } from 'lucide-react';
+import { Loader2, Users, Sparkles, ChevronRight, EyeOff, Eye, Crown, MessageSquare, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import PostCard from '../../components/feed/PostCard';
@@ -17,6 +17,95 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 
 import { useContentSettings } from '../../hooks/useContentSettings';
+import { getCommunities, getCommunityPosts } from '../../services/communityService';
+
+// ── Community Spotlight Card ──────────────────────────────────────────────────
+function CommunitySpotlightCard({ community }) {
+  const navigate = useNavigate();
+  const { name, id, coverImage, memberCount, category, latestPost, description } = community;
+
+  const handleCardClick = () => {
+    navigate(`/community/${id}`);
+  };
+
+  const snippet = latestPost?.content || description || "Welcome to our exclusive community space! Connect, share, and discuss with creators and fans alike.";
+  
+  return (
+    <div
+      onClick={handleCardClick}
+      className="relative bg-gradient-to-r from-slate-900 via-indigo-950 to-purple-950 text-white rounded-3xl border border-indigo-500/30 overflow-hidden shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-400/50 hover:scale-[1.01] transition-all duration-300 cursor-pointer p-6 flex flex-col justify-between group"
+    >
+      {/* Decorative Glowing Orbs */}
+      <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-0 left-0 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+
+      <div>
+        {/* Spotlight Badge */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-2 px-3 py-1 bg-indigo-500/20 border border-indigo-400/30 rounded-full">
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+            <span className="text-[11px] font-extrabold uppercase tracking-widest text-indigo-300">Community Spotlight</span>
+          </div>
+          {category && (
+            <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-purple-500/20 border border-purple-400/20 text-purple-300 capitalize font-medium">
+              {category}
+            </span>
+          )}
+        </div>
+
+        {/* Content Row */}
+        <div className="flex items-start space-x-4 mb-4">
+          {/* Cover image or fallback */}
+          <div className="w-16 h-16 rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-800 to-purple-900 border border-indigo-500/20 flex-shrink-0 flex items-center justify-center text-3xl">
+            {coverImage ? (
+              <img src={coverImage} alt={name} className="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+            ) : (
+              "👥"
+            )}
+          </div>
+
+          <div>
+            <h3 className="text-lg md:text-xl font-bold tracking-tight text-white group-hover:text-indigo-200 transition-colors duration-200 line-clamp-1">
+              {name}
+            </h3>
+            <div className="flex items-center space-x-1.5 mt-1 text-gray-400">
+              <Users className="w-4 h-4 text-indigo-400" />
+              <span className="text-xs font-semibold">
+                {memberCount || 0} {memberCount === 1 ? 'member' : 'members'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Hot Discussion Section */}
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 mb-5">
+          <div className="flex items-center space-x-2 mb-2">
+            <MessageSquare className="w-4 h-4 text-pink-400" />
+            <span className="text-[11px] font-bold text-pink-400 uppercase tracking-wide">Hot Discussion</span>
+          </div>
+          <p className="text-sm text-gray-200 line-clamp-2 italic leading-relaxed">
+            "{snippet}"
+          </p>
+        </div>
+      </div>
+
+      {/* Action Row */}
+      <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
+        <span className="text-xs text-gray-400">Step inside the lounge</span>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleCardClick();
+          }}
+          className="flex items-center space-x-2 text-sm font-bold text-indigo-400 hover:text-indigo-300 group-hover:translate-x-1 transition-all duration-200"
+        >
+          <span>Join Lounge</span>
+          <ArrowRight className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function Feed() {
   const navigate = useNavigate();
@@ -28,11 +117,38 @@ export default function Feed() {
   const [topCreators, setTopCreators] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [communitiesList, setCommunitiesList] = useState([]);
 
   const { showNSFW, setShowNSFW } = useContentSettings();
 
   const [selectedPost, setSelectedPost] = useState(null);
   const [showPostModal, setShowPostModal] = useState(false);
+
+  useEffect(() => {
+    const fetchTrendingCommunities = async () => {
+      try {
+        const list = await getCommunities({ limit: 10 });
+        const enriched = await Promise.all(
+          list.map(async (c) => {
+            try {
+              const posts = await getCommunityPosts(c.id);
+              return {
+                ...c,
+                latestPost: posts && posts.length > 0 ? posts[0] : null,
+              };
+            } catch (err) {
+              console.error(`Error loading posts for community ${c.id}:`, err);
+              return { ...c, latestPost: null };
+            }
+          })
+        );
+        setCommunitiesList(enriched);
+      } catch (e) {
+        console.error('Error loading trending communities:', e);
+      }
+    };
+    fetchTrendingCommunities();
+  }, []);
 
   const tabs = [
     { id: 'foryou', label: 'For You', icon: Sparkles },
@@ -56,44 +172,33 @@ export default function Feed() {
 
   const loadTopCreators = async () => {
     try {
-      const usersSnapshot = await getDocs(collection(db, 'users'));
+      // ✅ Speed Optimization: Query only KYC-approved users (creators) instead of scanning the entire collection
+      const q = query(
+        collection(db, 'users'),
+        where('kycStatus', '==', 'approved')
+      );
+      const usersSnapshot = await getDocs(q);
       const creators = [];
       usersSnapshot.forEach((d) => {
         const userData = d.data();
-        if (userData.kycStatus === 'approved') {
-          creators.push({ id: d.id, ...userData, subscriberCount: userData.subscribersCount || 0, postCount: 0 });
-        }
+        creators.push({
+          id: d.id,
+          ...userData,
+          subscriberCount: userData.subscribersCount || userData.subscribers || 0,
+          postCount: userData.postsCount || userData.posts || 0
+        });
       });
-      creators.sort((a, b) => (b.subscriberCount || 0) - (a.subscriberCount || 0));
-      // Phase 1: show creators immediately
-      setTopCreators(creators);
 
-      // Phase 2: enrich subscriber + post counts in background
-      const [subsSnapshot, postsSnapshot] = await Promise.all([
-        getDocs(query(collection(db, 'subscriptions'), where('status', '==', 'active'))),
-        getDocs(collection(db, 'posts')),
-      ]);
-      const subCounts = {};
-      subsSnapshot.forEach((d) => {
-        const creatorId = d.data().creatorId;
-        if (creatorId) subCounts[creatorId] = (subCounts[creatorId] || 0) + 1;
+      // ✅ Speed Optimization: Sort and set creators immediately.
+      // Removed the heavy database-wide scanning of all posts and active subscriptions on page load.
+      creators.sort((a, b) => {
+        const subA = a.subscriberCount || 0;
+        const subB = b.subscriberCount || 0;
+        if (subB !== subA) return subB - subA;
+        return (b.followers || 0) - (a.followers || 0);
       });
-      const postCounts = {};
-      postsSnapshot.forEach((d) => {
-        const { userId, archived } = d.data();
-        if (userId && !archived) postCounts[userId] = (postCounts[userId] || 0) + 1;
-      });
-      const enriched = creators.map(c => ({
-        ...c,
-        subscriberCount: subCounts[c.id] || c.subscriberCount || 0,
-        postCount: postCounts[c.id] || 0,
-      }));
-      enriched.sort((a, b) =>
-        b.subscriberCount !== a.subscriberCount
-          ? b.subscriberCount - a.subscriberCount
-          : (b.followers || 0) - (a.followers || 0)
-      );
-      setTopCreators(enriched);
+
+      setTopCreators(creators);
     } catch (err) {
       console.error('Error loading top creators:', err);
     }
@@ -341,14 +446,32 @@ export default function Feed() {
               </motion.div>
             ) : (
               <div className="space-y-4 sm:space-y-6">
-                {filteredPosts.map((post) => (
-                  <PostCard
-                    key={post.id}
-                    post={post}
-                    onDelete={handlePostDeleted}
-                    onPostClick={handlePostClick}
-                  />
-                ))}
+                {(() => {
+                  const items = [];
+                  filteredPosts.forEach((post, index) => {
+                    items.push(
+                      <PostCard
+                        key={post.id}
+                        post={post}
+                        onDelete={handlePostDeleted}
+                        onPostClick={handlePostClick}
+                      />
+                    );
+                    
+                    const isInjectPoint = (index + 1) % 4 === 0;
+                    if (isInjectPoint && communitiesList.length > 0) {
+                      const communityIndex = Math.floor(index / 4) % communitiesList.length;
+                      const community = communitiesList[communityIndex];
+                      items.push(
+                        <CommunitySpotlightCard 
+                          key={`spotlight-${community.id}-${index}`}
+                          community={community} 
+                        />
+                      );
+                    }
+                  });
+                  return items;
+                })()}
               </div>
             )}
           </>

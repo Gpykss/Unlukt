@@ -24,6 +24,7 @@ import SubscribeModal from '../../components/Payment/SubscribeModal';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { useContentSettings } from '../../hooks/useContentSettings';
+import { getPostImage } from '../../utils/imageHelpers';
 
 export default function CreatorProfile() {
   const navigate = useNavigate();
@@ -33,6 +34,7 @@ export default function CreatorProfile() {
 
   const [activeTab, setActiveTab] = useState('posts');
   const [archivedPosts, setArchivedPosts] = useState([]);
+  const [hasClosedTeaser, setHasClosedTeaser] = useState(false);
   const [creator, setCreator] = useState(null);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -49,6 +51,28 @@ export default function CreatorProfile() {
   const [showPostModal, setShowPostModal] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
+
+  const teaserPost = useMemo(() => {
+    if (posts.length === 0) return null;
+    const pinnedNsfw = posts.find(p => p.pinned && (p.contentRating || 'sfw').toLowerCase() === 'nsfw');
+    if (pinnedNsfw) return pinnedNsfw;
+
+    const nsfwPosts = posts.filter(p => (p.contentRating || 'sfw').toLowerCase() === 'nsfw');
+    if (nsfwPosts.length === 0) return null;
+
+    const sortedNsfw = [...nsfwPosts].sort((a, b) => {
+      const getTime = p => {
+        if (!p.createdAt) return 0;
+        if (p.createdAt.toDate) return p.createdAt.toDate().getTime();
+        if (p.createdAt.seconds) return p.createdAt.seconds * 1000;
+        return 0;
+      };
+      return getTime(b) - getTime(a);
+    });
+    return sortedNsfw[0];
+  }, [posts]);
+
+  const showTeaser = !currentUser && teaserPost && !hasClosedTeaser;
 
   const isOwnProfile = currentUser && creator && currentUser.uid === creator.uid;
 
@@ -198,17 +222,24 @@ export default function CreatorProfile() {
 
       const uid = foundCreator.uid || foundCreator.id;
 
-      // Count active subscriptions directly from collection for accuracy
-      const subsSnap = await getDocs(query(
-        collection(db, 'subscriptions'),
-        where('creatorId', '==', uid),
-        where('status', '==', 'active')
-      ));
-      const now = new Date();
-      const activeCount = subsSnap.docs.filter(d => {
-        const expiry = d.data().expiresAt?.toDate?.();
-        return !expiry || expiry > now;
-      }).length;
+      // Count active subscriptions directly from collection for accuracy if logged in
+      let activeCount = foundCreator.subscribersCount || foundCreator.subscribers || 0;
+      if (currentUser) {
+        try {
+          const subsSnap = await getDocs(query(
+            collection(db, 'subscriptions'),
+            where('creatorId', '==', uid),
+            where('status', '==', 'active')
+          ));
+          const now = new Date();
+          activeCount = subsSnap.docs.filter(d => {
+            const expiry = d.data().expiresAt?.toDate?.();
+            return !expiry || expiry > now;
+          }).length;
+        } catch (e) {
+          console.warn("Could not query subscriptions count for creator profile:", e);
+        }
+      }
 
       setCreator(prev => ({
         ...prev,
@@ -221,7 +252,7 @@ export default function CreatorProfile() {
   const handleFollowChange = async () => { await refreshCreatorCounts(); };
 
   const handleMessage = async () => {
-    if (!currentUser) { alert('Please login to send messages'); return; }
+    if (!currentUser) { navigate('/login'); return; }
     try {
       setSendingMessage(true);
       await getOrCreateConversation(currentUser.uid, creator.uid);
@@ -662,7 +693,7 @@ export default function CreatorProfile() {
                 </button>
 
                 {creator.videoCallPrice && (
-                  <button onClick={() => navigate(`/book-video-call/${creator.uid}`)}
+                  <button onClick={() => currentUser ? navigate(`/book-video-call/${creator.uid}`) : navigate('/login')}
                     className="flex items-center space-x-1 px-3 py-1.5 rounded-full border-2 border-rose-200 hover:bg-rose-50 transition text-xs font-semibold text-rose-600">
                     <Video className="w-3.5 h-3.5" />
                     <span>${creator.videoCallPrice}</span>
@@ -670,7 +701,7 @@ export default function CreatorProfile() {
                 )}
 
                 {creator.voiceCallPrice && (
-                  <button onClick={() => navigate(`/book-voice-call/${creator.uid}`)}
+                  <button onClick={() => currentUser ? navigate(`/book-voice-call/${creator.uid}`) : navigate('/login')}
                     className="flex items-center space-x-1 px-3 py-1.5 rounded-full border-2 border-purple-200 hover:bg-purple-50 transition text-xs font-semibold text-purple-600">
                     <Phone className="w-3.5 h-3.5" />
                     <span>${creator.voiceCallPrice}</span>
@@ -848,6 +879,115 @@ export default function CreatorProfile() {
                 ))}
               </div>
               <p className="text-xs text-gray-400 mt-4 text-center">Reports are anonymous.</p>
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Smart Teaser Popup Modal */}
+      <AnimatePresence>
+        {showTeaser && teaserPost && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop with heavy blur */}
+            <div 
+              className="fixed inset-0 bg-black/75 backdrop-blur-3xl transition-opacity duration-300" 
+              onClick={() => setHasClosedTeaser(true)}
+            />
+            
+            {/* Modal Container: responsive bounds */}
+            <div className="relative w-[90vw] max-w-[420px] md:max-w-4xl h-[80vh] min-h-[500px] max-h-[680px] md:h-[500px] lg:h-[550px] bg-gray-900 border border-gray-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col md:flex-row z-10 animate-in fade-in zoom-in duration-300">
+              
+              {/* Close Button */}
+              <button 
+                onClick={() => setHasClosedTeaser(true)}
+                className="absolute top-4 right-4 z-20 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors duration-200"
+                aria-label="Close modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              {/* Media Section */}
+              <div className="relative w-full h-[60%] md:h-full md:flex-1 bg-black flex items-center justify-center overflow-hidden">
+                {(() => {
+                  const mediaUrl = getPostImage(teaserPost);
+                  const mediaItem = teaserPost?.images?.[0];
+                  const isVideo =
+                    mediaItem?.type === 'video' ||
+                    /\.(mp4|mov|avi|webm|mkv)$/i.test(mediaUrl || '') ||
+                    mediaItem?.mimeType?.startsWith('video/');
+
+                  if (isVideo) {
+                    return (
+                      <video
+                        src={mediaUrl}
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        className="w-full h-full object-cover"
+                      />
+                    );
+                  } else if (mediaUrl) {
+                    return (
+                      <img
+                        src={mediaUrl}
+                        alt="Teaser"
+                        className="w-full h-full object-cover"
+                      />
+                    );
+                  } else {
+                    return (
+                      <div className="text-gray-500 text-6xl">📸</div>
+                    );
+                  }
+                })()}
+                {/* Subtle gradient overlay to make text pop */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
+              </div>
+
+              {/* Info/CTA Section */}
+              <div className="w-full md:w-[380px] lg:w-[420px] bg-gradient-to-b from-gray-950 to-gray-900 p-4 md:p-8 flex flex-col justify-between h-[40%] md:h-full text-white border-t md:border-t-0 md:border-l border-gray-800/80 overflow-y-auto">
+                
+                {/* Creator Profile Info */}
+                <div className="flex flex-col items-center text-center mt-1 md:mt-8">
+                  <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-rose-500 to-pink-500 p-0.5 md:p-1 shadow-xl mb-2 md:mb-4">
+                    <div className="w-full h-full rounded-full bg-gray-950 overflow-hidden flex items-center justify-center">
+                      {creator?.profilePicture || creator?.avatar ? (
+                        <img src={creator.profilePicture || creator.avatar} alt={creator.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-xl font-bold text-rose-400">{creator.name?.charAt(0)?.toUpperCase()}</span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <h2 className="text-lg md:text-2xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-100 to-gray-400">
+                    {creator.name}
+                  </h2>
+                  <p className="text-rose-400 text-xs md:text-sm font-semibold tracking-wider uppercase">
+                    @{creator.username}
+                  </p>
+                  
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 md:px-3 md:py-1 bg-rose-500/10 border border-rose-500/20 rounded-full text-[10px] md:text-xs font-semibold text-rose-400 mt-2 md:mt-4 animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-rose-500" />
+                    Exclusive NSFW Preview
+                  </div>
+                </div>
+
+                {/* CTA Area */}
+                <div className="mb-2 md:mb-8 space-y-2 md:space-y-4">
+                  <p className="text-center text-[11px] md:text-sm text-gray-400 leading-relaxed px-2">
+                    Sign up today to explore uncensored posts, interact in the community lounge, and get closer to your favorite creator.
+                  </p>
+                  
+                  <button
+                    onClick={() => navigate('/register')}
+                    className="w-full py-2.5 md:py-3.5 px-4 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-extrabold text-[11px] md:text-sm rounded-xl md:rounded-2xl shadow-lg shadow-rose-950/20 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] border border-rose-400/20 flex items-center justify-center"
+                  >
+                    Unlock {creator.name}'s private feed & community lounge
+                  </button>
+                </div>
+                
+              </div>
             </div>
           </div>
         )}

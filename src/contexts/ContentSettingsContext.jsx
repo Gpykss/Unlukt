@@ -6,10 +6,10 @@ export function ContentSettingsProvider({ children }) {
   const [showNSFW, setShowNSFW] = useState(() => {
     try {
       const saved = localStorage.getItem('showNSFW');
-      if (saved === null) return false; // default OFF
+      if (saved === null) return true; // default ON
       return saved === 'true';
     } catch {
-      return false;
+      return true;
     }
   });
 

@@ -18,25 +18,8 @@ import {
 import { getUserProfile } from '../../services/firestoreService';
 import { getPostImage } from '../../utils/imageHelpers';
 import TipModal from './TipModal';
-
-function DiagonalWatermark({ username }) {
-  if (!username) return null;
-  const text = `@${username}`;
-  return (
-    <div className="absolute inset-0 pointer-events-none overflow-hidden select-none z-10">
-      <svg className="w-full h-full opacity-[0.15]" xmlns="http://www.w3.org/2000/svg" style={{ position: 'absolute', inset: 0 }}>
-        {Array.from({ length: 6 }).map((_, i) => (
-          <text key={i} x="50%" y={`${10 + i * 16}%`}
-            textAnchor="middle" dominantBaseline="middle"
-            transform={`rotate(-35)`}
-            fill="white" fontSize="13" fontWeight="bold" fontFamily="monospace" letterSpacing="2">
-            {text}
-          </text>
-        ))}
-      </svg>
-    </div>
-  );
-}
+import WatermarkedImage from '../Media/WatermarkedImage';
+import WatermarkedVideo from '../Media/WatermarkedVideo';
 
 function timeAgo(timestamp) {
   if (!timestamp) return 'Just now';
@@ -373,7 +356,7 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                     <div className="rounded-xl overflow-hidden bg-gray-100 relative">
                       {/* ✅ FIXED: video with proper attributes */}
                       {isVideo ? (
-                        <video
+                        <WatermarkedVideo
                           src={imageUrl}
                           controls
                           playsInline
@@ -381,16 +364,19 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                           className="w-full h-auto"
                           style={{ maxHeight: 400, display: 'block' }}
                           onClick={e => e.stopPropagation()}
+                          showWatermark={showWatermark}
+                          username={viewerUsername}
                         />
                       ) : (
-                        <img
+                        <WatermarkedImage
                           src={imageUrl}
                           alt="Post"
                           className="w-full h-auto object-contain"
                           style={{ maxHeight: 400 }}
+                          showWatermark={showWatermark}
+                          username={viewerUsername}
                         />
                       )}
-                      {showWatermark && <DiagonalWatermark username={viewerUsername} />}
                     </div>
                   )}
                 </div>

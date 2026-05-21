@@ -31,7 +31,7 @@ export default function NotificationBell({ showLabel = false }) {
 
   return (
     <button
-      onClick={() => navigate('/notifications')}
+      onClick={() => currentUser ? navigate('/notifications') : navigate('/login')}
       className={`relative flex items-center space-x-3 ${
         showLabel ? 'w-full px-4 py-3 rounded-lg font-medium transition' : ''
       } ${
