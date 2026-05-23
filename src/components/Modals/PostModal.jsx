@@ -353,7 +353,7 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                       </button>
                     </div>
                   ) : (
-                    <div className="rounded-xl overflow-hidden bg-gray-100 relative">
+                    <div className="rounded-xl overflow-hidden bg-black relative">
                       {/* ✅ FIXED: video with proper attributes */}
                       {isVideo ? (
                         <WatermarkedVideo
@@ -361,7 +361,7 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                           controls
                           playsInline
                           preload="metadata"
-                          className="w-full h-auto"
+                          className="max-w-full w-auto h-auto mx-auto block object-contain"
                           style={{ maxHeight: 400, display: 'block' }}
                           onClick={e => e.stopPropagation()}
                           showWatermark={showWatermark}
@@ -371,7 +371,7 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                         <WatermarkedImage
                           src={imageUrl}
                           alt="Post"
-                          className="w-full h-auto object-contain"
+                          className="max-w-full w-auto h-auto object-contain mx-auto block"
                           style={{ maxHeight: 400 }}
                           showWatermark={showWatermark}
                           username={viewerUsername}

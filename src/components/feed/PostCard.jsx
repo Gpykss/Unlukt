@@ -573,7 +573,7 @@ export default function PostCard({
                   controls
                   playsInline
                   preload="metadata"
-                  className={`w-full h-auto ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
+                  className={`max-w-full w-auto h-auto mx-auto block object-contain ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
                   style={{ maxHeight: '600px', backgroundColor: 'black' }}
                   onClick={(e) => e.stopPropagation()}
                   showWatermark={showWatermark}
@@ -583,7 +583,7 @@ export default function PostCard({
                 <WatermarkedImage
                   src={imageUrl}
                   alt="Post"
-                  className={`w-full h-auto object-contain ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
+                  className={`max-w-full w-auto h-auto object-contain mx-auto block ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
                   style={{ maxHeight: '600px', backgroundColor: 'black' }}
                   loading="lazy"
                   showWatermark={showWatermark}

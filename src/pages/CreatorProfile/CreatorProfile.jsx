@@ -907,7 +907,7 @@ export default function CreatorProfile() {
               </button>
 
               {/* Media Section */}
-              <div className="relative w-full h-[60%] md:h-full md:flex-1 bg-black flex items-center justify-center overflow-hidden">
+              <div className="relative w-full h-full md:flex-1 bg-black flex items-center justify-center overflow-hidden">
                 {(() => {
                   const mediaUrl = getPostImage(teaserPost);
                   const mediaItem = teaserPost?.images?.[0];
@@ -924,7 +924,7 @@ export default function CreatorProfile() {
                         loop
                         muted
                         playsInline
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain"
                       />
                     );
                   } else if (mediaUrl) {
@@ -932,7 +932,7 @@ export default function CreatorProfile() {
                       <img
                         src={mediaUrl}
                         alt="Teaser"
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain"
                       />
                     );
                   } else {
@@ -946,11 +946,11 @@ export default function CreatorProfile() {
               </div>
 
               {/* Info/CTA Section */}
-              <div className="w-full md:w-[380px] lg:w-[420px] bg-gradient-to-b from-gray-950 to-gray-900 p-4 md:p-8 flex flex-col justify-between h-[40%] md:h-full text-white border-t md:border-t-0 md:border-l border-gray-800/80 overflow-y-auto">
+              <div className="absolute bottom-0 left-0 right-0 w-full md:relative md:bottom-auto md:left-auto md:right-auto md:w-[380px] lg:w-[420px] bg-transparent md:bg-gradient-to-b md:from-gray-950 md:to-gray-900 p-4 md:p-8 flex flex-col justify-end md:justify-between h-auto md:h-full text-white border-t-0 md:border-l border-gray-800/80 overflow-y-auto z-10 pb-5 pt-12">
                 
                 {/* Creator Profile Info */}
                 <div className="flex flex-col items-center text-center mt-1 md:mt-8">
-                  <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-rose-500 to-pink-500 p-0.5 md:p-1 shadow-xl mb-2 md:mb-4">
+                  <div className="w-10 h-10 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-rose-500 to-pink-500 p-0.5 md:p-1 shadow-xl mb-1.5 md:mb-4">
                     <div className="w-full h-full rounded-full bg-gray-950 overflow-hidden flex items-center justify-center">
                       {creator?.profilePicture || creator?.avatar ? (
                         <img src={creator.profilePicture || creator.avatar} alt={creator.name} className="w-full h-full object-cover" />
@@ -960,30 +960,31 @@ export default function CreatorProfile() {
                     </div>
                   </div>
                   
-                  <h2 className="text-lg md:text-2xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-100 to-gray-400">
+                  <h2 className="text-base md:text-2xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-100 to-gray-400">
                     {creator.name}
                   </h2>
                   <p className="text-rose-400 text-xs md:text-sm font-semibold tracking-wider uppercase">
                     @{creator.username}
                   </p>
                   
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 md:px-3 md:py-1 bg-rose-500/10 border border-rose-500/20 rounded-full text-[10px] md:text-xs font-semibold text-rose-400 mt-2 md:mt-4 animate-pulse">
-                    <span className="w-2 h-2 rounded-full bg-rose-500" />
+                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 md:px-3 md:py-1 bg-rose-500/10 border border-rose-500/20 rounded-full text-[9px] md:text-xs font-semibold text-rose-400 mt-1.5 md:mt-4 animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                     Exclusive NSFW Preview
                   </div>
                 </div>
 
                 {/* CTA Area */}
-                <div className="mb-2 md:mb-8 space-y-2 md:space-y-4">
-                  <p className="text-center text-[11px] md:text-sm text-gray-400 leading-relaxed px-2">
+                <div className="mt-4 md:mt-0 mb-1 md:mb-8 space-y-2 md:space-y-4">
+                  <p className="hidden md:block text-center text-sm text-gray-400 leading-relaxed px-2">
                     Sign up today to explore uncensored posts, interact in the community lounge, and get closer to your favorite creator.
                   </p>
                   
                   <button
                     onClick={() => navigate('/register')}
-                    className="w-full py-2.5 md:py-3.5 px-4 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-extrabold text-[11px] md:text-sm rounded-xl md:rounded-2xl shadow-lg shadow-rose-950/20 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] border border-rose-400/20 flex items-center justify-center"
+                    className="w-full py-2.5 md:py-3.5 px-4 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-extrabold text-xs md:text-sm rounded-xl md:rounded-2xl shadow-lg shadow-rose-950/20 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] border border-rose-400/20 flex items-center justify-center"
                   >
-                    Unlock {creator.name}'s private feed & community lounge
+                    <span className="md:hidden">Unlock Private Feed & Lounge</span>
+                    <span className="hidden md:inline">Unlock {creator.name}'s private feed & community lounge</span>
                   </button>
                 </div>
                 

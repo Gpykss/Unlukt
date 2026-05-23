@@ -5,7 +5,7 @@ export default function WatermarkedImage({ src, alt, className, style, showWater
   const text = `@${username}`;
 
   return (
-    <div className="relative w-full h-full overflow-hidden flex items-center justify-center">
+    <div className="relative max-w-full mx-auto overflow-hidden flex items-center justify-center">
       <img
         src={src}
         alt={alt || ''}

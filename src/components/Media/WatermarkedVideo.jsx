@@ -5,7 +5,7 @@ export default function WatermarkedVideo({ src, className, style, showWatermark,
   const text = `@${username}`;
 
   return (
-    <div className="relative w-full h-full overflow-hidden flex items-center justify-center">
+    <div className="relative max-w-full mx-auto overflow-hidden flex items-center justify-center">
       <video
         src={src}
         className={className}
