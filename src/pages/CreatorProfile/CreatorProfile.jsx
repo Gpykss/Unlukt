@@ -9,7 +9,7 @@ import {
   ShieldOff, RotateCcw
 } from 'lucide-react';
 
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { getUserProfile, getUserByUsername, updateUserProfile } from '../../services/firestoreService';
 import { getUserPosts } from '../../services/postService';
@@ -29,6 +29,7 @@ import { getPostImage } from '../../utils/imageHelpers';
 export default function CreatorProfile() {
   const navigate = useNavigate();
   const { username } = useParams();
+  const location = useLocation();
   const { currentUser } = useAuth();
   const { showNSFW, setShowNSFW } = useContentSettings();
 
@@ -52,6 +53,45 @@ export default function CreatorProfile() {
   const [showTipModal, setShowTipModal] = useState(false);
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
 
+  const isAdTraffic = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const utmSource = params.get('utm_source')?.toLowerCase() || '';
+    const utmMedium = params.get('utm_medium')?.toLowerCase() || '';
+    const utmCampaign = params.get('utm_campaign')?.toLowerCase() || '';
+    const isAdParam = params.get('ad') === 'true' || params.get('traffic') === 'ad' || params.get('pop') === 'true';
+    const hasClickId = params.has('clickid') || params.has('gclid') || params.has('fbclid') || params.has('ttclid') || params.has('ad_id');
+    
+    return (
+      utmSource.includes('pop') ||
+      utmSource.includes('ad') ||
+      utmSource.includes('traffic') ||
+      utmMedium.includes('pop') ||
+      utmMedium.includes('ad') ||
+      utmMedium.includes('traffic') ||
+      utmCampaign.includes('pop') ||
+      utmCampaign.includes('ad') ||
+      isAdParam ||
+      hasClickId ||
+      params.has('utm_source') ||
+      params.has('utm_medium')
+    );
+  }, []);
+
+  const hasEntered = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('entered') === 'true';
+  }, [location.search]);
+
+  const [adAssetSrc, setAdAssetSrc] = useState(null);
+
+  useEffect(() => {
+    if (creator?.username) {
+      setAdAssetSrc(`/ads/${creator.username}/fallback-1.webp`);
+    } else {
+      setAdAssetSrc('/ads/default/fallback-1.webp');
+    }
+  }, [creator?.username]);
+
   const teaserPost = useMemo(() => {
     if (posts.length === 0) return null;
     const pinnedNsfw = posts.find(p => p.pinned && (p.contentRating || 'sfw').toLowerCase() === 'nsfw');
@@ -72,11 +112,27 @@ export default function CreatorProfile() {
     return sortedNsfw[0];
   }, [posts]);
 
-  const showTeaser = !currentUser && teaserPost && !hasClosedTeaser;
+  // Check localStorage synchronously for auth key to prevent popup flash
+  const hasLocalAuthUser = useMemo(() => {
+    try {
+      if (localStorage.getItem('unlukt_auth_session') === 'true') {
+        return true;
+      }
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('firebase:authUser:')) {
+          return true;
+        }
+      }
+    } catch (e) {}
+    return false;
+  }, []);
+
+  const showTeaser = !currentUser && !hasLocalAuthUser && (teaserPost || isAdTraffic) && !hasClosedTeaser;
 
   const isOwnProfile = currentUser && creator && currentUser.uid === creator.uid;
 
-  useEffect(() => { loadCreatorData(); }, [username]);
+  useEffect(() => { loadCreatorData(); }, [username, currentUser?.uid, hasEntered]);
 
   useEffect(() => {
     if (creator && currentUser && !isOwnProfile) {
@@ -113,6 +169,29 @@ export default function CreatorProfile() {
       if (!foundCreator) { setCreator(null); return; }
 
       const uid = foundCreator.uid || foundCreator.id;
+
+      // ✅ SPEED OPTIMIZATION FOR LOGGED-OUT USERS: Skip heavy queries (subscriptions, call settings, user posts) when on landing page
+      if (!currentUser && !hasEntered) {
+        const creatorObj = {
+          uid,
+          username: foundCreator.username || 'user',
+          name: foundCreator.displayName || foundCreator.name || 'User',
+          avatar: foundCreator.avatar || foundCreator.photoURL || null,
+          banner: foundCreator.banner || null,
+          profilePicture: foundCreator.profilePicture || null,
+          bio: foundCreator.bio || 'No bio yet',
+          location: typeof foundCreator.location === 'object' 
+            ? foundCreator.location.countryName || foundCreator.location.city || null 
+            : foundCreator.location || null,
+          verified: foundCreator.kycStatus === 'approved' || false,
+          followers: foundCreator.followersCount || foundCreator.followers || 0,
+          subscribers: foundCreator.subscribersCount || foundCreator.subscribers || 0,
+          postsCount: 5,
+        };
+        setCreator(creatorObj);
+        setLoading(false);
+        return;
+      }
 
       // ✅ Count active subscribers directly from subscriptions collection (accurate for all existing subs)
       let subscriberCount = 0;
@@ -402,9 +481,9 @@ export default function CreatorProfile() {
   const isArchiveTab = activeTab === 'archive';
   const displayPosts = isArchiveTab ? filteredArchivedPosts : filteredActivePosts;
 
-  if (loading) {
+  if (loading || (!currentUser && hasLocalAuthUser)) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
         <div className="w-12 h-12 border-4 border-rose-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -418,6 +497,204 @@ export default function CreatorProfile() {
           <button onClick={() => navigate('/feed')} className="px-6 py-3 bg-rose-500 text-white rounded-lg font-semibold">
             Back to Feed
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ Light Campaign Landing Page for all logged-out visitors
+  if (!currentUser && !hasEntered) {
+    const cleanUsername = creator.username.replace('@', '').toLowerCase().trim();
+    return (
+      <div className="min-h-screen bg-slate-950 text-white font-sans selection:bg-rose-500 selection:text-white flex flex-col">
+        {/* Creator Header */}
+        <div className="sticky top-0 z-30 bg-slate-950/80 backdrop-blur-md border-b border-gray-900 px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-500 to-pink-500 p-0.5 shadow-md">
+              <div className="w-full h-full rounded-full bg-gray-950 overflow-hidden flex items-center justify-center">
+                {creator.avatar || creator.profilePicture ? (
+                  <img src={creator.avatar || creator.profilePicture} alt={creator.name} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-sm font-bold text-rose-400">{creator.name?.charAt(0)}</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center space-x-1">
+                <h2 className="font-extrabold text-sm tracking-tight text-white">{creator.name}</h2>
+                {creator.verified && (
+                  <span className="bg-blue-500 text-white p-0.5 rounded-full flex items-center justify-center w-3.5 h-3.5">
+                    <svg className="w-2 h-2" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                  </span>
+                )}
+              </div>
+              <p className="text-rose-400 text-xs font-semibold">@{creator.username}</p>
+            </div>
+          </div>
+          <div className="px-3 py-1 bg-rose-500/10 border border-rose-500/20 rounded-full text-[10px] font-bold text-rose-400 uppercase tracking-wider">
+            Premium Preview
+          </div>
+        </div>
+
+        {/* Main Content Area */}
+        <div className="flex-grow flex flex-col md:flex-row max-w-6xl w-full mx-auto p-4 md:p-6 lg:p-8 gap-6 md:gap-8 items-center md:items-stretch justify-center pb-32 md:pb-8">
+          {/* Left Side / Featured Media Pane */}
+          <div className="flex-1 max-w-md md:max-w-none w-full mx-auto md:mx-0 flex flex-col justify-center">
+            <div className="relative aspect-[3/4] w-full bg-slate-900 rounded-3xl overflow-hidden border border-gray-800 shadow-2xl transition duration-300 hover:border-rose-500/30">
+              <img 
+                src={`/ads/${cleanUsername}/fallback-1.webp`}
+                onError={(e) => {
+                  e.target.src = '/ads/default/fallback-1.webp';
+                }}
+                alt="Feature Preview" 
+                className="w-full h-full object-cover" 
+              />
+              {/* Dark gradient overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent pointer-events-none" />
+              
+              {/* Live Indicator */}
+              <div className="absolute top-4 left-4 bg-rose-600 text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full flex items-center space-x-1.5 shadow-md">
+                <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+                <span>PREVIEW LIVE</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Side / Creator Details & Locked Gallery Pane */}
+          <div className="w-full max-w-md md:w-[380px] lg:w-[420px] mx-auto md:mx-0 flex flex-col justify-between bg-slate-900/40 border border-gray-800/80 rounded-3xl p-6 md:p-8">
+            <div className="space-y-6">
+              {/* Creator Bio Intro */}
+              <div className="text-center md:text-left">
+                <div className="hidden md:flex items-center space-x-4 mb-4">
+                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-rose-500 to-pink-500 p-0.5 shadow-md">
+                    <div className="w-full h-full rounded-full bg-gray-950 overflow-hidden flex items-center justify-center">
+                      {creator.avatar || creator.profilePicture ? (
+                        <img src={creator.avatar || creator.profilePicture} alt={creator.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-lg font-bold text-rose-400">{creator.name?.charAt(0)}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-1">
+                      <h3 className="font-extrabold text-base text-white">{creator.name}</h3>
+                      {creator.verified && (
+                        <span className="bg-blue-500 text-white p-0.5 rounded-full flex items-center justify-center w-4 h-4">
+                          <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 00-1.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          </svg>
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-rose-400 text-xs font-semibold">@{creator.username}</p>
+                  </div>
+                </div>
+                
+                <h3 className="text-xl md:text-2xl font-black tracking-tight text-white">{creator.name}'s Premium Gallery</h3>
+                <p className="text-gray-400 text-xs mt-2 leading-relaxed">{creator.bio || "Unlock private photos, exclusive high-definition video loops, and direct chat messaging access."}</p>
+              </div>
+
+              {/* Grid Gallery */}
+              <div>
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <h4 className="text-xs font-bold uppercase tracking-widest text-gray-500">Locked Premium Gallery</h4>
+                  <span className="text-[10px] font-semibold text-rose-400 uppercase tracking-wider">Premium Items</span>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Asset 2 (Video Loop 2) */}
+                  <div className="relative aspect-square bg-slate-950 rounded-2xl overflow-hidden border border-gray-800 group hover:border-gray-700 transition">
+                    <img 
+                      src={`/ads/${cleanUsername}/fallback-2.webp`}
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
+                      className="w-full h-full object-cover" 
+                    />
+                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent p-3 pt-8 flex flex-col justify-end">
+                      <span className="text-[10px] font-bold text-gray-200">Video Loop 2</span>
+                      <span className="text-[8px] text-rose-400 font-semibold uppercase tracking-wider">Premium Preview</span>
+                    </div>
+                  </div>
+
+                  {/* Asset 3 (Image 1) */}
+                  <div className="relative aspect-square bg-slate-950 rounded-2xl overflow-hidden border border-gray-800 group hover:border-gray-700 transition">
+                    <img 
+                      src={`/ads/${cleanUsername}/image-1.webp`}
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
+                      className="w-full h-full object-cover" 
+                    />
+                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent p-3 pt-8 flex flex-col justify-end">
+                      <span className="text-[10px] font-bold text-gray-200">Private Photo 1</span>
+                      <span className="text-[8px] text-rose-400 font-semibold uppercase tracking-wider">HD Premium</span>
+                    </div>
+                  </div>
+
+                  {/* Asset 4 (Image 2) */}
+                  <div className="relative aspect-square bg-slate-950 rounded-2xl overflow-hidden border border-gray-800 group hover:border-gray-700 transition">
+                    <img 
+                      src={`/ads/${cleanUsername}/image-2.webp`}
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
+                      className="w-full h-full object-cover" 
+                    />
+                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent p-3 pt-8 flex flex-col justify-end">
+                      <span className="text-[10px] font-bold text-gray-200">Private Photo 2</span>
+                      <span className="text-[8px] text-rose-400 font-semibold uppercase tracking-wider">HD Premium</span>
+                    </div>
+                  </div>
+
+                  {/* Asset 5 (Image 3) */}
+                  <div className="relative aspect-square bg-slate-950 rounded-2xl overflow-hidden border border-gray-800 group hover:border-gray-700 transition">
+                    <img 
+                      src={`/ads/${cleanUsername}/image-3.webp`}
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
+                      className="w-full h-full object-cover" 
+                    />
+                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent p-3 pt-8 flex flex-col justify-end">
+                      <span className="text-[10px] font-bold text-gray-200">Private Photo 3</span>
+                      <span className="text-[8px] text-rose-400 font-semibold uppercase tracking-wider">HD Premium</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Permanent CTA for Desktop */}
+            <div className="mt-8 hidden md:block space-y-3">
+              <button
+                onClick={() => navigate(`/creator/${cleanUsername}?entered=true`)}
+                className="w-full py-4 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-extrabold text-sm rounded-2xl shadow-lg shadow-rose-950/40 hover:scale-[1.02] active:scale-[0.98] transition duration-200 flex items-center justify-center space-x-2 border border-rose-400/20"
+              >
+                <span>Tap to Enter Her Premium Private Gallery</span>
+              </button>
+              <p className="text-[10px] text-center text-gray-500">
+                By entering, you confirm you are 18+ and agree to the Terms of Service.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Floating Bottom CTA for Mobile */}
+        <div className="md:hidden fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-slate-950 via-slate-950 to-transparent z-40">
+          <div className="max-w-md mx-auto">
+            <button
+              onClick={() => navigate(`/creator/${cleanUsername}?entered=true`)}
+              className="w-full py-4 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-extrabold text-sm rounded-2xl shadow-lg shadow-rose-950/40 hover:scale-[1.02] active:scale-[0.98] transition duration-200 flex items-center justify-center space-x-2 border border-rose-400/20"
+            >
+              <span>Tap to Enter Her Premium Private Gallery</span>
+            </button>
+            <p className="text-[10px] text-center text-gray-500 mt-2">
+              By entering, you confirm you are 18+ and agree to the Terms of Service.
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -886,37 +1163,43 @@ export default function CreatorProfile() {
 
       {/* Smart Teaser Popup Modal */}
       <AnimatePresence>
-        {showTeaser && teaserPost && (
+        {showTeaser && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop with heavy blur */}
             <div 
               className="fixed inset-0 bg-black/75 backdrop-blur-3xl transition-opacity duration-300" 
-              onClick={() => setHasClosedTeaser(true)}
+              onClick={() => {
+                if (!isAdTraffic) {
+                  setHasClosedTeaser(true);
+                }
+              }}
             />
             
             {/* Modal Container: responsive bounds */}
             <div className="relative w-[90vw] max-w-[420px] md:max-w-4xl h-[80vh] min-h-[500px] max-h-[680px] md:h-[500px] lg:h-[550px] bg-gray-900 border border-gray-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col md:flex-row z-10 animate-in fade-in zoom-in duration-300">
               
               {/* Close Button */}
-              <button 
-                onClick={() => setHasClosedTeaser(true)}
-                className="absolute top-4 right-4 z-20 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors duration-200"
-                aria-label="Close modal"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              {!isAdTraffic && (
+                <button 
+                  onClick={() => setHasClosedTeaser(true)}
+                  className="absolute top-4 right-4 z-20 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors duration-200"
+                  aria-label="Close modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
 
               {/* Media Section */}
               <div className="relative w-full h-full md:flex-1 bg-black flex items-center justify-center overflow-hidden">
                 {(() => {
-                  const mediaUrl = getPostImage(teaserPost);
-                  const mediaItem = teaserPost?.images?.[0];
+                  const mediaUrl = !isAdTraffic ? getPostImage(teaserPost) : null;
+                  const mediaItem = !isAdTraffic ? teaserPost?.images?.[0] : null;
                   const isVideo =
                     mediaItem?.type === 'video' ||
                     /\.(mp4|mov|avi|webm|mkv)$/i.test(mediaUrl || '') ||
                     mediaItem?.mimeType?.startsWith('video/');
 
-                  if (isVideo) {
+                  if (isVideo && mediaUrl) {
                     return (
                       <video
                         src={mediaUrl}
@@ -931,6 +1214,19 @@ export default function CreatorProfile() {
                     return (
                       <img
                         src={mediaUrl}
+                        alt="Teaser"
+                        className="w-full h-full object-contain"
+                      />
+                    );
+                  } else if (adAssetSrc) {
+                    return (
+                      <img
+                        src={adAssetSrc}
+                        onError={() => {
+                          if (adAssetSrc !== '/ads/default/fallback-1.webp') {
+                            setAdAssetSrc('/ads/default/fallback-1.webp');
+                          }
+                        }}
                         alt="Teaser"
                         className="w-full h-full object-contain"
                       />
@@ -980,10 +1276,13 @@ export default function CreatorProfile() {
                   </p>
                   
                   <button
-                    onClick={() => navigate('/register')}
+                    onClick={() => {
+                      setHasClosedTeaser(true);
+                      navigate(`/creator/${creator.username.replace('@', '').toLowerCase().trim()}?entered=true`);
+                    }}
                     className="w-full py-2.5 md:py-3.5 px-4 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-extrabold text-xs md:text-sm rounded-xl md:rounded-2xl shadow-lg shadow-rose-950/20 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] border border-rose-400/20 flex items-center justify-center"
                   >
-                    <span className="md:hidden">Unlock Private Feed & Lounge</span>
+                    <span className="md:hidden">Tap to Enter Her Premium Private Gallery</span>
                     <span className="hidden md:inline">Unlock {creator.name}'s private feed & community lounge</span>
                   </button>
                 </div>

@@ -191,6 +191,17 @@ export default function Admin() {
       stat: 'View',
       statLabel: 'Ambassador Panel'
     },
+    {
+      id: 'ad-assets',
+      title: 'Ad Asset Pipeline',
+      description: 'Upload and process creator ad campaign assets',
+      icon: FileCheck,
+      color: 'rose',
+      gradient: 'from-pink-500 to-rose-600',
+      route: '/admin/ad-assets',
+      stat: 'Pipeline',
+      statLabel: 'Upload & Process'
+    },
   ];
 
   return (

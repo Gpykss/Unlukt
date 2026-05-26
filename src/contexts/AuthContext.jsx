@@ -106,6 +106,9 @@ export function AuthProvider({ children }) {
     if (currentUser) {
       await updateUserOnlineStatus(currentUser.uid, false);
     }
+    try {
+      localStorage.removeItem('unlukt_auth_session');
+    } catch (e) {}
     setUserProfile(null);
     return signOut(auth);
   };
@@ -259,6 +262,9 @@ export function AuthProvider({ children }) {
       if (user) await user.reload().catch(() => {});
       setCurrentUser(user ? auth.currentUser : null);
       if (user) {
+        try {
+          localStorage.setItem('unlukt_auth_session', 'true');
+        } catch (e) {}
         // ✅ If social auth or email signup is in progress, DON'T check profile yet
         // The auth handler will create the profile — let it finish first
         if (socialAuthInProgress.current || emailSignupInProgress.current) {
@@ -274,10 +280,16 @@ export function AuthProvider({ children }) {
         if (!profile && !socialAuthInProgress.current && !emailSignupInProgress.current) {
           console.warn('⚠️ User authenticated but no Firestore profile found. Signing out.');
           await signOut(auth);
+          try {
+            localStorage.removeItem('unlukt_auth_session');
+          } catch (e) {}
           setCurrentUser(null);
           setUserProfile(null);
         }
       } else {
+        try {
+          localStorage.removeItem('unlukt_auth_session');
+        } catch (e) {}
         setUserProfile(null);
       }
       setLoading(false);

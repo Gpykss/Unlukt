@@ -1,6 +1,6 @@
 // src/App.jsx
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AuthProvider, AuthContext } from './contexts/AuthContext';
 import { ContentSettingsProvider } from './contexts/ContentSettingsContext';
@@ -10,60 +10,64 @@ import { useAuth } from './hooks/useAuth';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import LoadingScreen from './components/common/LoadingScreen';
+import LoadingSpinner from './components/common/LoadingSpinner';
 import ScrollToTop from './components/ScrollToTop';
 import GlobalSidebar from './layout/GlobalSidebar';
 import MobileNavbar from './layout/MobileNavbar';
 import MobileBottomNav from './layout/MobileBottomNav';
 import DiscoverSidebar from './components/discover/DiscoverSidebar';
 
-// Pages
+// Pages - Critical path pages (loaded synchronously)
 import Landing from './pages/Landing/Landing';
 import Login from './pages/Auth/Login';
 import Register from './pages/Auth/Register';
-import VerifyEmail from './pages/Auth/VerifyEmail';
-import Feed from './pages/Feed/Feed';
 import CreatorProfile from './pages/CreatorProfile/CreatorProfile';
-import Dashboard from './pages/Dashboard/Dashboard';
-import CreatorAnalytics from './pages/Analytics/Analytics';
-import Wallet from './pages/Wallet/Wallet';
-import Settings from './pages/Settings/Settings';
-import SearchPage from './pages/Search/Search';
-import Discover from './pages/Discover/Discover';
-import NotificationsPage from './pages/Notifications/Notifications';
-import MessagesPage from './pages/Messages/Messages';
-import NewPost from './pages/NewPost/NewPost';
-import CompleteProfile from './pages/Profile/CompleteProfile';
-import EditProfile from './pages/Profile/EditProfile';
-import BecomeCreator from './pages/CreatorProfile/BecomeCreator';
-import TermsAndConditions from './pages/Legal/TermsAndConditions';
-import PrivacyPolicy from './pages/Legal/PrivacyPolicy';
-import HelpCenter from './pages/Legal/HelpCenter';
-import AboutUs from './pages/Legal/AboutUs';
-import Communities from './pages/Communities/Communities';
-import CommunityDetail from './pages/Communities/CommunityDetail';
-import CreateCommunity from './pages/Communities/CreateCommunity';
-import CommunitySettings from './pages/Communities/CommunitySettings';
-import Support from './pages/Support/Support';
-import VideoCallRoom from './pages/VideoCall/VideoCallRoom';
-import VoiceCallRoom from './pages/VideoCall/VoiceCallRoom';
-import BookVideoCall from './pages/VideoCall/BookVideoCall';
-import BookVoiceCall from './pages/VideoCall/BookVoiceCall';
-import MyCalls from './pages/MyCalls/MyCalls';
-import CallWaitingRoom from './pages/VideoCall/CallWaitingRoom';
-import CallSummary from './pages/VideoCall/CallSummary';
 
-// ✅ Admin Pages
-import Admin from './pages/Admin/Admin';
-import KYCManagement from './pages/Admin/KYCManagement';
-import UserManagement from './pages/Admin/UserManagement';
-import AdminAnalytics from './pages/Admin/Analytics';
-import NowPaymentsLogs from './pages/Admin/NowPaymentsLogs';
-import CryptoPayments from './pages/Admin/CryptoPayments';
-import NGNPayments from './pages/Admin/NGNPayments';
-import PlatformSettings from './pages/Admin/PlatformSettings';
-import AdminPayouts from './pages/Admin/Payouts';
-import Ambassadors from './pages/Admin/Ambassadors';
-import AmbassadorDashboard from './pages/Dashboard/AmbassadorDashboard';
+// Pages - Non-critical / Heavy internal views (loaded lazily)
+const VerifyEmail = lazy(() => import('./pages/Auth/VerifyEmail'));
+const Feed = lazy(() => import('./pages/Feed/Feed'));
+const Dashboard = lazy(() => import('./pages/Dashboard/Dashboard'));
+const CreatorAnalytics = lazy(() => import('./pages/Analytics/Analytics'));
+const Wallet = lazy(() => import('./pages/Wallet/Wallet'));
+const Settings = lazy(() => import('./pages/Settings/Settings'));
+const SearchPage = lazy(() => import('./pages/Search/Search'));
+const Discover = lazy(() => import('./pages/Discover/Discover'));
+const NotificationsPage = lazy(() => import('./pages/Notifications/Notifications'));
+const MessagesPage = lazy(() => import('./pages/Messages/Messages'));
+const NewPost = lazy(() => import('./pages/NewPost/NewPost'));
+const CompleteProfile = lazy(() => import('./pages/Profile/CompleteProfile'));
+const EditProfile = lazy(() => import('./pages/Profile/EditProfile'));
+const BecomeCreator = lazy(() => import('./pages/CreatorProfile/BecomeCreator'));
+const TermsAndConditions = lazy(() => import('./pages/Legal/TermsAndConditions'));
+const PrivacyPolicy = lazy(() => import('./pages/Legal/PrivacyPolicy'));
+const HelpCenter = lazy(() => import('./pages/Legal/HelpCenter'));
+const AboutUs = lazy(() => import('./pages/Legal/AboutUs'));
+const Communities = lazy(() => import('./pages/Communities/Communities'));
+const CommunityDetail = lazy(() => import('./pages/Communities/CommunityDetail'));
+const CreateCommunity = lazy(() => import('./pages/Communities/CreateCommunity'));
+const CommunitySettings = lazy(() => import('./pages/Communities/CommunitySettings'));
+const Support = lazy(() => import('./pages/Support/Support'));
+const VideoCallRoom = lazy(() => import('./pages/VideoCall/VideoCallRoom'));
+const VoiceCallRoom = lazy(() => import('./pages/VideoCall/VoiceCallRoom'));
+const BookVideoCall = lazy(() => import('./pages/VideoCall/BookVideoCall'));
+const BookVoiceCall = lazy(() => import('./pages/VideoCall/BookVoiceCall'));
+const MyCalls = lazy(() => import('./pages/MyCalls/MyCalls'));
+const CallWaitingRoom = lazy(() => import('./pages/VideoCall/CallWaitingRoom'));
+const CallSummary = lazy(() => import('./pages/VideoCall/CallSummary'));
+
+// ✅ Admin Pages (loaded lazily)
+const Admin = lazy(() => import('./pages/Admin/Admin'));
+const KYCManagement = lazy(() => import('./pages/Admin/KYCManagement'));
+const UserManagement = lazy(() => import('./pages/Admin/UserManagement'));
+const AdminAnalytics = lazy(() => import('./pages/Admin/Analytics'));
+const NowPaymentsLogs = lazy(() => import('./pages/Admin/NowPaymentsLogs'));
+const CryptoPayments = lazy(() => import('./pages/Admin/CryptoPayments'));
+const NGNPayments = lazy(() => import('./pages/Admin/NGNPayments'));
+const PlatformSettings = lazy(() => import('./pages/Admin/PlatformSettings'));
+const AdminPayouts = lazy(() => import('./pages/Admin/Payouts'));
+const Ambassadors = lazy(() => import('./pages/Admin/Ambassadors'));
+const AmbassadorDashboard = lazy(() => import('./pages/Dashboard/AmbassadorDashboard'));
+const AdAssetManagement = lazy(() => import('./pages/Admin/AdAssetManagement'));
 
 // Pages that should have NO navigation chrome
 const NO_NAV_PATHS = new Set([
@@ -74,6 +78,7 @@ const NO_NAV_PATHS = new Set([
 function AppContent() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { currentUser } = useAuth();
 
   // Reset scroll position on every route change
   // The scroll container is div.app (height:100dvh, overflow:auto) — not window
@@ -82,8 +87,18 @@ function AppContent() {
   }, [location.pathname]);
 
   const path = location.pathname;
+  const params = new URLSearchParams(location.search);
+  const entered = params.get('entered') === 'true';
+
+  const pathParts = path.split('/').filter(Boolean);
+  const isCreatorPath = path.startsWith('/creator/') || (
+    pathParts.length === 1 &&
+    !NO_NAV_PATHS.has(path) &&
+    !['feed', 'dashboard', 'analytics', 'wallet', 'settings', 'search', 'discover', 'notifications', 'messages', 'new-post', 'edit-profile', 'become-creator', 'my-calls', 'communities', 'create-community', 'admin'].includes(pathParts[0])
+  );
 
   const showNav = !NO_NAV_PATHS.has(path)
+    && !(isCreatorPath && !currentUser && !entered)
     && !path.startsWith('/video-call/')
     && !path.startsWith('/voice-call/')
     && !path.startsWith('/book-video-call/')
@@ -105,68 +120,71 @@ function AppContent() {
       showNav && showDiscoverSidebar ? 'lg:mr-72' : '',
       isMessagesPage ? 'h-[calc(100dvh-56px)] lg:h-screen overflow-hidden' : '',
     ].filter(Boolean).join(' ')}>
-        <Routes>
-          {/* Public */}
-          <Route path="/" element={<Landing />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/legal/terms" element={<TermsAndConditions />} />
-          <Route path="/legal/privacy" element={<PrivacyPolicy />} />
-          <Route path="/help" element={<HelpCenter />} />
-          <Route path="/about" element={<AboutUs />} />
-          <Route path="/support" element={<Support />} />
+        <Suspense fallback={<LoadingSpinner />}>
+          <Routes>
+            {/* Public */}
+            <Route path="/" element={<Landing />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/legal/terms" element={<TermsAndConditions />} />
+            <Route path="/legal/privacy" element={<PrivacyPolicy />} />
+            <Route path="/help" element={<HelpCenter />} />
+            <Route path="/about" element={<AboutUs />} />
+            <Route path="/support" element={<Support />} />
 
-          {/* Auth required but no email verification */}
-          <Route path="/verify-email" element={<ProtectedRoute requireVerification={false}><VerifyEmail /></ProtectedRoute>} />
-          <Route path="/complete-profile" element={<ProtectedRoute requireVerification={false}><CompleteProfile /></ProtectedRoute>} />
+            {/* Auth required but no email verification */}
+            <Route path="/verify-email" element={<ProtectedRoute requireVerification={false}><VerifyEmail /></ProtectedRoute>} />
+            <Route path="/complete-profile" element={<ProtectedRoute requireVerification={false}><CompleteProfile /></ProtectedRoute>} />
 
-          {/* Main app */}
-          <Route path="/feed" element={<Feed />} />
-          <Route path="/creator/:username" element={<CreatorProfile />} />
-          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/analytics" element={<ProtectedRoute><CreatorAnalytics /></ProtectedRoute>} />
-          <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
-          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-          <Route path="/search" element={<SearchPage />} />
-          <Route path="/discover" element={<Discover />} />
-          <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
-          <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
-          <Route path="/new-post" element={<ProtectedRoute><NewPost /></ProtectedRoute>} />
-          <Route path="/edit-profile" element={<ProtectedRoute><EditProfile /></ProtectedRoute>} />
-          <Route path="/become-creator" element={<ProtectedRoute><BecomeCreator /></ProtectedRoute>} />
-          <Route path="/my-calls" element={<MyCalls />} />
+            {/* Main app */}
+            <Route path="/feed" element={<Feed />} />
+            <Route path="/creator/:username" element={<CreatorProfile />} />
+            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/analytics" element={<ProtectedRoute><CreatorAnalytics /></ProtectedRoute>} />
+            <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/search" element={<SearchPage />} />
+            <Route path="/discover" element={<Discover />} />
+            <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
+            <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
+            <Route path="/new-post" element={<ProtectedRoute><NewPost /></ProtectedRoute>} />
+            <Route path="/edit-profile" element={<ProtectedRoute><EditProfile /></ProtectedRoute>} />
+            <Route path="/become-creator" element={<ProtectedRoute><BecomeCreator /></ProtectedRoute>} />
+            <Route path="/my-calls" element={<MyCalls />} />
 
-          {/* Communities */}
-          <Route path="/communities" element={<ProtectedRoute><Communities /></ProtectedRoute>} />
-          <Route path="/community/:communityId" element={<ProtectedRoute><CommunityDetail /></ProtectedRoute>} />
-          <Route path="/community/:communityId/settings" element={<ProtectedRoute><CommunitySettings /></ProtectedRoute>} />
-          <Route path="/create-community" element={<ProtectedRoute><CreateCommunity /></ProtectedRoute>} />
+            {/* Communities */}
+            <Route path="/communities" element={<ProtectedRoute><Communities /></ProtectedRoute>} />
+            <Route path="/community/:communityId" element={<ProtectedRoute><CommunityDetail /></ProtectedRoute>} />
+            <Route path="/community/:communityId/settings" element={<ProtectedRoute><CommunitySettings /></ProtectedRoute>} />
+            <Route path="/create-community" element={<ProtectedRoute><CreateCommunity /></ProtectedRoute>} />
 
-          {/* Calls — full screen, no nav */}
-          <Route path="/video-call/:bookingId" element={<ProtectedRoute><VideoCallRoom /></ProtectedRoute>} />
-          <Route path="/voice-call/:bookingId" element={<ProtectedRoute><VoiceCallRoom /></ProtectedRoute>} />
-          <Route path="/book-video-call/:creatorId" element={<ProtectedRoute><BookVideoCall /></ProtectedRoute>} />
-          <Route path="/book-voice-call/:creatorId" element={<ProtectedRoute><BookVoiceCall /></ProtectedRoute>} />
-          <Route path="/waiting-room/:bookingId" element={<ProtectedRoute><CallWaitingRoom /></ProtectedRoute>} />
-          <Route path="/call-summary/:bookingId" element={<ProtectedRoute><CallSummary /></ProtectedRoute>} />
+            {/* Calls — full screen, no nav */}
+            <Route path="/video-call/:bookingId" element={<ProtectedRoute><VideoCallRoom /></ProtectedRoute>} />
+            <Route path="/voice-call/:bookingId" element={<ProtectedRoute><VoiceCallRoom /></ProtectedRoute>} />
+            <Route path="/book-video-call/:creatorId" element={<ProtectedRoute><BookVideoCall /></ProtectedRoute>} />
+            <Route path="/book-voice-call/:creatorId" element={<ProtectedRoute><BookVoiceCall /></ProtectedRoute>} />
+            <Route path="/waiting-room/:bookingId" element={<ProtectedRoute><CallWaitingRoom /></ProtectedRoute>} />
+            <Route path="/call-summary/:bookingId" element={<ProtectedRoute><CallSummary /></ProtectedRoute>} />
 
-          {/* Admin Routes */}
-          <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
-          <Route path="/admin/kyc" element={<AdminRoute><KYCManagement /></AdminRoute>} />
-          <Route path="/admin/users" element={<AdminRoute><UserManagement /></AdminRoute>} />
-          <Route path="/admin/analytics" element={<AdminRoute><AdminAnalytics /></AdminRoute>} />
-          <Route path="/admin/payment-logs" element={<AdminRoute><NowPaymentsLogs /></AdminRoute>} />
-          <Route path="/admin/crypto-payments" element={<AdminRoute><CryptoPayments /></AdminRoute>} />
-          <Route path="/admin/ngn-payments" element={<AdminRoute><NGNPayments /></AdminRoute>} />
-          <Route path="/admin/settings" element={<AdminRoute><PlatformSettings /></AdminRoute>} />
-          <Route path="/admin/payouts" element={<AdminRoute><AdminPayouts /></AdminRoute>} />
-          <Route path="/admin/ambassadors" element={<AdminRoute><Ambassadors /></AdminRoute>} />
-          {/* Ambassador Dashboard */}
-          <Route path="/ambassador-dashboard" element={<ProtectedRoute><AmbassadorDashboard /></ProtectedRoute>} />
+            {/* Admin Routes */}
+            <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+            <Route path="/admin/kyc" element={<AdminRoute><KYCManagement /></AdminRoute>} />
+            <Route path="/admin/users" element={<AdminRoute><UserManagement /></AdminRoute>} />
+            <Route path="/admin/analytics" element={<AdminRoute><AdminAnalytics /></AdminRoute>} />
+            <Route path="/admin/payment-logs" element={<AdminRoute><NowPaymentsLogs /></AdminRoute>} />
+            <Route path="/admin/crypto-payments" element={<AdminRoute><CryptoPayments /></AdminRoute>} />
+            <Route path="/admin/ngn-payments" element={<AdminRoute><NGNPayments /></AdminRoute>} />
+            <Route path="/admin/settings" element={<AdminRoute><PlatformSettings /></AdminRoute>} />
+            <Route path="/admin/payouts" element={<AdminRoute><AdminPayouts /></AdminRoute>} />
+            <Route path="/admin/ambassadors" element={<AdminRoute><Ambassadors /></AdminRoute>} />
+            <Route path="/admin/ad-assets" element={<AdminRoute><AdAssetManagement /></AdminRoute>} />
+            {/* Ambassador Dashboard */}
+            <Route path="/ambassador-dashboard" element={<ProtectedRoute><AmbassadorDashboard /></ProtectedRoute>} />
 
-          {/* Wildcard direct username route */}
-          <Route path="/:username" element={<CreatorProfile />} />
-        </Routes>
+            {/* Wildcard direct username route */}
+            <Route path="/:username" element={<CreatorProfile />} />
+          </Routes>
+        </Suspense>
       </div>
 
       {showNav && showDiscoverSidebar && <DiscoverSidebar />}

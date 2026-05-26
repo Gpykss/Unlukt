@@ -82,10 +82,524 @@
           y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
       })(window, document, "clarity", "script", "wvizxoi59b");
   </script>
+
+  <!-- Initial Load Skeleton Script -->
+  <script type="text/javascript">
+    (function() {
+      // 1. Get username from query param or pathname
+      const params = new URLSearchParams(window.location.search);
+      
+      // Check if user is authenticated in localStorage
+      let hasAuthUser = false;
+      try {
+        if (localStorage.getItem('unlukt_auth_session') === 'true') {
+          hasAuthUser = true;
+        } else {
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith('firebase:authUser:')) {
+              hasAuthUser = true;
+              break;
+            }
+          }
+        }
+      } catch (e) {}
+
+      if (params.get('entered') === 'true' || hasAuthUser) {
+        document.write('<style>.initial-skeleton-container { display: none !important; } .auth-loading-spinner { display: flex !important; }</style>');
+      }
+      let username = params.get('username') || params.get('ref');
+      if (!username) {
+        const pathParts = window.location.pathname.split('/').filter(Boolean);
+        if (pathParts.length > 0) {
+          const first = pathParts[0];
+          const second = pathParts[1];
+          // Exclude common routes
+          const reserved = ['feed', 'login', 'register', 'dashboard', 'settings', 'wallet', 'analytics', 'search', 'discover', 'messages', 'notifications', 'complete-profile', 'edit-profile', 'admin', 'legal', 'help', 'about', 'support', 'communities', 'create-community', 'community', 'my-calls', 'become-creator', 'video-call', 'voice-call'];
+          if (first === 'creator' && second) {
+            username = second;
+          } else if (!reserved.includes(first)) {
+            username = first;
+          }
+        }
+      }
+      
+      // 2. Set dynamic image source for skeleton on DOMContentLoaded
+      document.addEventListener('DOMContentLoaded', function() {
+        const fallbackImg = document.getElementById('skeleton-fallback-image');
+        if (fallbackImg) {
+          if (username) {
+            const customUrl = '/ads/' + username + '/fallback-1.webp';
+            fallbackImg.onerror = function() {
+              fallbackImg.src = '/ads/default/fallback-1.webp';
+            };
+            fallbackImg.src = customUrl;
+          } else {
+            fallbackImg.src = '/ads/default/fallback-1.webp';
+          }
+        }
+      });
+    })();
+  </script>
+
+  <style type="text/css">
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #020617; /* bg-slate-950 */
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    .initial-skeleton-container {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      background-color: #020617;
+      color: #ffffff;
+      box-sizing: border-box;
+    }
+
+    .initial-skeleton-header {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      background-color: rgba(2, 6, 23, 0.8);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid #111827; /* border-gray-900 */
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 52px;
+      box-sizing: border-box;
+    }
+
+    .skeleton-header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .skeleton-avatar-circle {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background-color: #1e293b;
+    }
+
+    .skeleton-header-info {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .skeleton-line-title {
+      width: 100px;
+      height: 12px;
+      background-color: #1e293b;
+      border-radius: 4px;
+    }
+
+    .skeleton-line-subtitle {
+      width: 70px;
+      height: 10px;
+      background-color: #f43f5e;
+      border-radius: 4px;
+      opacity: 0.8;
+    }
+
+    .skeleton-header-badge {
+      padding: 4px 12px;
+      background-color: rgba(244, 63, 94, 0.1);
+      border: 1px solid rgba(244, 63, 94, 0.2);
+      border-radius: 9999px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #fb7185;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .initial-skeleton-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      max-width: 1152px; /* max-w-6xl */
+      margin: 0 auto;
+      padding: 16px;
+      gap: 24px;
+      box-sizing: border-box;
+    }
+
+    .initial-skeleton-left {
+      width: 100%;
+      max-width: 448px; /* max-w-md */
+      margin: 0 auto;
+    }
+
+    .initial-skeleton-hero {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 3 / 4;
+      background-color: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 24px;
+      overflow: hidden;
+    }
+
+    .initial-skeleton-hero img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .initial-skeleton-gradient-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to top, #020617 0%, transparent 100%);
+      pointer-events: none;
+    }
+
+    .initial-skeleton-live-badge {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      background-color: #e11d48;
+      color: #ffffff;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .live-badge-dot {
+      width: 6px;
+      height: 6px;
+      background-color: #ffffff;
+      border-radius: 50%;
+      animation: skeleton-ping 1.5s infinite alternate;
+    }
+
+    .initial-skeleton-right {
+      width: 100%;
+      max-width: 448px;
+      margin: 0 auto;
+      background-color: rgba(15, 23, 42, 0.4);
+      border: 1px solid rgba(30, 41, 59, 0.8);
+      border-radius: 24px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-sizing: border-box;
+    }
+
+    .skeleton-desktop-info {
+      display: none;
+    }
+
+    .skeleton-line-text {
+      background-color: #1e293b;
+      border-radius: 6px;
+    }
+
+    .skeleton-grid-section {
+      margin-top: 16px;
+    }
+
+    .skeleton-grid-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .skeleton-grid-wrapper {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    .skeleton-grid-item {
+      position: relative;
+      aspect-ratio: 1 / 1;
+      background-color: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 16px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .skeleton-lock-icon {
+      width: 20px;
+      height: 16px;
+      background-color: rgba(244, 63, 94, 0.2);
+      border-radius: 4px;
+      border: 2px solid #f43f5e;
+      position: relative;
+      margin-top: 8px;
+    }
+
+    .skeleton-lock-icon::before {
+      content: '';
+      position: absolute;
+      top: -8px;
+      left: 3px;
+      width: 10px;
+      height: 8px;
+      border: 2px solid #f43f5e;
+      border-bottom: none;
+      border-top-left-radius: 6px;
+      border-top-right-radius: 6px;
+    }
+
+    .skeleton-desktop-cta {
+      display: none;
+    }
+
+    .skeleton-mobile-cta {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(to top, #020617 80%, transparent);
+      padding: 16px;
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-sizing: border-box;
+    }
+
+    .skeleton-cta-button {
+      width: 100%;
+      padding: 16px;
+      background: linear-gradient(to right, #f43f5e, #db2777);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 800;
+      text-align: center;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(244, 63, 94, 0.3);
+      outline: none;
+      border: none;
+    }
+
+    .skeleton-cta-subtext {
+      font-size: 10px;
+      color: #64748b;
+      text-align: center;
+    }
+
+    .pulsing {
+      animation: skeleton-pulse 2s infinite ease-in-out;
+    }
+
+    @keyframes skeleton-pulse {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+
+    @keyframes skeleton-ping {
+      0% { transform: scale(0.9); opacity: 0.8; }
+      100% { transform: scale(1.1); opacity: 1; }
+    }
+
+    /* Desktop overrides */
+    @media (min-width: 768px) {
+      .initial-skeleton-container {
+        padding-bottom: 24px;
+      }
+
+      .initial-skeleton-main {
+        flex-direction: row;
+        padding: 24px;
+        gap: 32px;
+        align-items: stretch;
+      }
+
+      .initial-skeleton-left {
+        max-width: none;
+        margin: 0;
+      }
+
+      .initial-skeleton-right {
+        max-width: none;
+        width: 380px;
+        margin: 0;
+        background-color: rgba(15, 23, 42, 0.4);
+        padding: 32px;
+        justify-content: space-between;
+      }
+
+      @media (min-width: 1024px) {
+        .initial-skeleton-right {
+          width: 420px;
+        }
+      }
+
+      .skeleton-desktop-info {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+
+      .skeleton-avatar-circle-large {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background-color: #1e293b;
+      }
+
+      .skeleton-desktop-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .skeleton-desktop-cta {
+        display: block;
+        margin-top: 32px;
+      }
+
+      .skeleton-mobile-cta {
+        display: none;
+      }
+    }
+
+    /* Auth loading spinner styles */
+    .auth-loading-spinner {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background-color: #020617; /* bg-slate-950 */
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+
+    .spinner-ring {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #f43f5e;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin-auth-ring 1s infinite linear;
+    }
+
+    @keyframes spin-auth-ring {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
 </head>
 
 <body>
-  <div id="root"></div>
+  <div id="root">
+    <!-- Static full-page responsive landing page skeleton -->
+    <div class="initial-skeleton-container">
+      <!-- Header -->
+      <div class="initial-skeleton-header">
+        <div class="skeleton-header-left">
+          <div class="skeleton-avatar-circle pulsing"></div>
+          <div class="skeleton-header-info">
+            <div class="skeleton-line-title pulsing"></div>
+            <div class="skeleton-line-subtitle pulsing"></div>
+          </div>
+        </div>
+        <div class="skeleton-header-badge">Premium Preview</div>
+      </div>
+
+      <!-- Main Layout Grid -->
+      <div class="initial-skeleton-main">
+        <!-- Left Side: Featured Media Preview -->
+        <div class="initial-skeleton-left">
+          <div class="initial-skeleton-hero">
+            <img id="skeleton-fallback-image" src="/ads/default/fallback-1.webp" alt="Teaser Preview" />
+            <div class="initial-skeleton-gradient-overlay"></div>
+            <div class="initial-skeleton-live-badge">
+              <span class="live-badge-dot"></span>
+              PREVIEW LIVE
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Side: Details & Locked Grid -->
+        <div class="initial-skeleton-right">
+          <div class="skeleton-details-top">
+            <!-- Desktop-only details info -->
+            <div class="skeleton-desktop-info">
+              <div class="skeleton-avatar-circle-large pulsing"></div>
+              <div class="skeleton-desktop-meta">
+                <div class="skeleton-line-title pulsing"></div>
+                <div class="skeleton-line-subtitle pulsing"></div>
+              </div>
+            </div>
+            
+            <div class="skeleton-line-text pulsing" style="width: 80%; height: 16px; margin: 16px 0 8px;"></div>
+            <div class="skeleton-line-text pulsing" style="width: 90%; height: 12px; margin-bottom: 24px;"></div>
+            
+            <!-- Grid Gallery section -->
+            <div class="skeleton-grid-section">
+              <div class="skeleton-grid-header">
+                <div class="skeleton-line-text pulsing" style="width: 120px; height: 10px; margin: 0;"></div>
+                <div class="skeleton-line-text pulsing" style="width: 85px; height: 10px; margin: 0;"></div>
+              </div>
+              <div class="skeleton-grid-wrapper">
+                <div class="skeleton-grid-item pulsing" style="display: flex; flex-direction: column; justify-content: flex-end; padding: 12px; align-items: flex-start; box-sizing: border-box;">
+                  <div class="skeleton-line-text pulsing" style="width: 60%; height: 8px; margin: 0 0 4px 0;"></div>
+                  <div class="skeleton-line-text pulsing" style="width: 40%; height: 6px; margin: 0;"></div>
+                </div>
+                <div class="skeleton-grid-item pulsing" style="display: flex; flex-direction: column; justify-content: flex-end; padding: 12px; align-items: flex-start; box-sizing: border-box;">
+                  <div class="skeleton-line-text pulsing" style="width: 70%; height: 8px; margin: 0 0 4px 0;"></div>
+                  <div class="skeleton-line-text pulsing" style="width: 30%; height: 6px; margin: 0;"></div>
+                </div>
+                <div class="skeleton-grid-item pulsing" style="display: flex; flex-direction: column; justify-content: flex-end; padding: 12px; align-items: flex-start; box-sizing: border-box;">
+                  <div class="skeleton-line-text pulsing" style="width: 50%; height: 8px; margin: 0 0 4px 0;"></div>
+                  <div class="skeleton-line-text pulsing" style="width: 50%; height: 6px; margin: 0;"></div>
+                </div>
+                <div class="skeleton-grid-item pulsing" style="display: flex; flex-direction: column; justify-content: flex-end; padding: 12px; align-items: flex-start; box-sizing: border-box;">
+                  <div class="skeleton-line-text pulsing" style="width: 65%; height: 8px; margin: 0 0 4px 0;"></div>
+                  <div class="skeleton-line-text pulsing" style="width: 40%; height: 6px; margin: 0;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Desktop CTA -->
+          <div class="skeleton-desktop-cta">
+            <button class="skeleton-cta-button">
+              Tap to Enter Her Premium Private Gallery
+            </button>
+            <div class="skeleton-cta-subtext">By entering, you confirm you are 18+ and agree to the Terms of Service.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mobile CTA -->
+      <div class="skeleton-mobile-cta">
+        <button class="skeleton-cta-button">
+          Tap to Enter Her Premium Private Gallery
+        </button>
+        <div class="skeleton-cta-subtext">By entering, you confirm you are 18+ and agree to the Terms of Service.</div>
+      </div>
+  </div>
+  
+  <!-- Simple loading spinner for authenticated/redirected users -->
+  <div class="auth-loading-spinner">
+    <div class="spinner-ring"></div>
+  </div>
+
   <script type="module" src="/src/main.jsx"></script>
 
   <!-- SEO: Fallback content for crawlers that don't execute JavaScript -->
