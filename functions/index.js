@@ -224,8 +224,7 @@ exports.nowpaymentsWebhook = onRequest(
       };
       const newStatus = statusMap[payment_status] || payment_status;
 
-      await paymentDocRef.update({
-        status:               newStatus,
+      const updateData = {
         nowPaymentsStatus:    payment_status,
         nowPaymentsPaymentId: String(payment_id || ''),
         payAddress:           pay_address     || null,
@@ -237,9 +236,7 @@ exports.nowpaymentsWebhook = onRequest(
         nowPaymentsUpdatedAt: updated_at      || null,
         updatedAt:            admin.firestore.FieldValue.serverTimestamp(),
         ipnPayload:           ipnData,
-      });
-
-      console.log(`✅ Payment ${paymentDoc.id} updated to status: ${newStatus}`);
+      };
 
       if (payment_status === 'finished' || payment_status === 'confirmed') {
         if (paymentData.status === 'completed') {
@@ -248,7 +245,13 @@ exports.nowpaymentsWebhook = onRequest(
         }
         await processPayment(db, paymentData, paymentDoc.id);
         console.log(`🎉 Payment ${paymentDoc.id} fully processed`);
+        updateData.status = 'completed';
+      } else {
+        updateData.status = newStatus;
       }
+
+      await paymentDocRef.update(updateData);
+      console.log(`✅ Payment ${paymentDoc.id} updated to status: ${updateData.status || newStatus}`);
 
       return res.status(200).send('OK');
     } catch (error) {
@@ -294,9 +297,11 @@ async function processPayment(db, paymentData, paymentId) {
       case "topup":
         const userBalanceRef = db.collection("user_balances").doc(userId);
         const userBalanceDoc = await userBalanceRef.get();
+        let newBalance = finalAmount;
         if (userBalanceDoc.exists) {
+          newBalance = (userBalanceDoc.data().balance || 0) + finalAmount;
           await userBalanceRef.update({
-            balance: (userBalanceDoc.data().balance || 0) + finalAmount,
+            balance: newBalance,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
         } else {
@@ -306,6 +311,17 @@ async function processPayment(db, paymentData, paymentId) {
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
         }
+
+        // Log transaction history
+        await db.collection("transactions").add({
+          userId,
+          amount: finalAmount,
+          type: "topup",
+          description: "Wallet top-up (Crypto)",
+          paymentId: paymentId || null,
+          balanceAfter: newBalance,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
         break;
 
       case "tip":
@@ -358,6 +374,8 @@ exports.createPayment = onRequest(
     region: "us-central1",
     secrets: [NOWPAYMENTS_API_KEY],
     cors: true,
+    memory: "512MiB",
+    minInstances: 1,
   },
   async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
@@ -381,20 +399,17 @@ exports.createPayment = onRequest(
 
       const reference = `CRYPTO_${Date.now()}_${uid.substring(0, 8)}`;
 
-      let vatAmount = 0, vatPercentage = 0, baseAmount = parseFloat(amount);
-      if (userCountry === "Nigeria") {
-        vatPercentage = 1.5;
-        baseAmount = amount / 1.015;
-        vatAmount = amount - baseAmount;
-      }
+      const baseAmount = parseFloat(amount);
+      const vatPercentage = 1.5;
+      const totalAmount = parseFloat((baseAmount * 1.015).toFixed(2));
+      const vatAmount = parseFloat((totalAmount - baseAmount).toFixed(2));
 
       const nowPaymentResponse = await fetch("https://api.nowpayments.io/v1/invoice", {
         method: "POST",
         headers: { "x-api-key": NOWPAYMENTS_API_KEY.value(), "Content-Type": "application/json" },
         body: JSON.stringify({
-          price_amount: parseFloat(amount),
+          price_amount: totalAmount,
           price_currency: "usd",
-          pay_currency: "usdttrc20",
           order_id: reference,
           order_description: `${contentType} - ${userName}`,
           success_url: `${req.headers.origin || 'https://your-domain.com'}/payment-success?ref=${reference}`,
@@ -413,9 +428,9 @@ exports.createPayment = onRequest(
       const docRef = await db.collection("crypto_payments").add({
         reference, nowPaymentsId: nowPaymentData.id, userId: uid,
         userEmail, userName, contentId: contentId || null, contentType,
-        creatorId: creatorId || null, amount: parseFloat(amount),
+        creatorId: creatorId || null, amount: totalAmount,
         baseAmount, vatAmount, vatPercentage, currency: "USD",
-        cryptoCurrency: "USDT", network: "TRC20", paymentMethod: "nowpayments",
+        cryptoCurrency: "Multi-coin", network: "Dashboard Selection", paymentMethod: "nowpayments",
         status: "pending_payment", userCountry: userCountry || "Unknown",
         nowPaymentsUrl: nowPaymentData.invoice_url,
         nowPaymentsStatus: nowPaymentData.payment_status || "waiting",
@@ -426,7 +441,7 @@ exports.createPayment = onRequest(
 
       return res.status(200).json({
         success: true, paymentId: docRef.id, reference,
-        paymentUrl: nowPaymentData.invoice_url, amount: parseFloat(amount),
+        paymentUrl: nowPaymentData.invoice_url, amount: totalAmount,
       });
     } catch (error) {
       console.error("❌ Create payment error:", error);

@@ -14,6 +14,7 @@ export default function PaymentModal({
   contentType = 'subscription',
   contentId = null,
   creatorId = null,
+  userCountryName = 'Unknown',
   onSuccess
 }) {
   const navigate = useNavigate();
@@ -33,26 +34,26 @@ export default function PaymentModal({
     }
   }, [isOpen]);
 
- const initializeCryptoPayment = async () => {
-  if (!currentUser?.uid) {
-    setError('Please login to continue');
-    return;
-  }
+  const initializeCryptoPayment = async () => {
+    if (!currentUser?.uid) {
+      setError('Please login to continue');
+      return;
+    }
 
-  setError('');
-  setLoading(true);
+    setError('');
+    setLoading(true);
 
-  try {
-    const result = await cryptoService.initializeUSDTPayment({
-      amount: Number(amountUSD),
-      userId: currentUser.uid,
-      userEmail: currentUser.email,
-      userName: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
-      contentId,
-      contentType,
-      creatorId,
-      userCountry: 'Unknown' // You can add country detection later
-    });
+    try {
+      const result = await cryptoService.initializeUSDTPayment({
+        amount: Number(amountUSD),
+        userId: currentUser.uid,
+        userEmail: currentUser.email,
+        userName: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
+        contentId,
+        contentType,
+        creatorId,
+        userCountry: userCountryName || 'Unknown'
+      });
 
     // ✅ REDIRECT TO NOWPAYMENTS
     if (result.paymentUrl) {
@@ -110,13 +111,28 @@ export default function PaymentModal({
           </div>
 
           {/* Amount Display */}
-          <div className="bg-gradient-to-br from-rose-500 to-pink-600 rounded-2xl p-5 mb-5 text-white">
-            <p className="text-sm opacity-90">Amount to Pay</p>
-            <p className="text-3xl font-bold mt-1">
-              ${Number(amountUSD || 0).toFixed(2)} USDT
-            </p>
-            <p className="text-xs opacity-75 mt-2">Network: TRC20 (TRON)</p>
-          </div>
+          {(() => {
+            const baseAmount = Number(amountUSD || 0);
+            const feeAmount = Number((baseAmount * 0.015).toFixed(2));
+            const totalAmount = Number((baseAmount + feeAmount).toFixed(2));
+            return (
+              <div className="bg-gradient-to-br from-rose-500 to-pink-600 rounded-2xl p-5 mb-5 text-white space-y-2 shadow-inner">
+                <div className="flex justify-between items-center border-b border-white/20 pb-2">
+                  <span className="text-sm opacity-90">Subtotal:</span>
+                  <span className="font-semibold">${baseAmount.toFixed(2)} USD</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-white/20 pb-2">
+                  <span className="text-sm opacity-90">Crypto Fee (1.5%):</span>
+                  <span className="font-semibold">${feeAmount.toFixed(2)} USD</span>
+                </div>
+                <div className="flex justify-between items-center pt-1">
+                  <span className="text-sm opacity-90 font-medium">Total to Pay:</span>
+                  <span className="text-3xl font-bold">${totalAmount.toFixed(2)} USD</span>
+                </div>
+                <p className="text-xs opacity-75 mt-1 text-right">Select any supported cryptocurrency next</p>
+              </div>
+            );
+          })()}
 
           {error && (
             <div className="mb-4 bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-sm">
@@ -131,9 +147,9 @@ export default function PaymentModal({
                 <h3 className="font-semibold text-blue-900 mb-2">Payment Process:</h3>
                 <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
                   <li>Click "Initialize Payment" below</li>
-                  <li>Send exact USDT amount to our wallet</li>
-                  <li>Upload payment screenshot</li>
-                  <li>Admin verifies within 24-72 hours</li>
+                  <li>Select your preferred coin on the payment page</li>
+                  <li>Send the exact crypto amount to the address shown</li>
+                  <li>Your wallet will be credited automatically once confirmed</li>
                 </ol>
               </div>
 

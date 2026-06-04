@@ -29,6 +29,7 @@ const Feed = lazy(() => import('./pages/Feed/Feed'));
 const Dashboard = lazy(() => import('./pages/Dashboard/Dashboard'));
 const CreatorAnalytics = lazy(() => import('./pages/Analytics/Analytics'));
 const Wallet = lazy(() => import('./pages/Wallet/Wallet'));
+const PaymentSuccess = lazy(() => import('./pages/Wallet/PaymentSuccess'));
 const Settings = lazy(() => import('./pages/Settings/Settings'));
 const SearchPage = lazy(() => import('./pages/Search/Search'));
 const Discover = lazy(() => import('./pages/Discover/Discover'));
@@ -94,7 +95,7 @@ function AppContent() {
   const isCreatorPath = path.startsWith('/creator/') || (
     pathParts.length === 1 &&
     !NO_NAV_PATHS.has(path) &&
-    !['feed', 'dashboard', 'analytics', 'wallet', 'settings', 'search', 'discover', 'notifications', 'messages', 'new-post', 'edit-profile', 'become-creator', 'my-calls', 'communities', 'create-community', 'admin'].includes(pathParts[0])
+    !['feed', 'dashboard', 'analytics', 'wallet', 'settings', 'search', 'discover', 'notifications', 'messages', 'new-post', 'edit-profile', 'become-creator', 'my-calls', 'communities', 'create-community', 'admin', 'payment-success'].includes(pathParts[0])
   );
 
   const showNav = !NO_NAV_PATHS.has(path)
@@ -142,6 +143,7 @@ function AppContent() {
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/analytics" element={<ProtectedRoute><CreatorAnalytics /></ProtectedRoute>} />
             <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
+            <Route path="/payment-success" element={<ProtectedRoute><PaymentSuccess /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/discover" element={<Discover />} />
