@@ -458,12 +458,20 @@ export default function PostCard({
             className="flex items-center space-x-3 cursor-pointer hover:opacity-80 transition"
           >
             {/* FIX: Bigger avatar, clearly visible */}
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-xl overflow-hidden ring-2 ring-rose-100 flex-shrink-0">
-              {creator?.profilePicture || creator?.avatar ? (
-                <img src={creator.profilePicture || creator.avatar} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-lg">{creator?.displayName?.charAt(0)?.toUpperCase() || '👤'}</span>
+            <div className="relative w-12 h-12 flex-shrink-0">
+              {creator?.is_live && (
+                <>
+                  <div className="absolute -inset-1 rounded-full border-2 border-rose-500 animate-ping opacity-75 z-0" />
+                  <div className="absolute -inset-1 rounded-full border-2 border-rose-600 animate-pulse z-0" />
+                </>
               )}
+              <div className="relative w-full h-full rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-xl overflow-hidden ring-2 ring-rose-100 z-10">
+                {creator?.profilePicture || creator?.avatar ? (
+                  <img src={creator.profilePicture || creator.avatar} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-lg">{creator?.displayName?.charAt(0)?.toUpperCase() || '👤'}</span>
+                )}
+              </div>
             </div>
 
             <div>

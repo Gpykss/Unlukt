@@ -200,7 +200,12 @@ export default function Wallet() {
               <span className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full text-sm font-semibold">Available</span>
             </div>
             <p className="text-white/80 text-sm mb-2">Available Balance</p>
-            <p className="text-4xl font-bold mb-4">{formatMoney(balance.available, 'USD')}</p>
+            <p className="text-4xl font-bold mb-1 flex items-center gap-1.5">
+              <span>🌹</span>
+              <span>{Number(balance.available || 0).toFixed(0)}</span>
+              <span className="text-sm font-normal opacity-85">({formatMoney(balance.available, 'USD')})</span>
+            </p>
+            <p className="text-xs text-white/70 mb-4">1 Rose = $1.00 USD</p>
             <button
               onClick={handleAddFunds}
               className="w-full bg-white text-rose-600 py-3 rounded-xl font-semibold hover:bg-gray-50 transition flex items-center justify-center gap-2"
@@ -220,24 +225,29 @@ export default function Wallet() {
               <div className="p-3 bg-green-50 rounded-xl">
                 <TrendingUp className="w-6 h-6 text-green-500" />
               </div>
-              <span className="text-green-600 text-sm font-semibold">Balance</span>
+              <span className="text-green-600 text-sm font-semibold">Total Assets</span>
             </div>
             <p className="text-gray-600 text-sm mb-2">Total Balance</p>
-            <p className="text-3xl font-bold text-gray-900 mb-4">{formatMoney(balance.total, 'USD')}</p>
+            <p className="text-3xl font-bold text-gray-900 mb-1 flex items-center gap-1.5">
+              <span>🌹</span>
+              <span>{Number(balance.total || 0).toFixed(0)}</span>
+              <span className="text-sm font-normal text-gray-500">({formatMoney(balance.total, 'USD')})</span>
+            </p>
+            <p className="text-xs text-gray-500 mb-4">1 Rose = $1.00 USD</p>
             <p className="text-sm text-gray-500">
-              {balance.total > 0 ? 'Ready to spend on services' : `Add min $${MIN_TOPUP} to get started`}
+              {balance.total > 0 ? 'Ready to spend on services' : `Add min $${MIN_TOPUP} to purchase Roses`}
             </p>
           </motion.div>
         </div>
 
         {/* Services pricing guide */}
         <div className="bg-white border border-gray-200 rounded-2xl p-5">
-          <p className="text-sm font-semibold text-gray-800 mb-3">💸 Service Prices (deducted from wallet)</p>
+          <p className="text-sm font-semibold text-gray-800 mb-3">💸 Service Prices (deducted from wallet in Roses 🌹)</p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
             {[
-              { label: 'PPV Message', price: 'From $1' },
-              { label: 'Voice Call', price: 'From $3' },
-              { label: 'Video Call', price: 'From $5' },
+              { label: 'PPV Message', price: 'From 1 Rose 🌹' },
+              { label: 'Voice Call', price: 'From 3 Roses 🌹' },
+              { label: 'Video Call', price: 'From 5 Roses 🌹' },
               { label: 'Subscription', price: 'Creator set' },
             ].map(({ label, price }) => (
               <div key={label} className="bg-gray-50 rounded-xl p-3">

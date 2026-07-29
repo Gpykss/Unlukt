@@ -42,38 +42,145 @@ exports.getAgoraToken = onRequest(
         const decoded = await admin.auth().verifyIdToken(token);
         const uid = decoded.uid;
 
-        const { channelName, bookingId } = req.body || {};
+        const { channelName, bookingId, creatorId, isLivestream } = req.body || {};
         if (!channelName) return res.status(400).json({ error: "channelName is required" });
 
-        // Verify user belongs to this booking
-        if (bookingId) {
-          const bookingSnap = await admin.firestore()
-            .collection("call_bookings")
-            .doc(bookingId)
-            .get();
+        const db = admin.firestore();
+        const { RtcTokenBuilder, RtcRole } = require("agora-token");
 
-          if (!bookingSnap.exists) {
-            return res.status(404).json({ error: "Booking not found" });
+        let role = RtcRole.PUBLISHER; // Default
+
+        // 1. If it's a livestream channel
+        if (isLivestream || channelName.startsWith("livestream_")) {
+          const resolvedCreatorId = creatorId || channelName.replace("livestream_", "");
+
+          if (uid === resolvedCreatorId) {
+            role = RtcRole.PUBLISHER;
+          } else {
+            // Fan checks
+            // Check if this fan is currently accepted as a co-host
+            const cohostSnap = await db.collection("cohost_requests")
+              .where("userId", "==", uid)
+              .where("creatorId", "==", resolvedCreatorId)
+              .where("status", "==", "accepted")
+              .limit(1)
+              .get();
+
+            if (!cohostSnap.empty) {
+              role = RtcRole.PUBLISHER; // Upgraded to publisher!
+            } else {
+              role = RtcRole.SUBSCRIBER;
+            }
+
+            // Check if user has an active, unexpired ticket for this room
+            const now = new Date();
+            const ticketsSnap = await db.collection("livestream_tickets")
+              .where("userId", "==", uid)
+              .where("creatorId", "==", resolvedCreatorId)
+              .where("expiresAt", ">", now)
+              .limit(1)
+              .get();
+
+            if (ticketsSnap.empty) {
+              // No ticket. Try to transactionally purchase a 1-hour ticket block.
+              // Fetch creator's pricing
+              const creatorSnap = await db.collection("users").doc(resolvedCreatorId).get();
+              if (!creatorSnap.exists) {
+                return res.status(404).json({ error: "Creator profile not found" });
+              }
+              const creatorData = creatorSnap.data();
+              // Default pricing: 10 Roses / USD
+              const price = Number(creatorData.livestreamPrice || creatorData.ticketPrice || 10);
+
+              // Perform transaction to deduct balance
+              await db.runTransaction(async (transaction) => {
+                const userBalRef = db.collection("user_balances").doc(uid);
+                const creatorBalRef = db.collection("user_balances").doc(resolvedCreatorId);
+
+                const userBalSnap = await transaction.get(userBalRef);
+                if (!userBalSnap.exists || Number(userBalSnap.data().balance || 0) < price) {
+                  throw new Error("INSUFFICIENT_FUNDS");
+                }
+
+                const currentBalance = Number(userBalSnap.data().balance || 0);
+                const creatorBalSnap = await transaction.get(creatorBalRef);
+                const currentCreatorBalance = creatorBalSnap.exists ? Number(creatorBalSnap.data().balance || 0) : 0;
+
+                // Deduct from fan
+                transaction.update(userBalRef, {
+                  balance: currentBalance - price,
+                  updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+
+                // Credit to creator immediately (non-refundable)
+                if (creatorBalSnap.exists) {
+                  transaction.update(creatorBalRef, {
+                    balance: currentCreatorBalance + price,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                  });
+                } else {
+                  transaction.set(creatorBalRef, {
+                    userId: resolvedCreatorId,
+                    balance: price,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                  });
+                }
+
+                // Log debit transaction
+                const debitRef = db.collection("transactions").doc();
+                transaction.set(debitRef, {
+                  userId: uid,
+                  amount: -price,
+                  type: "debit",
+                  description: `Livestream 1-Hour Ticket: @${creatorData.username || "creator"}`,
+                  balanceAfter: currentBalance - price,
+                  createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+
+                // Log credit transaction
+                const creditRef = db.collection("transactions").doc();
+                transaction.set(creditRef, {
+                  userId: resolvedCreatorId,
+                  amount: price,
+                  type: "credit",
+                  description: `Livestream 1-Hour Ticket Sale from fan`,
+                  balanceAfter: currentCreatorBalance + price,
+                  createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+
+                // Create ticket document
+                const ticketRef = db.collection("livestream_tickets").doc();
+                transaction.set(ticketRef, {
+                  userId: uid,
+                  creatorId: resolvedCreatorId,
+                  createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                  expiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 60 * 60 * 1000)), // 1 hour
+                });
+              });
+            }
           }
-
-          const booking = bookingSnap.data();
-          if (booking.userId !== uid && booking.creatorId !== uid) {
-            return res.status(403).json({ error: "Not authorized for this booking" });
+        } else {
+          // 2. Regular 1-on-1 booking validation
+          if (bookingId) {
+            const bookingSnap = await db.collection("call_bookings").doc(bookingId).get();
+            if (!bookingSnap.exists) {
+              return res.status(404).json({ error: "Booking not found" });
+            }
+            const booking = bookingSnap.data();
+            if (booking.userId !== uid && booking.creatorId !== uid) {
+              return res.status(403).json({ error: "Not authorized for this booking" });
+            }
           }
         }
 
-        // Generate token using Agora token builder
-        const { RtcTokenBuilder, RtcRole } = require("agora-token");
-
         const appId = AGORA_APP_ID.value().trim();
         const appCertificate = AGORA_APP_CERTIFICATE.value().trim();
-        const role = RtcRole.PUBLISHER;
         const expirationTimeInSeconds = 3600; // 1 hour
         const currentTimestamp = Math.floor(Date.now() / 1000);
         const privilegeExpiredTs = currentTimestamp + expirationTimeInSeconds;
 
-        // Use numeric UID derived from Firebase UID
-        const numericUid = 0; // 0 = Agora assigns UID automatically
+        const numericUid = 0; // Agora automatically assigns
 
         const agoraToken = RtcTokenBuilder.buildTokenWithUid(
           appId,
@@ -85,7 +192,7 @@ exports.getAgoraToken = onRequest(
           privilegeExpiredTs
         );
 
-        console.log(`✅ Agora token generated for channel: ${channelName}, user: ${uid}`);
+        console.log(`✅ Agora token generated. Channel: ${channelName}, user: ${uid}, role: ${role}`);
 
         return res.status(200).json({
           token: agoraToken,
@@ -97,6 +204,9 @@ exports.getAgoraToken = onRequest(
 
       } catch (err) {
         console.error("getAgoraToken error:", err);
+        if (err.message === "INSUFFICIENT_FUNDS") {
+          return res.status(402).json({ error: "INSUFFICIENT_FUNDS" });
+        }
         return res.status(500).json({ error: err?.message || "Server error" });
       }
     });
@@ -1009,5 +1119,183 @@ exports.subscriptionExpiryReminder = onSchedule(
       // Mark reminder as sent so it doesn't send again
       await doc.ref.update({ reminderSent: true });
     }
+  }
+);
+
+// ========== STAGE CO-HOST REQUESTS (STRIPCHAT NON-REFUNDABLE STRATEGY) ==========
+exports.requestCoHostStage = onRequest(
+  {
+    region: "us-central1",
+    secrets: [AGORA_APP_ID, AGORA_APP_CERTIFICATE],
+  },
+  (req, res) => {
+    corsHandler(req, res, async () => {
+      try {
+        if (req.method !== "POST") {
+          return res.status(405).json({ error: "Method not allowed" });
+        }
+
+        const authHeader = req.headers.authorization || "";
+        const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+        if (!token) return res.status(401).json({ error: "Missing auth token" });
+
+        const decoded = await admin.auth().verifyIdToken(token);
+        const uid = decoded.uid;
+
+        const { creatorId, tipAmount } = req.body || {};
+        if (!creatorId) return res.status(400).json({ error: "creatorId is required" });
+        
+        const price = Number(tipAmount || 50);
+
+        const db = admin.firestore();
+        const creatorSnap = await db.collection("users").doc(creatorId).get();
+        if (!creatorSnap.exists) {
+          return res.status(404).json({ error: "Creator profile not found" });
+        }
+        const creatorData = creatorSnap.data();
+
+        const fanSnap = await db.collection("users").doc(uid).get();
+        const fanData = fanSnap.exists ? fanSnap.data() : {};
+        const fanUsername = fanData.username || "fan";
+        const fanDisplayName = fanData.displayName || fanUsername;
+
+        await db.runTransaction(async (transaction) => {
+          const userBalRef = db.collection("user_balances").doc(uid);
+          const creatorBalRef = db.collection("user_balances").doc(creatorId);
+
+          const userBalSnap = await transaction.get(userBalRef);
+          if (!userBalSnap.exists || Number(userBalSnap.data().balance || 0) < price) {
+            throw new Error("INSUFFICIENT_FUNDS");
+          }
+
+          const currentBalance = Number(userBalSnap.data().balance || 0);
+          const creatorBalSnap = await transaction.get(creatorBalRef);
+          const currentCreatorBalance = creatorBalSnap.exists ? Number(creatorBalSnap.data().balance || 0) : 0;
+
+          transaction.update(userBalRef, {
+            balance: currentBalance - price,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          if (creatorBalSnap.exists) {
+            transaction.update(creatorBalRef, {
+              balance: currentCreatorBalance + price,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+          } else {
+            transaction.set(creatorBalRef, {
+              userId: creatorId,
+              balance: price,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+          }
+
+          const debitRef = db.collection("transactions").doc();
+          transaction.set(debitRef, {
+            userId: uid,
+            amount: -price,
+            type: "debit",
+            description: `Stage Request Tip to @${creatorData.username || "creator"} (Non-Refundable)`,
+            balanceAfter: currentBalance - price,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          const creditRef = db.collection("transactions").doc();
+          transaction.set(creditRef, {
+            userId: creatorId,
+            amount: price,
+            type: "credit",
+            description: `Stage Request Tip from @${fanUsername}`,
+            balanceAfter: currentCreatorBalance + price,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          const cohostRef = db.collection("cohost_requests").doc();
+          transaction.set(cohostRef, {
+            userId: uid,
+            username: fanUsername,
+            displayName: fanDisplayName,
+            avatar: fanData.profilePicture || fanData.avatar || "",
+            creatorId,
+            amount: price,
+            status: "pending",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        });
+
+        console.log(`✅ Co-host request submitted by user: ${uid} for creator: ${creatorId}`);
+        return res.status(200).json({ success: true });
+
+      } catch (err) {
+        console.error("requestCoHostStage error:", err);
+        if (err.message === "INSUFFICIENT_FUNDS") {
+          return res.status(402).json({ error: "INSUFFICIENT_FUNDS" });
+        }
+        return res.status(500).json({ error: err?.message || "Server error" });
+      }
+    });
+  }
+);
+
+exports.resolveCoHostRequest = onRequest(
+  {
+    region: "us-central1",
+  },
+  (req, res) => {
+    corsHandler(req, res, async () => {
+      try {
+        if (req.method !== "POST") {
+          return res.status(405).json({ error: "Method not allowed" });
+        }
+
+        const authHeader = req.headers.authorization || "";
+        const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+        if (!token) return res.status(401).json({ error: "Missing auth token" });
+
+        const decoded = await admin.auth().verifyIdToken(token);
+        const uid = decoded.uid;
+
+        const { requestId, action } = req.body || {};
+        if (!requestId || !action) {
+          return res.status(400).json({ error: "requestId and action are required" });
+        }
+
+        const db = admin.firestore();
+        const requestRef = db.collection("cohost_requests").doc(requestId);
+        const requestSnap = await requestRef.get();
+
+        if (!requestSnap.exists) {
+          return res.status(404).json({ error: "Stage request not found" });
+        }
+
+        const requestData = requestSnap.data();
+        if (requestData.creatorId !== uid) {
+          return res.status(403).json({ error: "Not authorized to resolve this request" });
+        }
+
+        if (action === "accept") {
+          await requestRef.update({
+            status: "accepted",
+            resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log(`✅ Co-host request accepted: ${requestId}`);
+        } else if (action === "dismiss") {
+          await requestRef.update({
+            status: "dismissed",
+            resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log(`✅ Co-host request dismissed: ${requestId}`);
+        } else {
+          return res.status(400).json({ error: "Invalid action. Must be 'accept' or 'dismiss'" });
+        }
+
+        return res.status(200).json({ success: true });
+
+      } catch (err) {
+        console.error("resolveCoHostRequest error:", err);
+        return res.status(500).json({ error: err?.message || "Server error" });
+      }
+    });
   }
 );

@@ -6,14 +6,31 @@ import logger from '../utils/logger';
 const AGORA_TOKEN_URL = import.meta.env.VITE_FIREBASE_FUNCTIONS_URL + '/getAgoraToken';
 
 let client = null;
+let clientMode = null;
 let localAudioTrack = null;
 let localVideoTrack = null;
 
-export const initializeAgoraClient = () => {
-  if (!client) {
-    client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-    logger.info('Agora client initialized');
+export const initializeAgoraClient = (mode = 'rtc', mountId = null) => {
+  if (client) {
+    logger.info(`Cleaning up existing client instance (ID: ${client.clientId}, State: ${client.connectionState}) to allocate a fresh one.`);
+    try {
+      if (localAudioTrack) { localAudioTrack.close(); localAudioTrack = null; }
+      if (localVideoTrack) { localVideoTrack.close(); localVideoTrack = null; }
+      client.removeAllListeners();
+      if (client.connectionState === 'CONNECTED' || client.connectionState === 'CONNECTING') {
+        client.leave().catch(err => logger.error('Background leave error:', err));
+      }
+    } catch (e) {
+      logger.error('Error cleaning up previous client instance:', e);
+    }
+    client = null;
   }
+
+  client = AgoraRTC.createClient({ mode, codec: 'vp8' });
+  client.clientId = Math.random().toString();
+  client.mountId = mountId;
+  clientMode = mode;
+  logger.info(`Agora client initialized in mode: ${mode} with ID: ${client.clientId} and Mount ID: ${mountId}`);
   return client;
 };
 
@@ -30,9 +47,14 @@ const getAuthUser = () => {
   });
 };
 
-const fetchAgoraToken = async (channelName, bookingId) => {
+const fetchAgoraToken = async (channelName, bookingId, creatorId = null, isLivestream = false) => {
   const user = await getAuthUser();
   const idToken = await user.getIdToken(true);
+
+  const bodyPayload = { channelName };
+  if (bookingId) bodyPayload.bookingId = bookingId;
+  if (creatorId) bodyPayload.creatorId = creatorId;
+  if (isLivestream) bodyPayload.isLivestream = isLivestream;
 
   const res = await fetch(AGORA_TOKEN_URL, {
     method: 'POST',
@@ -40,7 +62,7 @@ const fetchAgoraToken = async (channelName, bookingId) => {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${idToken}`,
     },
-    body: JSON.stringify({ channelName, bookingId }),
+    body: JSON.stringify(bodyPayload),
   });
 
   if (!res.ok) {
@@ -96,47 +118,83 @@ export const getPermissionErrorMessage = (reason, videoEnabled = true) => {
   }
 };
 
-export const joinChannel = async (channelName, _tokenIgnored, uid, videoEnabled = true, bookingId = null) => {
-  try {
-    if (!client) initializeAgoraClient();
+export const joinChannel = async (
+  channelName,
+  _tokenIgnored,
+  uid,
+  videoEnabled = true,
+  bookingId = null,
+  role = 'audience',
+  creatorId = null,
+  isLivestream = false,
+  mountId = null
+) => {
+  const mode = isLivestream ? 'live' : 'rtc';
+  const localClient = getClient(mode, mountId);
+  const localClientId = localClient?.clientId;
 
+  try {
     if (client.connectionState === 'CONNECTED' || client.connectionState === 'CONNECTING') {
       logger.warn('Client already connected — leaving first');
-      await client.leave();
+      try {
+        await client.leave();
+      } catch (err) {
+        logger.warn('Ignored error during client leave on join:', err);
+      }
+      if (!client || client.clientId !== localClientId) {
+        logger.warn('Agora client was cleaned up or replaced during leave');
+        return { cancelled: true };
+      }
       if (localAudioTrack) { localAudioTrack.close(); localAudioTrack = null; }
       if (localVideoTrack) { localVideoTrack.close(); localVideoTrack = null; }
     }
 
-    const perm = await requestMediaPermissions(videoEnabled);
-    if (!perm.granted) {
-      throw new Error(getPermissionErrorMessage(perm.reason, videoEnabled));
+    const shouldPublish = !isLivestream || role === 'host';
+
+    if (shouldPublish) {
+      const perm = await requestMediaPermissions(videoEnabled);
+      if (!client || client.clientId !== localClientId) {
+        logger.warn('Agora client was cleaned up or replaced during permissions check');
+        return { cancelled: true };
+      }
+      if (!perm.granted) {
+        throw new Error(getPermissionErrorMessage(perm.reason, videoEnabled));
+      }
     }
 
-    const resolvedBookingId = bookingId || channelName.replace(/^(video|voice)_/, '');
+    const resolvedBookingId = isLivestream ? null : (bookingId || channelName.replace(/^(video|voice)_/, ''));
 
     logger.info('Fetching Agora token for channel:', channelName);
-    const { token, appId, uid: agoraUid } = await fetchAgoraToken(channelName, resolvedBookingId);
+    const { token, appId, uid: agoraUid } = await fetchAgoraToken(channelName, resolvedBookingId, creatorId, isLivestream);
+    if (!client || client.clientId !== localClientId) {
+      logger.warn('Agora client was cleaned up or replaced during token fetch');
+      return { cancelled: true };
+    }
 
-    logger.info('Joining Agora channel:', channelName, 'Video:', videoEnabled);
+    if (isLivestream) {
+      logger.info('Setting Agora client role to:', role);
+      await client.setClientRole(role);
+    }
+
+    logger.info('Joining Agora channel:', channelName, 'Video:', videoEnabled, 'Role:', role);
     const joinedUid = await client.join(appId, channelName, token, agoraUid);
     logger.info('Joined channel. UID:', joinedUid);
 
-    // ✅ No constraints — maximum device compatibility including mobile
-    localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-    await client.publish([localAudioTrack]);
-    logger.info('Audio track published');
+    if (shouldPublish) {
+      localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      await client.publish([localAudioTrack]);
+      logger.info('Audio track published');
 
-    if (videoEnabled) {
-      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-      // ✅ Let Agora + browser auto-detect best quality for the device & network
-      localVideoTrack = await AgoraRTC.createCameraVideoTrack({
-        optimizationMode: 'detail',
-        facingMode: isMobile ? 'user' : undefined,
-      });
-      // ✅ Enable adaptive bitrate — Agora adjusts quality based on network
-      AgoraRTC.setParameter('ENABLE_ADAPTIVE_BITRATE_ON_MOBILE', true);
-      await client.publish([localVideoTrack]);
-      logger.info('Video track published');
+      if (videoEnabled) {
+        const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+        localVideoTrack = await AgoraRTC.createCameraVideoTrack({
+          optimizationMode: 'detail',
+          facingMode: isMobile ? 'user' : undefined,
+        });
+        AgoraRTC.setParameter('ENABLE_ADAPTIVE_BITRATE_ON_MOBILE', true);
+        await client.publish([localVideoTrack]);
+        logger.info('Video track published');
+      }
     }
 
     return { uid: joinedUid, audioTrack: localAudioTrack, videoTrack: localVideoTrack };
@@ -146,13 +204,51 @@ export const joinChannel = async (channelName, _tokenIgnored, uid, videoEnabled 
   }
 };
 
-export const leaveChannel = async () => {
+export const changeClientRole = async (newRole) => {
+  if (!client) return;
+  try {
+    logger.info('Changing client role dynamically to:', newRole);
+    await client.setClientRole(newRole);
+
+    if (newRole === 'host') {
+      localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      await client.publish([localAudioTrack]);
+      
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+      localVideoTrack = await AgoraRTC.createCameraVideoTrack({
+        optimizationMode: 'detail',
+        facingMode: isMobile ? 'user' : undefined,
+      });
+      await client.publish([localVideoTrack]);
+      logger.info('Dynamic tracks published successfully');
+    } else {
+      if (localAudioTrack) {
+        await client.unpublish([localAudioTrack]);
+        localAudioTrack.close();
+        localAudioTrack = null;
+      }
+      if (localVideoTrack) {
+        await client.unpublish([localVideoTrack]);
+        localVideoTrack.close();
+        localVideoTrack = null;
+      }
+      logger.info('Dynamic tracks unpublished and closed successfully');
+    }
+  } catch (err) {
+    logger.error('Failed to change client role dynamically:', err);
+    throw err;
+  }
+};
+
+export const leaveChannel = async (clientIdToLeave = null) => {
   try {
     if (localAudioTrack) { localAudioTrack.close(); localAudioTrack = null; }
     if (localVideoTrack) { localVideoTrack.close(); localVideoTrack = null; }
-    if (client && client.connectionState !== 'DISCONNECTED') {
+    if (client && (!clientIdToLeave || client.clientId === clientIdToLeave) && client.connectionState !== 'DISCONNECTED') {
       await client.leave();
-      logger.info('Left Agora channel');
+      logger.info('Left Agora channel. ClientID:', clientIdToLeave);
+    } else {
+      logger.info('Leave channel skipped. Target ID mismatch or client already disconnected. Target:', clientIdToLeave, 'Current:', client?.clientId);
     }
   } catch (error) {
     logger.error('Error leaving channel:', error);
@@ -176,53 +272,43 @@ export const toggleCamera = async (enabled) => {
 export const switchCamera = async () => {
   if (!localVideoTrack) return;
   try {
-    // ✅ Get all video devices and cycle to the next one
     const devices = await AgoraRTC.getDevices();
-    const cameras = devices.filter(d => d.kind === 'videoinput');
-    if (cameras.length < 2) return; // only one camera, nothing to switch to
-    const currentId = localVideoTrack.getTrackLabel();
-    const currentIndex = cameras.findIndex(c => c.label === currentId || c.deviceId === currentId);
-    const nextCamera = cameras[(currentIndex + 1) % cameras.length];
-    await localVideoTrack.setDevice(nextCamera.deviceId);
-    logger.info('Camera switched to:', nextCamera.label);
+    const videoDevices = devices.filter(d => d.kind === 'videoinput');
+    if (videoDevices.length <= 1) return;
+    const currentId = localVideoTrack.getMediaStreamTrack().getSettings().deviceId;
+    const currentIndex = videoDevices.findIndex(d => d.deviceId === currentId);
+    const nextIndex = (currentIndex + 1) % videoDevices.length;
+    const nextDevice = videoDevices[nextIndex];
+    await localVideoTrack.setDevice(nextDevice.deviceId);
+    logger.info('Switched camera to device:', nextDevice.label || nextDevice.deviceId);
   } catch (err) {
-    logger.error('switchCamera error:', err);
-    throw err;
+    logger.error('Failed to switch camera:', err);
   }
 };
 
-export const playRemoteMedia = (user, mediaType, videoElement = null) => {
-  if (mediaType === 'video' && videoElement) {
-    user.videoTrack?.play(videoElement);
-    logger.info('Playing remote video for user:', user.uid);
-  } else if (mediaType === 'audio') {
+export const playRemoteMedia = (user, containerId, videoEnabled = true) => {
+  if (!user) return;
+  if (videoEnabled && user.hasVideo) {
+    user.videoTrack?.play(containerId);
+    logger.info('Playing remote video track for user:', user.uid);
+  }
+  if (user.hasAudio) {
     user.audioTrack?.play();
-    logger.info('Playing remote audio for user:', user.uid);
+    logger.info('Playing remote audio track for user:', user.uid);
   }
 };
 
-// ✅ Fixed — waits for track to exist before playing
-export const playLocalVideo = (videoElement) => {
-  if (!videoElement) return;
+export const playLocalVideo = (containerId) => {
   if (localVideoTrack) {
-    localVideoTrack.play(videoElement);
-    logger.info('Playing local video preview');
-    return;
+    localVideoTrack.play(containerId);
+    logger.info('Playing local video track');
   }
-  // If track not ready yet, retry after short delay (mobile is slower)
-  const retry = setInterval(() => {
-    if (localVideoTrack) {
-      localVideoTrack.play(videoElement);
-      logger.info('Playing local video preview (delayed)');
-      clearInterval(retry);
-    }
-  }, 200);
-  // Give up after 5 seconds
-  setTimeout(() => clearInterval(retry), 5000);
 };
 
-export const getClient = () => {
-  if (!client) initializeAgoraClient();
+export const getClient = (mode = 'rtc', mountId = null) => {
+  if (!client || (mountId && client.mountId !== mountId)) {
+    initializeAgoraClient(mode, mountId);
+  }
   return client;
 };
 
@@ -234,10 +320,31 @@ export const setupCallTimer = (onTimeUp, duration = 30 * 60 * 1000) => {
   }, duration);
 };
 
-export const cleanup = async () => {
-  await leaveChannel();
-  if (client) { client.removeAllListeners(); client = null; }
-  logger.info('Agora resources cleaned up');
+export const cleanup = async (clientIdToCleanup = null) => {
+  const clientToLeave = client;
+  
+  if (client && (!clientIdToCleanup || client.clientId === clientIdToCleanup)) {
+    client.removeAllListeners();
+    client = null;
+    clientMode = null;
+    logger.info('Agora global client reference released immediately.');
+  }
+
+  // Perform leaving asynchronously in the background
+  if (clientToLeave && (!clientIdToCleanup || clientToLeave.clientId === clientIdToCleanup)) {
+    try {
+      if (localAudioTrack) { localAudioTrack.close(); localAudioTrack = null; }
+      if (localVideoTrack) { localVideoTrack.close(); localVideoTrack = null; }
+      if (clientToLeave.connectionState !== 'DISCONNECTED') {
+        await clientToLeave.leave();
+        logger.info('Background client leave completed. ClientID:', clientIdToCleanup);
+      }
+    } catch (err) {
+      logger.error('Error leaving client in background:', err);
+    }
+  } else {
+    logger.info('Agora background cleanup skipped or target ID mismatch. Target:', clientIdToCleanup, 'Current:', clientToLeave?.clientId);
+  }
 };
 
 export default {
@@ -245,5 +352,5 @@ export default {
   requestMediaPermissions, getPermissionErrorMessage,
   toggleMicrophone, toggleCamera, switchCamera,
   playRemoteMedia, playLocalVideo, getClient,
-  setupCallTimer, cleanup,
+  setupCallTimer, cleanup, changeClientRole,
 };

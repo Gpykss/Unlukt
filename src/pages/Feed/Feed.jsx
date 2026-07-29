@@ -316,18 +316,26 @@ export default function Feed() {
                     <img src={creator.banner} alt="" className="w-full h-full object-cover" />
                   )}
                   {/* Avatar — larger, always centered */}
-                  <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-14 h-14 rounded-full border-2 border-white shadow-lg bg-gradient-to-br from-red-100 to-pink-100 overflow-hidden flex items-center justify-center">
-                    {(creator.profilePicture || (creator.avatar && !creator.avatar.includes('👤'))) ? (
-                      <img
-                        src={creator.profilePicture || creator.avatar}
-                        alt={creator.displayName}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <span className="text-xl font-bold text-rose-400">
-                        {creator.displayName?.charAt(0)?.toUpperCase() || '?'}
-                      </span>
+                  <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-14 h-14 rounded-full border-2 border-white shadow-lg bg-gradient-to-br from-red-100 to-pink-100 flex items-center justify-center">
+                    {creator.is_live && (
+                      <>
+                        <div className="absolute -inset-1 rounded-full border-2 border-rose-500 animate-ping opacity-75 z-0" />
+                        <div className="absolute -inset-1 rounded-full border border-rose-600 animate-pulse z-0" />
+                      </>
                     )}
+                    <div className="relative w-full h-full rounded-full overflow-hidden flex items-center justify-center bg-white z-10">
+                      {(creator.profilePicture || (creator.avatar && !creator.avatar.includes('👤'))) ? (
+                        <img
+                          src={creator.profilePicture || creator.avatar}
+                          alt={creator.displayName}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-xl font-bold text-rose-400">
+                          {creator.displayName?.charAt(0)?.toUpperCase() || '?'}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 

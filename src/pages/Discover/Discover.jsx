@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-  ArrowLeft, Sparkles, Users, Loader2, Image as ImageIcon, Eye, EyeOff
+  ArrowLeft, Sparkles, Users, Loader2, Image as ImageIcon, Eye, EyeOff,
+  Video, Calendar, Clock, ChevronRight
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, getDocs } from 'firebase/firestore';
@@ -137,6 +138,9 @@ export default function Discover() {
     </div>
   );
 
+  const liveCreators = allCreators.filter(c => c.is_live === true);
+  const gridCreators = allCreators.filter(c => c.is_live !== true);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -195,17 +199,188 @@ export default function Discover() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+        {/* "Live Now" Carousel Slider */}
+        <div className="mb-10">
+          <h3 className="text-lg font-black text-gray-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <span className="flex h-3 w-3 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+            </span>
+            <span>Live Now</span>
+          </h3>
+          
+          <div className="flex gap-6 overflow-x-auto pb-4 scrollbar-hide snap-x snap-mandatory">
+            {liveCreators.length > 0 ? (
+              liveCreators.map((creator) => (
+                <div
+                  key={creator.id}
+                  onClick={() => navigate(`/livestream/${creator.id}`)}
+                  className="w-72 sm:w-80 h-96 flex-shrink-0 relative rounded-3xl overflow-hidden shadow-xl border border-white/10 group cursor-pointer bg-slate-900 snap-start"
+                >
+                  {/* Background Loop */}
+                  <img
+                    src={`/ads/${creator.username}/fallback-1.webp`}
+                    alt=""
+                    onError={(e) => { e.target.src = '/ads/default/fallback-1.webp'; }}
+                    className="absolute inset-0 w-full h-full object-cover z-0 opacity-70 group-hover:scale-105 transition-transform duration-700 pointer-events-none"
+                  />
+                  
+                  {/* Gradient */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent z-10" />
+                  
+                  {/* Live Badge */}
+                  <div className="absolute top-4 left-4 bg-red-500/90 text-white text-[10px] font-black tracking-wider px-3 py-1 rounded-full flex items-center gap-1.5 shadow-lg z-20">
+                    <span className="w-2 h-2 bg-white rounded-full animate-blink-red" />
+                    <span>LIVE NOW</span>
+                  </div>
+                  
+                  {/* Content Overlay */}
+                  <div className="absolute bottom-0 inset-x-0 p-5 z-20 flex flex-col justify-end text-white">
+                    <div className="flex items-center space-x-3 mb-2">
+                      <div className="w-12 h-12 rounded-full border-2 border-rose-500 animate-neon-pulse overflow-hidden flex-shrink-0 bg-slate-800">
+                        <img
+                          src={creator.profilePicture || creator.avatar || '/ads/default/fallback-1.webp'}
+                          alt=""
+                          onError={(e) => { e.target.src = '/ads/default/fallback-1.webp'; }}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-extrabold text-base truncate drop-shadow-md">{creator.displayName || creator.username}</h4>
+                        <p className="text-xs text-rose-300 font-semibold drop-shadow-md truncate">@{creator.username}</p>
+                      </div>
+                    </div>
+                    
+                    <p className="text-xs text-gray-200 font-medium mb-3 line-clamp-2 leading-snug drop-shadow-md">
+                      {creator.bio || "Join my private live room and stream with me now!"}
+                    </p>
+                    
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/livestream/${creator.id}`);
+                      }}
+                      className="w-full py-2.5 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-bold text-sm rounded-xl shadow-lg hover:shadow-rose-500/20 transition-all duration-300 transform active:scale-95"
+                    >
+                      Tap to Join Live Room
+                    </button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <>
+                {/* Drisana Dummy Slide */}
+                <div
+                  onClick={() => navigate('/creator/drisana')}
+                  className="w-72 sm:w-80 h-96 flex-shrink-0 relative rounded-3xl overflow-hidden shadow-xl border border-white/10 group cursor-pointer bg-slate-900 snap-start"
+                >
+                  {/* Background Loop */}
+                  <img
+                    src="/ads/drisana/fallback-1.webp"
+                    alt=""
+                    onError={(e) => { e.target.src = '/ads/default/fallback-1.webp'; }}
+                    className="absolute inset-0 w-full h-full object-cover z-0 opacity-70 group-hover:scale-105 transition-transform duration-700 pointer-events-none"
+                  />
+                  
+                  {/* Gradient */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent z-10" />
+                  
+                  {/* Badge */}
+                  <div className="absolute top-4 left-4 bg-rose-600/90 text-white text-[10px] font-black tracking-wider px-3 py-1 rounded-full flex items-center gap-1.5 shadow-lg z-20">
+                    <span className="w-2 h-2 bg-rose-200 rounded-full animate-blink-red" />
+                    <span>DAILY SHOWS</span>
+                  </div>
+                  
+                  {/* Content Overlay */}
+                  <div className="absolute bottom-0 inset-x-0 p-5 z-20 flex flex-col justify-end text-white">
+                    <div className="flex items-center space-x-3 mb-2">
+                      <div className="w-12 h-12 rounded-full border-2 border-rose-500 animate-neon-pulse overflow-hidden flex-shrink-0 bg-slate-800">
+                        <img
+                          src="/ads/drisana/image-1.webp"
+                          alt=""
+                          onError={(e) => { e.target.src = '/ads/drisana/fallback-1.webp'; }}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-extrabold text-base truncate drop-shadow-md">Drisana</h4>
+                        <p className="text-xs text-rose-300 font-semibold drop-shadow-md truncate">@drisana</p>
+                      </div>
+                    </div>
+                    
+                    <p className="text-xs text-gray-200 font-medium mb-3 line-clamp-2 leading-snug drop-shadow-md">
+                      Drisana's Private Lounge Active Daily — Scheduled Shows Streaming Tonight! 🤫
+                    </p>
+                    
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate('/creator/drisana');
+                      }}
+                      className="w-full py-2.5 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-bold text-sm rounded-xl shadow-lg hover:shadow-rose-500/20 transition-all duration-300 transform active:scale-95"
+                    >
+                      View Scheduled Showtimes
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Scheduled Showtimes Slide Card */}
+                <div
+                  className="w-72 sm:w-80 h-96 flex-shrink-0 relative rounded-3xl p-6 shadow-xl border border-gray-200 bg-gradient-to-b from-white to-gray-50 flex flex-col justify-between snap-start"
+                >
+                  <div>
+                    <div className="flex items-center space-x-2 text-rose-500 mb-4">
+                      <Calendar className="w-5 h-5" />
+                      <h4 className="font-black text-sm uppercase tracking-wider text-gray-900">Scheduled Showtimes</h4>
+                    </div>
+                    <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                      Don't miss the next interactive live streaming event! Set your reminders for these scheduled showtimes:
+                    </p>
+                    
+                    <div className="space-y-3">
+                      {[
+                        { day: 'Mon, Wed, Fri', time: '9:00 PM EST', desc: 'Interactive Q&A' },
+                        { day: 'Thursday', time: '10:00 PM EST', desc: 'VIP Lounge Exclusive' },
+                        { day: 'Saturday', time: '11:00 PM EST', desc: 'Weekend Party Stream' }
+                      ].map((sched, idx) => (
+                        <div key={idx} className="flex items-start justify-between p-2.5 bg-white border border-gray-100 rounded-2xl shadow-sm">
+                          <div className="min-w-0">
+                            <p className="text-xs font-extrabold text-gray-900">{sched.day}</p>
+                            <p className="text-[10px] text-gray-400 font-medium">{sched.desc}</p>
+                          </div>
+                          <div className="flex items-center text-xs font-bold text-rose-500 gap-1 bg-rose-50 px-2.5 py-1 rounded-xl">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>{sched.time}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={() => navigate('/creator/drisana')}
+                    className="w-full py-2.5 bg-gray-900 hover:bg-gray-800 text-white font-bold text-sm rounded-xl transition duration-300 flex items-center justify-center gap-1"
+                  >
+                    <span>Explore Her Profile</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center space-x-3">
             <Sparkles className="w-7 sm:w-8 h-7 sm:h-8 text-rose-500" />
             <span>All Creators</span>
           </h2>
-          <p className="text-sm text-gray-500">{allCreators.length} creators</p>
+          <p className="text-sm text-gray-500">{gridCreators.length} creators</p>
         </div>
 
-        {allCreators.length > 0 ? (
+        {gridCreators.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-            {allCreators.map((creator) => (
+            {gridCreators.map((creator) => (
               <CreatorCard key={creator.id} creator={creator} />
             ))}
           </div>

@@ -1,6 +1,7 @@
 // vite.config.js - OPTIMIZED FOR PRODUCTION
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import basicSsl from '@vitejs/plugin-basic-ssl'
 import fs from 'fs'
 import path from 'path'
 import Busboy from 'busboy'
@@ -190,6 +191,11 @@ async function processImage(input, output) {
 
 export default defineConfig({
   plugins: [react(), adAssetPipelinePlugin()],
+  
+  server: {
+    host: true,
+    port: 5173,
+  },
   
   build: {
     // ✅ Increase chunk size warning limit

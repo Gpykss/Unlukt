@@ -55,6 +55,7 @@ const BookVoiceCall = lazy(() => import('./pages/VideoCall/BookVoiceCall'));
 const MyCalls = lazy(() => import('./pages/MyCalls/MyCalls'));
 const CallWaitingRoom = lazy(() => import('./pages/VideoCall/CallWaitingRoom'));
 const CallSummary = lazy(() => import('./pages/VideoCall/CallSummary'));
+const LivestreamRoom = lazy(() => import('./pages/VideoCall/LivestreamRoom'));
 
 // ✅ Admin Pages (loaded lazily)
 const Admin = lazy(() => import('./pages/Admin/Admin'));
@@ -95,7 +96,7 @@ function AppContent() {
   const isCreatorPath = path.startsWith('/creator/') || (
     pathParts.length === 1 &&
     !NO_NAV_PATHS.has(path) &&
-    !['feed', 'dashboard', 'analytics', 'wallet', 'settings', 'search', 'discover', 'notifications', 'messages', 'new-post', 'edit-profile', 'become-creator', 'my-calls', 'communities', 'create-community', 'admin', 'payment-success'].includes(pathParts[0])
+    !['feed', 'dashboard', 'analytics', 'wallet', 'settings', 'search', 'discover', 'explore', 'notifications', 'messages', 'new-post', 'edit-profile', 'become-creator', 'my-calls', 'communities', 'create-community', 'admin', 'payment-success'].includes(pathParts[0])
   );
 
   const showNav = !NO_NAV_PATHS.has(path)
@@ -105,7 +106,8 @@ function AppContent() {
     && !path.startsWith('/book-video-call/')
     && !path.startsWith('/waiting-room/')
     && !path.startsWith('/call-summary/')
-    && !path.startsWith('/book-voice-call/');
+    && !path.startsWith('/book-voice-call/')
+    && !path.startsWith('/livestream/');
 
   const showDiscoverSidebar = path === '/feed';
   const isMessagesPage = path === '/messages';
@@ -147,6 +149,7 @@ function AppContent() {
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/discover" element={<Discover />} />
+            <Route path="/explore" element={<Discover />} />
             <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
             <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
             <Route path="/new-post" element={<ProtectedRoute><NewPost /></ProtectedRoute>} />
@@ -167,6 +170,7 @@ function AppContent() {
             <Route path="/book-voice-call/:creatorId" element={<ProtectedRoute><BookVoiceCall /></ProtectedRoute>} />
             <Route path="/waiting-room/:bookingId" element={<ProtectedRoute><CallWaitingRoom /></ProtectedRoute>} />
             <Route path="/call-summary/:bookingId" element={<ProtectedRoute><CallSummary /></ProtectedRoute>} />
+            <Route path="/livestream/:creatorId" element={<ProtectedRoute><LivestreamRoom /></ProtectedRoute>} />
 
             {/* Admin Routes */}
             <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />

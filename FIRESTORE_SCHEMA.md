@@ -362,6 +362,54 @@
 // No indexes needed (single document reads)
 ```
 
+## Livestream & Co-Hosting Collections
+
+### `livestream_rooms` (Active Broadcast Channels)
+```javascript
+{
+  creatorId: string,   // Room ID matches creator UID
+  isLive: boolean,
+  channelName: string, // format: 'livestream_{creatorId}'
+  createdAt: timestamp
+}
+```
+
+### `livestream_rooms/{creatorId}/messages` (Live Stream Chat Message Subcollection)
+```javascript
+{
+  username: string,
+  text: string,
+  isSystem: boolean,
+  type: 'normal' | 'priority' | 'gift' | 'banner',
+  createdAt: timestamp
+}
+```
+
+### `livestream_tickets` (Audience entry passes)
+```javascript
+{
+  userId: string,
+  creatorId: string,
+  createdAt: timestamp,
+  expiresAt: timestamp  // exactly 60 minutes after createdAt
+}
+```
+
+### `cohost_requests` (Paid stage requests queue)
+```javascript
+{
+  userId: string,
+  username: string,
+  displayName: string,
+  avatar: string,
+  creatorId: string,
+  amount: number,       // Tipped Roses (e.g. 50)
+  status: 'pending' | 'accepted' | 'dismissed' | 'completed',
+  createdAt: timestamp,
+  resolvedAt: timestamp
+}
+```
+
 ## Deprecated/Unused Collections
 
 - ❌ `payments` (replaced by crypto_payments)

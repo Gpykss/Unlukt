@@ -79,3 +79,31 @@ body > .skiptranslate {
 iframe.skiptranslate {
   display: none !important;
 }
+
+/* Neon pulse ring around live creator avatars */
+@keyframes neonPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7), 0 0 0 0 rgba(244, 63, 94, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0), 0 0 0 15px rgba(244, 63, 94, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0), 0 0 0 0 rgba(244, 63, 94, 0);
+  }
+}
+
+.animate-neon-pulse {
+  animation: neonPulse 2s infinite;
+}
+
+/* Blinking red badge/dot */
+@keyframes blinkingRed {
+  0% { opacity: 1; }
+  50% { opacity: 0.3; }
+  100% { opacity: 1; }
+}
+
+.animate-blink-red {
+  animation: blinkingRed 1.5s infinite;
+}

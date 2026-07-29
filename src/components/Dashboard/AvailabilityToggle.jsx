@@ -58,14 +58,16 @@ export default function AvailabilityToggle() {
 
   const updatePrice = async (type, value) => {
     const price = parseFloat(value);
-    if (isNaN(price) || price < (type === 'video' ? 5 : 3)) {
+    const minVal = type === 'video' ? 5 : (type === 'voice' ? 3 : 1);
+    if (isNaN(price) || price < minVal) {
       return;
     }
 
     try {
+      const fieldName = type === 'video' ? 'videoCallPrice' : (type === 'voice' ? 'voiceCallPrice' : 'livestreamPrice');
       const updated = await updateCreatorAvailability(currentUser.uid, {
         ...availability,
-        [type === 'video' ? 'videoCallPrice' : 'voiceCallPrice']: price
+        [fieldName]: price
       });
       setAvailability(updated);
     } catch (error) {
@@ -199,6 +201,38 @@ export default function AvailabilityToggle() {
           </div>
           <p className="text-xs text-gray-500 mt-2">
             Minimum: $3 • Set any price you want
+          </p>
+        </div>
+
+        {/* Livestream Pass Price */}
+        <div className="bg-gray-50 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-2">
+              <span className="text-lg">🌹</span>
+              <span className="font-semibold text-gray-900">Livestream Entry ticket</span>
+            </div>
+            <span className="text-xs text-gray-500">Roses</span>
+          </div>
+          
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 font-bold">🌹</span>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={availability.livestreamPrice || 10}
+              onChange={(e) => updatePrice('livestream', e.target.value)}
+              onBlur={(e) => {
+                if (parseFloat(e.target.value) < 1) {
+                  e.target.value = 1;
+                  updatePrice('livestream', 1);
+                }
+              }}
+              className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:border-rose-500 focus:outline-none font-semibold text-lg"
+            />
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Minimum: 1 Rose 🌹 • Fans buy this 1-hour ticket block to watch your live stream.
           </p>
         </div>
       </div>

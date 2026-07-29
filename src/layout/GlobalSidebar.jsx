@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Home, Search, User, BarChart3, Wallet,
   Settings, LogOut, Plus, Crown, Shield,
-  Users, X, Phone, Award
+  Users, X, Phone, Award, Video
 } from 'lucide-react';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useAuth } from '../hooks/useAuth';
@@ -59,6 +59,7 @@ export default function GlobalSidebar({ isOpen, onClose }) {
     { id: 'search', label: 'Search', icon: Search, path: '/search' },
     { id: 'dashboard', label: 'Dashboard', icon: BarChart3, path: '/dashboard' },
     ...(isAmbassador ? [{ id: 'ambassador', label: 'Ambassador', icon: Award, path: '/ambassador-dashboard', highlight: false }] : []),
+    { id: 'live-studio', label: profile?.is_live ? 'Live Studio (Active)' : 'Live Studio', icon: Video, path: `/livestream/${currentUser?.uid}`, badge: profile?.is_live ? '🔴' : null },
     { id: 'wallet', label: 'Wallet', icon: Wallet, path: '/wallet', highlight: true },
     { id: 'settings', label: 'Settings', icon: Settings, path: '/settings' },
   ];

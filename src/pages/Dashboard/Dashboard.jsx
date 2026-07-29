@@ -716,6 +716,17 @@ export default function Dashboard() {
             <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm">
               <h2 className="text-lg font-bold text-gray-900 mb-4">Quick Actions</h2>
               <div className="space-y-2">
+                <button onClick={() => navigate(`/livestream/${currentUser.uid}`)}
+                  className="w-full flex items-center space-x-3 p-3 bg-gradient-to-r from-rose-500/10 to-pink-500/10 hover:from-rose-500/20 hover:to-pink-500/20 border border-rose-500/20 rounded-xl transition">
+                  <div className="p-2 bg-red-100 rounded-lg"><Video className="w-5 h-5 text-red-600" /></div>
+                  <div className="flex-1 text-left">
+                    <span className="font-bold text-red-700 flex items-center gap-1.5">
+                      <span>Go Live Studio</span>
+                      <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    </span>
+                    <p className="text-xs text-rose-600 font-semibold">Start a 1-to-many live stream room</p>
+                  </div>
+                </button>
                 <button onClick={() => navigate('/new-post')}
                   className="w-full flex items-center space-x-3 p-3 bg-gray-50 hover:bg-gray-100 rounded-xl transition">
                   <div className="p-2 bg-rose-100 rounded-lg"><Upload className="w-5 h-5 text-rose-500" /></div>

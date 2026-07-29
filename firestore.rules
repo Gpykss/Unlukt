@@ -443,6 +443,38 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ── Livestreaming & Co-Hosting ───────────────────────────────────────────
+    match /livestream_rooms/{creatorId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(creatorId) || isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow update, delete: if isOwner(creatorId) || isAdmin();
+      }
+
+      match /visual_effects/{effectId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow update, delete: if isOwner(creatorId) || isAdmin();
+      }
+    }
+
+    match /livestream_tickets/{ticketId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow write: if isAdmin();
+    }
+
+    match /cohost_requests/{requestId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
     // ── Catch-all: deny everything else ───────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;

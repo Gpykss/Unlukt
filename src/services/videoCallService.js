@@ -32,11 +32,18 @@ export const getCreatorAvailability = async (creatorId) => {
   try {
     const availRef = doc(db, 'creator_availability', creatorId);
     const availDoc = await getDoc(availRef);
-    if (availDoc.exists()) return availDoc.data();
+    if (availDoc.exists()) {
+      const data = availDoc.data();
+      return {
+        livestreamPrice: 10,
+        ...data
+      };
+    }
     return {
       status: 'offline',
       videoCallPrice: MINIMUM_VIDEO_PRICE,
       voiceCallPrice: MINIMUM_VOICE_PRICE,
+      livestreamPrice: 10,
       callsEnabled: false,
       lastUpdated: new Date(),
     };
@@ -51,14 +58,23 @@ export const updateCreatorAvailability = async (creatorId, data) => {
     const availRef = doc(db, 'creator_availability', creatorId);
     const videoPrice = Math.max(MINIMUM_VIDEO_PRICE, Number(data.videoCallPrice) || MINIMUM_VIDEO_PRICE);
     const voicePrice = Math.max(MINIMUM_VOICE_PRICE, Number(data.voiceCallPrice) || MINIMUM_VOICE_PRICE);
+    const livePrice = Math.max(1, Number(data.livestreamPrice) || 10);
     const update = {
       status: data.status || 'offline',
       videoCallPrice: videoPrice,
       voiceCallPrice: voicePrice,
+      livestreamPrice: livePrice,
       callsEnabled: data.callsEnabled !== false,
       lastUpdated: serverTimestamp(),
     };
     await setDoc(availRef, update, { merge: true });
+
+    // Sync to user profile document so other views see the price
+    const userRef = doc(db, 'users', creatorId);
+    await updateDoc(userRef, {
+      livestreamPrice: livePrice
+    }).catch(e => logger.warn('Non-critical: could not sync livestreamPrice to users profile collection', e));
+
     return update;
   } catch (error) {
     logger.error('Error updating availability:', error);

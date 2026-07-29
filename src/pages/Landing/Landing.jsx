@@ -9,6 +9,8 @@ import { Autoplay } from 'swiper/modules';
 import 'swiper/css';
 import { useAuth } from '../../hooks/useAuth';
 import LanguageSelector from '../../components/common/LanguageSelector';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 
 // Import real creator images
 import feroniaImg1 from '../../assets/images/creators/Feronia Morris/sugarlab-26255.png';
@@ -23,6 +25,34 @@ export default function Landing() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const [currentCreatorIndex, setCurrentCreatorIndex] = useState(0);
+  const [liveCreators, setLiveCreators] = useState([]);
+
+  useEffect(() => {
+    const fetchLiveCreators = async () => {
+      try {
+        const q = query(
+          collection(db, 'users'),
+          where('is_live', '==', true),
+          where('kycStatus', '==', 'approved')
+        );
+        const snap = await getDocs(q);
+        const creators = [];
+        snap.forEach(doc => {
+          creators.push({ id: doc.id, ...doc.data() });
+        });
+        setLiveCreators(creators);
+      } catch (err) {
+        console.error('Error fetching live creators:', err);
+      }
+    };
+    fetchLiveCreators();
+  }, []);
+
+  const isCreatorLive = (username) => {
+    if (!username) return false;
+    const clean = username.replace('@', '').trim().toLowerCase();
+    return liveCreators.some(c => c.username?.replace('@', '').trim().toLowerCase() === clean);
+  };
 
   const trendingCreators = [
     { id: 1, name: 'Feronia Morris', avatar: feroniaImg1, role: 'Influencer', username: 'feronia' },
@@ -158,6 +188,7 @@ export default function Landing() {
         </div>
       </nav>
 
+
       {/* Hero Section */}
       <section className="relative overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:py-6 sm:py-8 lg:py-12">
@@ -290,6 +321,177 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* "Live Now" Carousel Slider */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col items-center">
+        <h3 className="text-lg font-black text-gray-900 uppercase tracking-wider mb-6 flex items-center gap-2 justify-center text-center">
+          <span className="flex h-3 w-3 relative">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+          </span>
+          <span>Live Now</span>
+        </h3>
+        
+        <div className="flex gap-6 overflow-x-auto pb-4 scrollbar-hide snap-x snap-mandatory justify-start md:justify-center w-full">
+          {liveCreators.length > 0 ? (
+            liveCreators.map((creator) => (
+              <div
+                key={creator.id}
+                onClick={() => navigate(`/livestream/${creator.id}`)}
+                className="w-72 sm:w-80 h-96 flex-shrink-0 relative rounded-3xl overflow-hidden shadow-xl border border-white/10 group cursor-pointer bg-slate-900 snap-start"
+              >
+                {/* Background Loop */}
+                <img
+                  src={`/ads/${creator.username}/fallback-1.webp`}
+                  alt=""
+                  onError={(e) => { e.target.src = '/ads/default/fallback-1.webp'; }}
+                  className="absolute inset-0 w-full h-full object-cover z-0 opacity-70 group-hover:scale-105 transition-transform duration-700 pointer-events-none"
+                />
+                
+                {/* Gradient */}
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent z-10" />
+                
+                {/* Live Badge */}
+                <div className="absolute top-4 left-4 bg-red-500/90 text-white text-[10px] font-black tracking-wider px-3 py-1 rounded-full flex items-center gap-1.5 shadow-lg z-20">
+                  <span className="w-2 h-2 bg-white rounded-full animate-blink-red" />
+                  <span>LIVE NOW</span>
+                </div>
+                
+                {/* Content Overlay */}
+                <div className="absolute bottom-0 inset-x-0 p-5 z-20 flex flex-col justify-end text-white">
+                  <div className="flex items-center space-x-3 mb-2">
+                    <div className="w-12 h-12 rounded-full border-2 border-rose-500 animate-neon-pulse overflow-hidden flex-shrink-0 bg-slate-800">
+                      <img
+                        src={creator.profilePicture || creator.avatar || '/ads/default/fallback-1.webp'}
+                        alt=""
+                        onError={(e) => { e.target.src = '/ads/default/fallback-1.webp'; }}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="font-extrabold text-base truncate drop-shadow-md">{creator.displayName || creator.username}</h4>
+                      <p className="text-xs text-rose-300 font-semibold drop-shadow-md truncate">@{creator.username}</p>
+                    </div>
+                  </div>
+                  
+                  <p className="text-xs text-gray-200 font-medium mb-3 line-clamp-2 leading-snug drop-shadow-md">
+                    {creator.bio || "Join my private live room and stream with me now!"}
+                  </p>
+                  
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/livestream/${creator.id}`);
+                    }}
+                    className="w-full py-2.5 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-bold text-sm rounded-xl shadow-lg hover:shadow-rose-500/20 transition-all duration-300 transform active:scale-95"
+                  >
+                    Tap to Join Live Room
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <>
+              {/* Drisana Dummy Slide */}
+              <div
+                onClick={() => navigate('/creator/drisana')}
+                className="w-72 sm:w-80 h-96 flex-shrink-0 relative rounded-3xl overflow-hidden shadow-xl border border-white/10 group cursor-pointer bg-slate-900 snap-start"
+              >
+                {/* Background Loop */}
+                <img
+                  src="/ads/drisana/fallback-1.webp"
+                  alt=""
+                  onError={(e) => { e.target.src = '/ads/default/fallback-1.webp'; }}
+                  className="absolute inset-0 w-full h-full object-cover z-0 opacity-70 group-hover:scale-105 transition-transform duration-700 pointer-events-none"
+                />
+                
+                {/* Gradient */}
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent z-10" />
+                
+                {/* Badge */}
+                <div className="absolute top-4 left-4 bg-rose-600/90 text-white text-[10px] font-black tracking-wider px-3 py-1 rounded-full flex items-center gap-1.5 shadow-lg z-20">
+                  <span className="w-2 h-2 bg-rose-200 rounded-full animate-blink-red" />
+                  <span>DAILY SHOWS</span>
+                </div>
+                
+                {/* Content Overlay */}
+                <div className="absolute bottom-0 inset-x-0 p-5 z-20 flex flex-col justify-end text-white">
+                  <div className="flex items-center space-x-3 mb-2">
+                    <div className="w-12 h-12 rounded-full border-2 border-rose-500 animate-neon-pulse overflow-hidden flex-shrink-0 bg-slate-800">
+                      <img
+                        src="/ads/drisana/image-1.webp"
+                        alt=""
+                        onError={(e) => { e.target.src = '/ads/drisana/fallback-1.webp'; }}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="font-extrabold text-base truncate drop-shadow-md">Drisana</h4>
+                      <p className="text-xs text-rose-300 font-semibold drop-shadow-md truncate">@drisana</p>
+                    </div>
+                  </div>
+                  
+                  <p className="text-xs text-gray-200 font-medium mb-3 line-clamp-2 leading-snug drop-shadow-md">
+                    Drisana's Private Lounge Active Daily — Scheduled Shows Streaming Tonight! 🤫
+                  </p>
+                  
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate('/creator/drisana');
+                    }}
+                    className="w-full py-2.5 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-bold text-sm rounded-xl shadow-lg hover:shadow-rose-500/20 transition-all duration-300 transform active:scale-95"
+                  >
+                    View Scheduled Showtimes
+                  </button>
+                </div>
+              </div>
+              
+              {/* Scheduled Showtimes Slide Card */}
+              <div
+                className="w-72 sm:w-80 h-96 flex-shrink-0 relative rounded-3xl p-6 shadow-xl border border-gray-200/50 bg-white flex flex-col justify-between snap-start text-left"
+              >
+                <div>
+                  <div className="flex items-center space-x-2 text-rose-500 mb-4">
+                    <span className="text-rose-500">📅</span>
+                    <h4 className="font-black text-sm uppercase tracking-wider text-gray-900">Scheduled Showtimes</h4>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                    Don't miss the next interactive live streaming event! Set your reminders for these scheduled showtimes:
+                  </p>
+                  
+                  <div className="space-y-3">
+                    {[
+                      { day: 'Mon, Wed, Fri', time: '9:00 PM EST', desc: 'Interactive Q&A' },
+                      { day: 'Thursday', time: '10:00 PM EST', desc: 'VIP Lounge Exclusive' },
+                      { day: 'Saturday', time: '11:00 PM EST', desc: 'Weekend Party Stream' }
+                    ].map((sched, idx) => (
+                      <div key={idx} className="flex items-start justify-between p-2.5 bg-gray-50 border border-gray-100 rounded-2xl">
+                        <div className="min-w-0">
+                          <p className="text-xs font-extrabold text-gray-900">{sched.day}</p>
+                          <p className="text-[10px] text-gray-400 font-medium">{sched.desc}</p>
+                        </div>
+                        <div className="flex items-center text-xs font-bold text-rose-500 gap-1 bg-rose-50 px-2.5 py-1 rounded-xl">
+                          <span>⏰</span>
+                          <span>{sched.time}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                <button
+                  onClick={() => navigate('/creator/drisana')}
+                  className="w-full py-2.5 bg-gray-900 hover:bg-gray-800 text-white font-bold text-sm rounded-xl transition duration-300 flex items-center justify-center gap-1"
+                >
+                  <span>Explore Her Profile</span>
+                  <span>→</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* ✅ TRENDING NOW - INFINITE AUTO-SCROLL SLIDER */}
       <section id="trending" className="py-12 sm:py-16 bg-white overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -300,24 +502,39 @@ export default function Landing() {
 
           {/* Desktop Grid */}
           <div className="hidden md:grid grid-cols-6 gap-6">
-            {trendingCreators.map((creator, index) => (
-              <motion.div
-                key={creator.id}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: index * 0.05 }}
-                onClick={() => navigate(`/creator/${creator.username}`)}
-                className="group cursor-pointer"
-              >
-                <div className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-4 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all h-52 flex flex-col items-center justify-center">
-                  <div className="w-20 h-20 rounded-full overflow-hidden mb-3 border-2 border-red-200 group-hover:scale-110 transition-transform shadow-md">
-                    <img src={creator.avatar} alt={creator.name} className="w-full h-full object-cover" />
+            {trendingCreators.map((creator, index) => {
+              const isLive = isCreatorLive(creator.username);
+              return (
+                <motion.div
+                  key={creator.id}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: index * 0.05 }}
+                  onClick={() => navigate(`/creator/${creator.username}`)}
+                  className="group cursor-pointer"
+                >
+                  <div className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-4 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all h-52 flex flex-col items-center justify-center">
+                    <div className={`w-20 h-20 rounded-full overflow-hidden mb-3 border-2 group-hover:scale-110 transition-all shadow-md relative ${
+                      isLive ? 'border-rose-500 animate-neon-pulse' : 'border-red-200'
+                    }`}>
+                      <img src={creator.avatar} alt={creator.name} className="w-full h-full object-cover" />
+                      {isLive && (
+                        <span className="absolute bottom-0 right-0 w-5 h-5 bg-red-500 border-2 border-white rounded-full flex items-center justify-center shadow-md animate-pulse">
+                          <span className="w-2 h-2 bg-white rounded-full animate-blink-red" />
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="font-bold text-gray-900 text-center mb-1 text-sm flex items-center justify-center gap-1">
+                      {creator.name}
+                      {isLive && (
+                        <span className="px-1.5 py-0.5 bg-red-500 text-white text-[8px] font-black rounded-md animate-blink-red tracking-tight uppercase">LIVE</span>
+                      )}
+                    </h3>
+                    <p className="text-xs text-gray-500 text-center">{creator.role}</p>
                   </div>
-                  <h3 className="font-bold text-gray-900 text-center mb-1 text-sm">{creator.name}</h3>
-                  <p className="text-xs text-gray-500 text-center">{creator.role}</p>
-                </div>
-              </motion.div>
-            ))}
+                </motion.div>
+              );
+            })}
           </div>
 
           {/* Mobile/Tablet - Infinite Auto-Scroll */}
@@ -339,20 +556,35 @@ export default function Landing() {
               }}
               className="trending-swiper"
             >
-              {[...trendingCreators, ...trendingCreators].map((creator, idx) => (
-                <SwiperSlide key={`${creator.id}-${idx}`}>
-                  <div
-                    onClick={() => navigate(`/creator/${creator.username}`)}
-                    className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-4 sm:p-6 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all cursor-pointer h-52 flex flex-col items-center justify-center"
-                  >
-                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden mb-3 border-2 border-red-200 shadow-md">
-                      <img src={creator.avatar} alt={creator.name} className="w-full h-full object-cover" />
+              {[...trendingCreators, ...trendingCreators].map((creator, idx) => {
+                const isLive = isCreatorLive(creator.username);
+                return (
+                  <SwiperSlide key={`${creator.id}-${idx}`}>
+                    <div
+                      onClick={() => navigate(`/creator/${creator.username}`)}
+                      className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-4 sm:p-6 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all cursor-pointer h-52 flex flex-col items-center justify-center"
+                    >
+                      <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden mb-3 border-2 shadow-md relative ${
+                        isLive ? 'border-rose-500 animate-neon-pulse' : 'border-red-200'
+                      }`}>
+                        <img src={creator.avatar} alt={creator.name} className="w-full h-full object-cover" />
+                        {isLive && (
+                          <span className="absolute bottom-0 right-0 w-4 h-4 sm:w-5 sm:h-5 bg-red-500 border-2 border-white rounded-full flex items-center justify-center shadow-md animate-pulse">
+                            <span className="w-1.5 h-1.5 bg-white rounded-full animate-blink-red" />
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="font-bold text-gray-900 text-center mb-1 text-sm sm:text-base flex items-center justify-center gap-1">
+                        {creator.name}
+                        {isLive && (
+                          <span className="px-1.5 py-0.5 bg-red-500 text-white text-[8px] font-black rounded-md animate-blink-red tracking-tight uppercase">LIVE</span>
+                        )}
+                      </h3>
+                      <p className="text-xs sm:text-sm text-gray-500 text-center">{creator.role}</p>
                     </div>
-                    <h3 className="font-bold text-gray-900 text-center mb-1 text-sm sm:text-base">{creator.name}</h3>
-                    <p className="text-xs sm:text-sm text-gray-500 text-center">{creator.role}</p>
-                  </div>
-                </SwiperSlide>
-              ))}
+                  </SwiperSlide>
+                );
+              })}
             </Swiper>
           </div>
         </div>

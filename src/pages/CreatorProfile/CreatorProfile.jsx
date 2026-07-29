@@ -53,6 +53,13 @@ export default function CreatorProfile() {
   const [showTipModal, setShowTipModal] = useState(false);
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
 
+  // Livestream entry ticket states
+  const [checkingTicket, setCheckingTicket] = useState(false);
+  const [showTicketPurchaseModal, setShowTicketPurchaseModal] = useState(false);
+  const [ticketPrice, setTicketPrice] = useState(10);
+  const [userBalance, setUserBalance] = useState(0);
+  const [purchasingTicket, setPurchasingTicket] = useState(false);
+
   const isAdTraffic = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     const utmSource = params.get('utm_source')?.toLowerCase() || '';
@@ -187,6 +194,8 @@ export default function CreatorProfile() {
           followers: foundCreator.followersCount || foundCreator.followers || 0,
           subscribers: foundCreator.subscribersCount || foundCreator.subscribers || 0,
           postsCount: 5,
+          is_live: foundCreator.is_live || false,
+          livestreamPrice: foundCreator.livestreamPrice || 10,
         };
         setCreator(creatorObj);
         setLoading(false);
@@ -243,6 +252,8 @@ export default function CreatorProfile() {
         subscriptionPriceWeekly:  foundCreator.subscriptionPriceWeekly  ?? null,
         subscriptionPriceDaily:   foundCreator.subscriptionPriceDaily   ?? null,
         isCreator: foundCreator.isCreator || false,
+        is_live: foundCreator.is_live || false,
+        livestreamPrice: foundCreator.livestreamPrice || 10,
       };
 
       setCreator(creatorObj);
@@ -256,6 +267,7 @@ export default function CreatorProfile() {
             ...prev,
             videoCallPrice: avail.callsEnabled ? avail.videoCallPrice : null,
             voiceCallPrice: avail.callsEnabled ? avail.voiceCallPrice : null,
+            livestreamPrice: avail.livestreamPrice || prev.livestreamPrice || 10,
           }));
         }
       } catch (err) { console.error('Availability error:', err); }
@@ -329,6 +341,75 @@ export default function CreatorProfile() {
   }, [username, currentUser]);
 
   const handleFollowChange = async () => { await refreshCreatorCounts(); };
+
+  const handleJoinLivestream = async () => {
+    if (!currentUser) {
+      navigate('/login');
+      return;
+    }
+    if (currentUser.uid === creator.uid) {
+      navigate(`/livestream/${creator.uid}`);
+      return;
+    }
+    setCheckingTicket(true);
+    try {
+      const now = new Date();
+      const ticketsQuery = query(
+        collection(db, 'livestream_tickets'),
+        where('userId', '==', currentUser.uid),
+        where('creatorId', '==', creator.uid),
+        where('expiresAt', '>', now)
+      );
+      const ticketsSnap = await getDocs(ticketsQuery);
+      if (!ticketsSnap.empty) {
+        navigate(`/livestream/${creator.uid}`);
+        return;
+      }
+      const price = Number(creator.livestreamPrice || creator.ticketPrice || 10);
+      setTicketPrice(price);
+      const balSnap = await getDoc(doc(db, 'user_balances', currentUser.uid));
+      const bal = balSnap.exists() ? Number(balSnap.data().balance || 0) : 0;
+      setUserBalance(bal);
+      setShowTicketPurchaseModal(true);
+    } catch (err) {
+      console.error('Error checking livestream ticket:', err);
+      alert('Failed to check entry ticket status. Please try again.');
+    } finally {
+      setCheckingTicket(false);
+    }
+  };
+
+  const handleConfirmPurchaseTicket = async () => {
+    if (userBalance < ticketPrice) {
+      alert('Insufficient Roses. Please go to your Wallet to add more Roses.');
+      navigate('/wallet');
+      return;
+    }
+    setPurchasingTicket(true);
+    try {
+      const idToken = await currentUser.getIdToken(true);
+      const channelName = `livestream_${creator.uid}`;
+      const res = await fetch(import.meta.env.VITE_FIREBASE_FUNCTIONS_URL + '/getAgoraToken', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ channelName, creatorId: creator.uid, isLive: true, isLivestream: true })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to purchase ticket block');
+      }
+      setShowTicketPurchaseModal(false);
+      navigate(`/livestream/${creator.uid}`);
+    } catch (err) {
+      console.error('Error purchasing ticket:', err);
+      alert(err.message || 'Failed to purchase ticket. Please try again.');
+    } finally {
+      setPurchasingTicket(false);
+    }
+  };
 
   const handleMessage = async () => {
     if (!currentUser) { navigate('/login'); return; }
@@ -673,7 +754,7 @@ export default function CreatorProfile() {
                 onClick={() => navigate(`/creator/${cleanUsername}?entered=true`)}
                 className="w-full py-4 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-extrabold text-sm rounded-2xl shadow-lg shadow-rose-950/40 hover:scale-[1.02] active:scale-[0.98] transition duration-200 flex items-center justify-center space-x-2 border border-rose-400/20"
               >
-                <span>Tap to Enter Her Premium Private Gallery</span>
+                <span>{creator.is_live ? 'Tap to Join Her Live Private Room Now 🔴' : 'Tap to Enter Her Premium Private Gallery'}</span>
               </button>
               <p className="text-[10px] text-center text-gray-500">
                 By entering, you confirm you are 18+ and agree to the Terms of Service.
@@ -689,7 +770,7 @@ export default function CreatorProfile() {
               onClick={() => navigate(`/creator/${cleanUsername}?entered=true`)}
               className="w-full py-4 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-extrabold text-sm rounded-2xl shadow-lg shadow-rose-950/40 hover:scale-[1.02] active:scale-[0.98] transition duration-200 flex items-center justify-center space-x-2 border border-rose-400/20"
             >
-              <span>Tap to Enter Her Premium Private Gallery</span>
+              <span>{creator.is_live ? 'Tap to Join Her Live Private Room Now 🔴' : 'Tap to Enter Her Premium Private Gallery'}</span>
             </button>
             <p className="text-[10px] text-center text-gray-500 mt-2">
               By entering, you confirm you are 18+ and agree to the Terms of Service.
@@ -813,7 +894,13 @@ export default function CreatorProfile() {
             <div className="flex items-end justify-between" style={{ marginTop: '-2.5rem' }}>
               {/* Avatar */}
               <div className="relative group flex-shrink-0 z-10">
-                <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 border-4 border-white flex items-center justify-center text-4xl shadow-lg overflow-hidden">
+                {creator.is_live && (
+                  <>
+                    <div className="absolute -inset-1 rounded-full border-2 border-rose-500 animate-ping opacity-75 z-0" />
+                    <div className="absolute -inset-1 rounded-full border-2 border-rose-600 animate-pulse z-0" />
+                  </>
+                )}
+                <div className="relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 border-4 border-white flex items-center justify-center text-4xl shadow-lg overflow-hidden z-10">
                   {(() => {
                     const isRealUrl = creator.avatar && (creator.avatar.startsWith('http') || creator.avatar.startsWith('blob:'));
                     return isRealUrl
@@ -822,7 +909,7 @@ export default function CreatorProfile() {
                   })()}
                 </div>
                 {isOwnProfile && (
-                  <label className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition rounded-full cursor-pointer">
+                  <label className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition rounded-full cursor-pointer">
                     <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" disabled={uploadingAvatar} />
                     {uploadingAvatar
                       ? <Loader2 className="w-5 h-5 text-white animate-spin" />
@@ -830,7 +917,7 @@ export default function CreatorProfile() {
                   </label>
                 )}
                 {creator.verified && (
-                  <div className="absolute bottom-0 right-0 bg-blue-500 text-white p-1 rounded-full border-2 border-white">
+                  <div className="absolute bottom-0 right-0 bg-blue-500 text-white p-1 rounded-full border-2 border-white z-20">
                     <Star className="w-3 h-3 fill-white" />
                   </div>
                 )}
@@ -958,6 +1045,17 @@ export default function CreatorProfile() {
             {/* ✅ FIXED: Action buttons below name/bio, not overlapping banner */}
             {!isOwnProfile && (
               <div className="flex items-center flex-wrap gap-2 mt-3">
+                {creator && creator.is_live && (
+                  <button
+                    onClick={handleJoinLivestream}
+                    disabled={checkingTicket}
+                    className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white rounded-full text-xs font-black shadow-md shadow-red-500/20 animate-pulse transition hover:scale-[1.02] cursor-pointer disabled:opacity-50"
+                  >
+                    <span className="w-2 h-2 bg-white rounded-full animate-ping" />
+                    <span>{checkingTicket ? 'Checking ticket...' : `Join Livestream (🌹${creator.livestreamPrice || 10})`}</span>
+                  </button>
+                )}
+
                 {/* NSFW toggle */}
                 <button
                   onClick={() => setShowNSFW(v => !v)}
@@ -1134,6 +1232,79 @@ export default function CreatorProfile() {
           setTimeout(() => refreshCreatorCounts(), 2000);
         }}
       />
+
+      {/* Livestream Ticket Purchase Modal */}
+      <AnimatePresence>
+        {showTicketPurchaseModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl relative">
+              <button
+                onClick={() => setShowTicketPurchaseModal(false)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              
+              <div className="w-16 h-16 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-rose-500/20">
+                <Gift className="w-8 h-8 text-rose-500" />
+              </div>
+              
+              <h3 className="text-white text-xl font-bold mb-2">Join Livestream</h3>
+              <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+                To watch @{creator.username}'s stream, you need to purchase a 1-Hour Ticket pass.
+              </p>
+              
+              <div className="bg-slate-950 rounded-2xl p-4 mb-6 border border-slate-800 flex justify-around text-center">
+                <div>
+                  <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Ticket Cost</span>
+                  <span className="text-lg font-black text-rose-500">🌹{ticketPrice}</span>
+                </div>
+                <div className="border-l border-slate-800" />
+                <div>
+                  <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Your Balance</span>
+                  <span className="text-lg font-black text-white">🌹{userBalance}</span>
+                </div>
+              </div>
+              
+              {userBalance < ticketPrice ? (
+                <div>
+                  <p className="text-red-400 text-xs font-semibold mb-4">
+                    ⚠️ You do not have enough Roses for this ticket.
+                  </p>
+                  <button
+                    onClick={() => navigate('/wallet')}
+                    className="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold rounded-2xl shadow-lg transition"
+                  >
+                    Add Roses in Wallet 🌹
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleConfirmPurchaseTicket}
+                  disabled={purchasingTicket}
+                  className="w-full py-4 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-bold rounded-2xl shadow-lg transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {purchasingTicket ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>Purchasing...</span>
+                    </>
+                  ) : (
+                    <span>Confirm & Buy Ticket (🌹{ticketPrice})</span>
+                  )}
+                </button>
+              )}
+              
+              <button
+                onClick={() => setShowTicketPurchaseModal(false)}
+                className="w-full mt-3 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-2xl transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Report Modal */}
       <AnimatePresence>
