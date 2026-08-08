@@ -485,7 +485,7 @@ exports.createPayment = onRequest(
     secrets: [NOWPAYMENTS_API_KEY],
     cors: true,
     memory: "512MiB",
-    minInstances: 1,
+    minInstances: 0,
   },
   async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
