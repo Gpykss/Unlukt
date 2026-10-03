@@ -793,7 +793,8 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 exports.onUserCreatedWelcome = onDocumentCreated(
   {
     document: "user_profiles/{uid}",
-    region: "us-central1",
+    region: "europe-west1",
+    memory: "256MiB",
     secrets: [RESEND_API_KEY],
   },
   async (event) => {
