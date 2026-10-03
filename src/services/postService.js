@@ -378,10 +378,27 @@ export const sharePost = async (postId) => {
   }
 };
 
+// In-flight comment cache to prevent duplicate submissions from rapid clicks or enter key repeats
+const recentCommentsCache = new Map();
+
 /**
  * Add comment
  */
 export const addComment = async (postId, userId, commentText, userProfile) => {
+  const trimmed = (commentText || '').trim();
+  if (!trimmed) throw new Error('Comment cannot be empty');
+
+  // Prevent duplicate submissions within 3 seconds
+  const dedupKey = `${postId}_${userId}_${trimmed.toLowerCase()}`;
+  const now = Date.now();
+  if (recentCommentsCache.has(dedupKey)) {
+    const cached = recentCommentsCache.get(dedupKey);
+    if (now - cached.time < 3000) {
+      console.warn('⚠️ Duplicate comment submission blocked (in-flight or duplicate within 3s)');
+      return cached.result;
+    }
+  }
+
   try {
     const postRef = doc(db, 'posts', postId);
     const postSnap = await getDoc(postRef);
@@ -411,7 +428,7 @@ export const addComment = async (postId, userId, commentText, userProfile) => {
     const comment = {
       id: commentRef.id,
       userId,
-      text: commentText,
+      text: trimmed,
       userName: userProfile?.displayName || 'Anonymous',
       userAvatar: userProfile?.avatar || null,
       userTier: userTier || null,
@@ -428,13 +445,21 @@ export const addComment = async (postId, userId, commentText, userProfile) => {
     if (userId !== postData.userId) {
       try {
         const postImage = postData.images?.[0]?.url || null;
-        await createCommentNotification(userId, postData.userId, userProfile, postId, commentText, postImage);
+        await createCommentNotification(userId, postData.userId, userProfile, postId, trimmed, postImage);
       } catch (notifError) {
         console.error('⚠️ Comment notification failed:', notifError);
       }
     }
 
-    return { id: commentRef.id, ...comment, createdAt: new Date() };
+    const result = { id: commentRef.id, ...comment, createdAt: new Date() };
+    recentCommentsCache.set(dedupKey, { time: Date.now(), result });
+    if (recentCommentsCache.size > 200) {
+      for (const [k, v] of recentCommentsCache) {
+        if (Date.now() - v.time > 10000) recentCommentsCache.delete(k);
+      }
+    }
+
+    return result;
   } catch (error) {
     console.error('❌ Error adding comment:', error);
     throw error;

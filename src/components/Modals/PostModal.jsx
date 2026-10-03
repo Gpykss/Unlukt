@@ -90,6 +90,8 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
     }
   }, [post?.userId]);
 
+  const isSubmittingCommentRef = useRef(false);
+
   useEffect(() => {
     if (!isOpen || !post?.id) return;
     setComments([]);
@@ -97,8 +99,21 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
     setLoadingComments(true);
 
     const unsubscribe = subscribeToPostComments(post.id, (realtimeComments) => {
-      setComments(realtimeComments || []);
-      setCommentsCount(realtimeComments ? realtimeComments.length : 0);
+      if (!realtimeComments) {
+        setComments([]);
+        setCommentsCount(0);
+      } else {
+        const seen = new Set();
+        const deduped = [];
+        for (const c of realtimeComments) {
+          if (c.id && !seen.has(c.id)) {
+            seen.add(c.id);
+            deduped.push(c);
+          }
+        }
+        setComments(deduped);
+        setCommentsCount(deduped.length);
+      }
       setLoadingComments(false);
 
       if (onPostUpdate && post) {
@@ -142,24 +157,34 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
     } catch (e) { console.error('Like error:', e); }
   };
 
-  // ✅ FIXED: proper async/await with better error handling
+  // ✅ FIXED: proper async/await with synchronous ref guard preventing double-submits
   const handleCommentSubmit = async (e) => {
     e?.preventDefault();
     e?.stopPropagation();
-    if (nsfwHidden || isLocked || !currentUser || !comment.trim() || postingComment) return;
+    if (nsfwHidden || isLocked || !currentUser || !comment.trim()) return;
+    if (isSubmittingCommentRef.current || postingComment) return;
+
+    isSubmittingCommentRef.current = true;
+    setPostingComment(true);
     const text = comment.trim();
+    setComment(''); // clear immediately for better UX
+
     try {
-      setPostingComment(true);
-      setComment(''); // clear immediately for better UX
       const newComment = await addComment(post.id, currentUser.uid, text, profile);
-      setComments(prev => [...prev, newComment]);
-      setCommentsCount(p => p + 1);
-      setTimeout(() => commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+      if (newComment) {
+        setComments(prev => {
+          if (prev.some(c => c.id === newComment.id)) return prev;
+          return [...prev, newComment];
+        });
+        setCommentsCount(p => p + 1);
+        setTimeout(() => commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+      }
     } catch (e) {
       console.error('Comment error:', e);
       setComment(text); // restore if failed
       alert('Failed to post comment: ' + (e.message || 'Unknown error'));
     } finally {
+      isSubmittingCommentRef.current = false;
       setPostingComment(false);
     }
   };
@@ -430,7 +455,10 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                       onKeyDown={e => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
-                          handleCommentSubmit(e);
+                          e.stopPropagation();
+                          if (!postingComment && !isSubmittingCommentRef.current) {
+                            handleCommentSubmit(e);
+                          }
                         }
                       }}
                       placeholder="Write a comment..."

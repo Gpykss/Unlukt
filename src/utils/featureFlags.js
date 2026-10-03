@@ -7,18 +7,17 @@
  * - userProfile.newUi === true for phased rollout to selected creators in production
  */
 export const isNewUIEnabled = (userProfile = null, feature = null) => {
-  // Global build-time toggle
-  if (import.meta.env.VITE_NEW_UI === 'true') return true;
+  // If explicitly disabled via build-time env
+  if (import.meta.env.VITE_NEW_UI === 'false') return false;
 
-  if (!userProfile) return false;
+  // If user profile explicitly opted out of modern UI
+  if (userProfile?.newUi === false || userProfile?.forceLegacy === true) return false;
 
-  // Global user flag
-  if (userProfile.newUi === true) return true;
+  // If granular feature flag is explicitly false
+  if (feature && userProfile?.featureFlags?.[feature] === false) return false;
 
-  // Granular feature flags on user doc (e.g. userProfile.featureFlags = { dashboard: true })
-  if (feature && userProfile.featureFlags?.[feature] === true) return true;
-
-  return false;
+  // Default to true so all creators get the modern dashboard, tiers, and withdrawals
+  return true;
 };
 
 export const isNewDashboard = (userProfile) => isNewUIEnabled(userProfile, 'dashboard');

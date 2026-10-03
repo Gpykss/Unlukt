@@ -1,6 +1,6 @@
 // src/components/common/ContentViewModal.jsx - COMPLETE WITH ALL FEATURES
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, 
@@ -79,14 +79,29 @@ export default function ContentViewModal({ isOpen, onClose, post, onPostUpdate }
     }
   }, [post]);
 
+  const isSubmittingCommentRef = useRef(false);
+
   // Subscribe to comments in real-time when modal opens
   useEffect(() => {
     if (!isOpen || !post?.id) return;
     setLoadingComments(true);
 
     const unsubscribe = subscribeToPostComments(post.id, (realtimeComments) => {
-      setComments(realtimeComments || []);
-      setCommentsCount(realtimeComments ? realtimeComments.length : 0);
+      if (!realtimeComments) {
+        setComments([]);
+        setCommentsCount(0);
+      } else {
+        const seen = new Set();
+        const deduped = [];
+        for (const c of realtimeComments) {
+          if (c.id && !seen.has(c.id)) {
+            seen.add(c.id);
+            deduped.push(c);
+          }
+        }
+        setComments(deduped);
+        setCommentsCount(deduped.length);
+      }
       setLoadingComments(false);
 
       if (onPostUpdate && post) {
@@ -134,24 +149,35 @@ export default function ContentViewModal({ isOpen, onClose, post, onPostUpdate }
 
   const handleCommentSubmit = async (e) => {
     e?.preventDefault();
+    e?.stopPropagation();
     
     if (!currentUser) {
       alert('Please login to comment');
       return;
     }
     
-    if (!comment.trim()) return;
+    if (!comment.trim() || isSubmittingCommentRef.current || postingComment) return;
+
+    isSubmittingCommentRef.current = true;
+    setPostingComment(true);
+    const text = comment.trim();
+    setComment('');
 
     try {
-      setPostingComment(true);
-      const newComment = await addComment(post.id, currentUser.uid, comment, profile);
-      setComments([newComment, ...comments]);
-      setCommentsCount(prev => prev + 1);
-      setComment('');
+      const newComment = await addComment(post.id, currentUser.uid, text, profile);
+      if (newComment) {
+        setComments(prev => {
+          if (prev.some(c => c.id === newComment.id)) return prev;
+          return [newComment, ...prev];
+        });
+        setCommentsCount(prev => prev + 1);
+      }
     } catch (error) {
       console.error('Error adding comment:', error);
+      setComment(text);
       alert('Failed to add comment');
     } finally {
+      isSubmittingCommentRef.current = false;
       setPostingComment(false);
     }
   };
