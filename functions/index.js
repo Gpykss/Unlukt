@@ -10,7 +10,6 @@ const corsHandler = cors({ origin: true });
 
 // ✅ SECRETS
 const BUNNY_STORAGE_PASSWORD = defineSecret("BUNNY_STORAGE_PASSWORD");
-const BUNNY_SECURITY_KEY = defineSecret("BUNNY_SECURITY_KEY");
 const NOWPAYMENTS_API_KEY = defineSecret("NOWPAYMENTS_API_KEY");
 const NOWPAYMENTS_IPN_SECRET = defineSecret("NOWPAYMENTS_IPN_SECRET");
 const AGORA_APP_ID = defineSecret("AGORA_APP_ID");
@@ -1317,7 +1316,7 @@ exports.resolveCoHostRequest = onRequest(
 exports.unlock = onCall(
   {
     region: "us-central1",
-    secrets: [BUNNY_STORAGE_PASSWORD, BUNNY_SECURITY_KEY],
+    secrets: [BUNNY_STORAGE_PASSWORD],
     cors: true,
   },
   async (request) => {
@@ -1357,11 +1356,11 @@ exports.unlock = onCall(
     let url = result.bunnyPath || "";
     if (url && !url.startsWith("http")) {
       try {
-        let secKey = "";
-        try {
-          secKey = BUNNY_SECURITY_KEY.value();
-        } catch (_) {
-          secKey = BUNNY_STORAGE_PASSWORD.value();
+        let secKey = process.env.BUNNY_SECURITY_KEY || "";
+        if (!secKey) {
+          try {
+            secKey = BUNNY_STORAGE_PASSWORD.value();
+          } catch (_) {}
         }
 
         url = signBunnyUrl({
