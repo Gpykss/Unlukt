@@ -1,6 +1,6 @@
 // src/services/tierService.js - 3-Tier Membership System
 
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import logger from '../utils/logger';
 
@@ -70,6 +70,20 @@ export const saveCreatorTiers = async (creatorId, tiersData) => {
     
     await setDoc(tierRef, data, { merge: true });
     
+    // Also sync the lowest/supporter tier price to the creator user profile for legacy compatibility
+    try {
+      const supporterPrice = validated.supporter?.price || 9.99;
+      await updateDoc(doc(db, 'users', creatorId), {
+        subscriptionPrice: supporterPrice,
+        subscriptionPriceMonthly: supporterPrice,
+        tiersEnabled: tiersData.enabled !== false,
+        updatedAt: serverTimestamp()
+      });
+    } catch (userErr) {
+      // Non-fatal if user update fails or user is restricted
+      console.warn('Could not sync subscriptionPrice to user doc:', userErr);
+    }
+    
     logger.success('Creator tiers saved:', creatorId);
     return data;
   } catch (error) {
@@ -120,28 +134,69 @@ function validateTiers(tiers) {
  * Check user's tier level with creator
  */
 export const getUserTier = async (userId, creatorId) => {
+  if (!userId || !creatorId) return null;
   try {
-    // Check active subscription
+    // 1. Check deterministic doc ID
     const subRef = doc(db, 'subscriptions', `${userId}_${creatorId}`);
-    const subDoc = await getDoc(subRef);
+    let subDoc = await getDoc(subRef);
+    let sub = subDoc.exists() ? subDoc.data() : null;
     
-    if (!subDoc.exists()) {
+    // 2. Fallback: Query by fields in case of auto-generated doc ID
+    if (!sub) {
+      const q = query(
+        collection(db, 'subscriptions'),
+        where('userId', '==', userId),
+        where('creatorId', '==', creatorId)
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        sub = snap.docs[0].data();
+      }
+    }
+
+    // 3. Fallback: Check reversed (if creator was checking fan or vice versa)
+    if (!sub) {
+      const qRev = query(
+        collection(db, 'subscriptions'),
+        where('userId', '==', creatorId),
+        where('creatorId', '==', userId)
+      );
+      const snapRev = await getDocs(qRev);
+      if (!snapRev.empty) {
+        sub = snapRev.docs[0].data();
+      }
+    }
+
+    // 4. Fallback: Check creator fan subcollection
+    if (!sub) {
+      try {
+        const fanDoc = await getDoc(doc(db, 'creators', creatorId, 'fans', userId));
+        if (fanDoc.exists()) {
+          sub = fanDoc.data();
+        }
+      } catch (e) {}
+    }
+    
+    if (!sub) return null;
+    
+    // Status check: if explicitly cancelled/refunded, deny
+    if (sub.status && sub.status !== 'active') {
       return null;
     }
     
-    const sub = subDoc.data();
-    
-    // Check if expired
+    // Expiry check
     if (sub.expiresAt) {
       const now = new Date();
-      const expiresAt = sub.expiresAt.toDate ? sub.expiresAt.toDate() : new Date(sub.expiresAt);
+      const expiresAt = sub.expiresAt.toDate 
+        ? sub.expiresAt.toDate() 
+        : new Date(sub.expiresAt.seconds ? sub.expiresAt.seconds * 1000 : sub.expiresAt);
       
-      if (expiresAt < now) {
+      if (!isNaN(expiresAt.getTime()) && expiresAt < now) {
         return null;
       }
     }
     
-    // Return tier level (supporter, vip, superfan)
+    // Return tier level (supporter, vip, superfan) - defaults to supporter for active subscription
     return sub.tier || 'supporter';
   } catch (error) {
     logger.error('Error checking user tier:', error);
@@ -182,11 +237,48 @@ export const getCallDiscount = (tier) => {
   return discounts[tier] || 0;
 };
 
+/**
+ * Get display badge details for a tier
+ */
+export const getTierBadge = (tier) => {
+  if (!tier) return null;
+  const key = String(tier).toLowerCase();
+  switch (key) {
+    case 'superfan':
+      return {
+        id: 'superfan',
+        name: 'Superfan',
+        icon: '👑',
+        label: '👑 Superfan',
+        badgeClass: 'bg-amber-100 text-amber-800 border-amber-300 font-bold',
+      };
+    case 'vip':
+      return {
+        id: 'vip',
+        name: 'VIP',
+        icon: '⭐',
+        label: '⭐ VIP',
+        badgeClass: 'bg-purple-100 text-purple-800 border-purple-300 font-bold',
+      };
+    case 'supporter':
+      return {
+        id: 'supporter',
+        name: 'Supporter',
+        icon: '🌱',
+        label: '🌱 Supporter',
+        badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold',
+      };
+    default:
+      return null;
+  }
+};
+
 export default {
   getCreatorTiers,
   saveCreatorTiers,
   getUserTier,
   hasTierAccess,
   getCallDiscount,
+  getTierBadge,
   DEFAULT_TIERS
 };

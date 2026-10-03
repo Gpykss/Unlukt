@@ -70,6 +70,7 @@ const AdminPayouts = lazy(() => import('./pages/Admin/Payouts'));
 const Ambassadors = lazy(() => import('./pages/Admin/Ambassadors'));
 const AmbassadorDashboard = lazy(() => import('./pages/Dashboard/AmbassadorDashboard'));
 const AdAssetManagement = lazy(() => import('./pages/Admin/AdAssetManagement'));
+const SubscriptionsManagement = lazy(() => import('./pages/Admin/Subscriptions'));
 
 // Pages that should have NO navigation chrome
 const NO_NAV_PATHS = new Set([
@@ -113,7 +114,7 @@ function AppContent() {
   const isMessagesPage = path === '/messages';
 
   return (
-    <div className="app bg-gray-50" style={{ height: '100dvh', overflow: isMessagesPage ? 'hidden' : 'auto' }}>
+    <div className="app bg-gray-50 overflow-x-hidden" style={{ height: '100dvh', overflowY: isMessagesPage ? 'hidden' : 'auto', overflowX: 'hidden' }}>
     {showNav && <MobileNavbar onMenuClick={() => setSidebarOpen(true)} />}
     {showNav && <GlobalSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
 
@@ -184,6 +185,7 @@ function AppContent() {
             <Route path="/admin/payouts" element={<AdminRoute><AdminPayouts /></AdminRoute>} />
             <Route path="/admin/ambassadors" element={<AdminRoute><Ambassadors /></AdminRoute>} />
             <Route path="/admin/ad-assets" element={<AdminRoute><AdAssetManagement /></AdminRoute>} />
+            <Route path="/admin/subscriptions" element={<AdminRoute><SubscriptionsManagement /></AdminRoute>} />
             {/* Ambassador Dashboard */}
             <Route path="/ambassador-dashboard" element={<ProtectedRoute><AmbassadorDashboard /></ProtectedRoute>} />
 

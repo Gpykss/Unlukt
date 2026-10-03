@@ -11,7 +11,8 @@ import {
   where,
   serverTimestamp,
   increment,
-  updateDoc
+  updateDoc,
+  onSnapshot
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { createFollowNotification } from './notificationService';
@@ -34,10 +35,14 @@ export const followUser = async (followerId, followingId) => {
     const followingUserDoc = await getDoc(followingUserRef);
     if (!followingUserDoc.exists()) throw new Error('User not found');
 
-    const currentFollowers = followingUserDoc.data().followers;
+    const followingData = followingUserDoc.data();
+    const currentFollowers = typeof followingData.followers === 'number' 
+      ? followingData.followers 
+      : (typeof followingData.followersCount === 'number' ? followingData.followersCount : 0);
+
     await updateDoc(followingUserRef, {
-      // FIX: if followers field doesn't exist yet, start from 0 + 1 = 1
-      followers: typeof currentFollowers === 'number' ? increment(1) : 1,
+      followers: increment(1),
+      followersCount: increment(1),
       updatedAt: serverTimestamp()
     });
     console.log('✅ Follower count updated');
@@ -47,10 +52,14 @@ export const followUser = async (followerId, followingId) => {
     const followerUserDoc = await getDoc(followerUserRef);
     if (!followerUserDoc.exists()) throw new Error('User not found');
 
-    const currentFollowing = followerUserDoc.data().following;
+    const followerDataObj = followerUserDoc.data();
+    const currentFollowing = typeof followerDataObj.following === 'number'
+      ? followerDataObj.following
+      : (typeof followerDataObj.followingCount === 'number' ? followerDataObj.followingCount : 0);
+
     await updateDoc(followerUserRef, {
-      // FIX: if following field doesn't exist yet, start from 0 + 1 = 1
-      following: typeof currentFollowing === 'number' ? increment(1) : 1,
+      following: increment(1),
+      followingCount: increment(1),
       updatedAt: serverTimestamp()
     });
     console.log('✅ Following count updated');
@@ -95,10 +104,15 @@ export const unfollowUser = async (followerId, followingId) => {
     const followingUserDoc = await getDoc(followingUserRef);
     if (!followingUserDoc.exists()) throw new Error('User not found');
 
-    const currentFollowers = followingUserDoc.data().followers || 0;
+    const followingData = followingUserDoc.data();
+    const currentFollowers = typeof followingData.followers === 'number'
+      ? followingData.followers
+      : (typeof followingData.followersCount === 'number' ? followingData.followersCount : 0);
+    const nextFollowers = Math.max(0, currentFollowers - 1);
+
     await updateDoc(followingUserRef, {
-      // FIX: never go below 0
-      followers: Math.max(0, currentFollowers - 1),
+      followers: nextFollowers,
+      followersCount: nextFollowers,
       updatedAt: serverTimestamp()
     });
     console.log('✅ Follower count decremented');
@@ -108,10 +122,15 @@ export const unfollowUser = async (followerId, followingId) => {
     const followerUserDoc = await getDoc(followerUserRef);
     if (!followerUserDoc.exists()) throw new Error('User not found');
 
-    const currentFollowing = followerUserDoc.data().following || 0;
+    const followerDataObj = followerUserDoc.data();
+    const currentFollowing = typeof followerDataObj.following === 'number'
+      ? followerDataObj.following
+      : (typeof followerDataObj.followingCount === 'number' ? followerDataObj.followingCount : 0);
+    const nextFollowing = Math.max(0, currentFollowing - 1);
+
     await updateDoc(followerUserRef, {
-      // FIX: never go below 0
-      following: Math.max(0, currentFollowing - 1),
+      following: nextFollowing,
+      followingCount: nextFollowing,
       updatedAt: serverTimestamp()
     });
     console.log('✅ Following count decremented');
@@ -120,6 +139,31 @@ export const unfollowUser = async (followerId, followingId) => {
   } catch (error) {
     console.error('❌ Error unfollowing user:', error);
     throw error;
+  }
+};
+
+/**
+ * Real-time subscription to follow relationship between current user and target creator
+ */
+export const subscribeToFollowStatus = (followerId, followingId, callback) => {
+  if (!followerId || !followingId || followerId === followingId) {
+    callback(false);
+    return () => {};
+  }
+  try {
+    const q = query(
+      collection(db, 'follows'),
+      where('followerId', '==', followerId),
+      where('followingId', '==', followingId)
+    );
+    return onSnapshot(q, (snapshot) => {
+      callback(!snapshot.empty);
+    }, (err) => {
+      console.warn('Real-time follow status warning:', err);
+    });
+  } catch (err) {
+    console.error('Error setting up follow status subscription:', err);
+    return () => {};
   }
 };
 

@@ -12,7 +12,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { useContentSettings } from '../../hooks/useContentSettings';
 import {
-  likePost, unlikePost, addComment, getPostComments,
+  likePost, unlikePost, addComment, getPostComments, subscribeToPostComments,
   deletePost, updatePost, canViewPost
 } from '../../services/postService';
 import { getUserProfile } from '../../services/firestoreService';
@@ -91,11 +91,27 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
   }, [post?.userId]);
 
   useEffect(() => {
-    if (isOpen && post?.id) {
-      setComments([]);
-      setComment('');
-      loadComments();
-    }
+    if (!isOpen || !post?.id) return;
+    setComments([]);
+    setComment('');
+    setLoadingComments(true);
+
+    const unsubscribe = subscribeToPostComments(post.id, (realtimeComments) => {
+      setComments(realtimeComments || []);
+      setCommentsCount(realtimeComments ? realtimeComments.length : 0);
+      setLoadingComments(false);
+
+      if (onPostUpdate && post) {
+        onPostUpdate({ ...post, comments: realtimeComments ? realtimeComments.length : 0 });
+      }
+    }, (err) => {
+      console.warn('Real-time comments subscription error:', err);
+      setLoadingComments(false);
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, [isOpen, post?.id]);
 
   useEffect(() => {
@@ -109,20 +125,6 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
     if (isOpen) checkAccess();
     return () => { mounted = false; };
   }, [isOpen, post?.id, post?.type, post?.price, post?.userId, currentUser?.uid]);
-
-  const loadComments = async () => {
-    if (!post?.id) return;
-    try {
-      setLoadingComments(true);
-      const fetched = await getPostComments(post.id);
-      setComments(fetched || []);
-    } catch (e) {
-      console.error('Error loading comments:', e);
-      setComments([]);
-    } finally {
-      setLoadingComments(false);
-    }
-  };
 
   // ✅ FIXED: no event param needed, works when called from button onClick
   const handleLike = async () => {
@@ -467,8 +469,28 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                             : <span>{c.userName?.charAt(0)?.toUpperCase() || 'U'}</span>}
                         </div>
                         <div className="flex-1 bg-gray-50 rounded-2xl px-3 py-2">
-                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                             <span className="font-semibold text-gray-800 text-xs">{c.userName || 'User'}</span>
+                            {c.userTier === 'creator' && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200 uppercase tracking-wider">
+                                Creator
+                              </span>
+                            )}
+                            {c.userTier === 'superfan' && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                👑 Superfan
+                              </span>
+                            )}
+                            {c.userTier === 'vip' && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                ⭐ VIP
+                              </span>
+                            )}
+                            {c.userTier === 'supporter' && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                🌱 Supporter
+                              </span>
+                            )}
                             <span className="text-gray-400 text-[10px]">{timeAgo(c.createdAt)}</span>
                           </div>
                           <p className="text-gray-700 text-xs leading-relaxed">{c.text}</p>

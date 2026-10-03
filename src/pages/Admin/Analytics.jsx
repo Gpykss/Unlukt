@@ -183,30 +183,24 @@ export default function AdminAnalytics() {
         { label: 'Video/Voice Calls', amount: callsRevenue, color: 'bg-blue-400',   pct: safePct(callsRevenue) },
       ]);
 
-      // ── Top creators — enrich with real follow/subscriber counts ──────────
+      // ── Top creators — rank instantly from existing document counters (no slow N*2 network loop) ──
       const creatorsSnap = await getDocs(creatorsQuery);
-      const creatorList  = creatorsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const creatorList = creatorsSnap.docs.map(d => {
+        const c = d.data();
+        return {
+          id: d.id,
+          ...c,
+          followersCount: Number(c.followersCount || c.followers || 0),
+          subscribersCount: Number(c.subscribersCount || c.subscriberCount || 0),
+        };
+      });
 
-      // Fetch real counts for each creator (batched)
-      const enriched = await Promise.all(
-        creatorList.map(async (c) => {
-          const [fSnap, sSnap] = await Promise.all([
-            getCountFromServer(query(collection(db, 'follows'), where('followingId', '==', c.id))),
-            getCountFromServer(query(collection(db, 'subscriptions'), where('creatorId', '==', c.id), where('status', '==', 'active'))),
-          ]);
-          return {
-            ...c,
-            followersCount:    fSnap.data().count,
-            subscribersCount:  sSnap.data().count,
-          };
-        })
-      );
+      // Sort by followers and subscribers, pick top 5
+      const top5 = creatorList
+        .sort((a, b) => (b.followersCount + b.subscribersCount) - (a.followersCount + a.subscribersCount))
+        .slice(0, 5);
 
-      setTopCreators(
-        enriched
-          .sort((a, b) => b.followersCount - a.followersCount)
-          .slice(0, 5)
-      );
+      setTopCreators(top5);
 
     } catch (error) {
       console.error('Error loading analytics:', error);

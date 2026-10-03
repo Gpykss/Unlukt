@@ -1,13 +1,15 @@
 // src/layout/MobileBottomNav.jsx
 
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, MessageCircle, Plus, Wallet, User, Phone } from 'lucide-react';
+import { Home, Compass, Plus, MessageCircle, User, LayoutDashboard, Phone } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useUnreadMessages } from '../hooks/useUnreadMessages';
 import { useEffect, useState } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { isNewNav } from '../utils/featureFlags';
+import QuickCreateSheet from '../components/common/QuickCreateSheet';
 
 export default function MobileBottomNav() {
   const navigate = useNavigate();
@@ -16,10 +18,11 @@ export default function MobileBottomNav() {
   const { isCreator, profile } = useUserProfile();
   const { unreadCount } = useUnreadMessages();
   const [activeCallCount, setActiveCallCount] = useState(0);
+  const [showCreateSheet, setShowCreateSheet] = useState(false);
 
-  const isActive = (path) => location.pathname === path;
+  const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/');
 
-  // ✅ For non-creators: check for active/joinable calls to show badge
+  // Check for active calls for fans
   useEffect(() => {
     if (!currentUser || isCreator) return;
     const checkActiveCalls = async () => {
@@ -52,102 +55,117 @@ export default function MobileBottomNav() {
       navigate('/login');
       return;
     }
-    if (profile?.username) {
+    if (isCreator) {
+      navigate('/dashboard');
+    } else if (profile?.username) {
       navigate(`/creator/${profile.username.replace('@', '')}`);
-    } else if (currentUser) {
+    } else {
       navigate(`/creator/${currentUser.uid}`);
     }
   };
 
-  const isOnOwnProfile = () => {
-    if (!currentUser) return false;
-    const currentPath = location.pathname;
-    const username = profile?.username?.replace('@', '');
-    return currentPath === `/creator/${username}` || currentPath === `/creator/${currentUser?.uid}`;
+  const handleCreateClick = () => {
+    if (!currentUser) {
+      navigate('/login');
+      return;
+    }
+    if (isCreator) {
+      setShowCreateSheet(true);
+    } else {
+      navigate('/discover');
+    }
   };
 
+  // PRD Section 15.2: 5-item thumb zone (Feed, Discover, Create, DMs, Studio/Profile)
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 shadow-lg">
-      <div className="max-w-lg mx-auto px-2 sm:px-4">
-        <div className="flex items-center justify-around py-2">
+    <>
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-200 z-50 shadow-lg safe-area-bottom">
+        <div className="max-w-md mx-auto px-2">
+          <div className="flex items-center justify-between py-2 px-1">
 
-          {/* Home */}
-          <button onClick={() => navigate('/feed')}
-            className={`flex flex-col items-center justify-center py-2 px-3 min-w-[60px] ${
-              isActive('/feed') ? 'text-red-500' : 'text-gray-600'
-            }`}>
-            <Home className={`w-6 h-6 ${isActive('/feed') ? 'fill-red-500' : ''}`} />
-            <span className="text-xs font-medium mt-1">Home</span>
-          </button>
-
-          {/* Messages */}
-          <button onClick={() => currentUser ? navigate('/messages') : navigate('/login')}
-            className={`flex flex-col items-center justify-center py-2 px-3 min-w-[60px] relative ${
-              isActive('/messages') ? 'text-red-500' : 'text-gray-600'
-            }`}>
-            <div className="relative">
-              <MessageCircle className={`w-6 h-6 ${isActive('/messages') ? 'fill-red-500' : ''}`} />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </div>
-            <span className="text-xs font-medium mt-1">Messages</span>
-          </button>
-
-          {/* ✅ Creators: Create button | Non-creators: My Calls button */}
-          {isCreator ? (
-            <button onClick={() => navigate('/new-post')}
-              className="flex flex-col items-center justify-center px-3 min-w-[60px]">
-              <div className="w-12 h-12 bg-gradient-to-r from-red-500 to-red-600 rounded-full flex items-center justify-center shadow-lg -mt-4 mb-1">
-                <Plus className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-xs font-medium text-gray-600">Create</span>
+            {/* 1. Feed */}
+            <button
+              onClick={() => navigate('/feed')}
+              className={`flex flex-col items-center justify-center py-1.5 px-2 min-w-[56px] transition ${
+                isActive('/feed') ? 'text-red-500 font-bold' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Home className={`w-5 h-5 ${isActive('/feed') ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
+              <span className="text-[10px] mt-1 tracking-tight">Feed</span>
             </button>
-          ) : (
-            <button onClick={() => currentUser ? navigate('/my-calls') : navigate('/login')}
-              className={`flex flex-col items-center justify-center py-2 px-3 min-w-[60px] relative ${
-                isActive('/my-calls') ? 'text-red-500' : 'text-gray-600'
-              }`}>
+
+            {/* 2. Discover */}
+            <button
+              onClick={() => navigate('/discover')}
+              className={`flex flex-col items-center justify-center py-1.5 px-2 min-w-[56px] transition ${
+                isActive('/discover') || isActive('/search') ? 'text-red-500 font-bold' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Compass className={`w-5 h-5 ${isActive('/discover') || isActive('/search') ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
+              <span className="text-[10px] mt-1 tracking-tight">Discover</span>
+            </button>
+
+            {/* 3. Center Create (Opens quick sheet) */}
+            <button
+              onClick={handleCreateClick}
+              className="flex flex-col items-center justify-center px-1 -mt-4 active:scale-95 transition"
+            >
+              <div className="w-12 h-12 bg-gradient-to-r from-red-500 to-red-600 rounded-full flex items-center justify-center shadow-lg shadow-red-500/25 border-2 border-white text-white">
+                <Plus className="w-6 h-6 stroke-[2.5]" />
+              </div>
+              <span className="text-[10px] font-medium text-gray-500 mt-0.5">
+                {isCreator ? 'Create' : 'Explore'}
+              </span>
+            </button>
+
+            {/* 4. DMs / Messages (Unified Inbox) */}
+            <button
+              onClick={() => currentUser ? navigate('/messages') : navigate('/login')}
+              className={`flex flex-col items-center justify-center py-1.5 px-2 min-w-[56px] relative transition ${
+                isActive('/messages') ? 'text-red-500 font-bold' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
               <div className="relative">
-                <Phone className={`w-6 h-6 ${isActive('/my-calls') ? 'fill-red-500' : ''}`} />
-                {activeCallCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
-                    {activeCallCount}
+                <MessageCircle className={`w-5 h-5 ${isActive('/messages') ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1.5 w-4 h-4 bg-red-500 text-white text-[9px] font-extrabold rounded-full flex items-center justify-center shadow-sm">
+                    {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
                 )}
               </div>
-              <span className="text-xs font-medium mt-1">Calls</span>
+              <span className="text-[10px] mt-1 tracking-tight">DMs</span>
             </button>
-          )}
 
-          {/* Profile */}
-          <button onClick={handleProfileClick}
-            className={`flex flex-col items-center justify-center py-2 px-3 min-w-[60px] ${
-              isOnOwnProfile() ? 'text-red-500' : 'text-gray-600'
-            }`}>
-            {profile?.profilePicture ? (
-              <div className="w-7 h-7 rounded-full overflow-hidden border-2 border-current">
-                <img src={profile.profilePicture} alt="Profile" className="w-full h-full object-cover" />
-              </div>
-            ) : (
-              <User className={`w-6 h-6 ${isOnOwnProfile() ? 'fill-red-500' : ''}`} />
-            )}
-            <span className="text-xs font-medium mt-1">Profile</span>
-          </button>
+            {/* 5. Studio / Profile */}
+            <button
+              onClick={handleProfileClick}
+              className={`flex flex-col items-center justify-center py-1.5 px-2 min-w-[56px] transition ${
+                isActive('/dashboard') || location.pathname.startsWith('/creator/') ? 'text-red-500 font-bold' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              {profile?.profilePicture ? (
+                <div className={`w-5 h-5 rounded-full overflow-hidden border ${isActive('/dashboard') ? 'border-red-500 ring-2 ring-red-500/30' : 'border-gray-300'}`}>
+                  <img src={profile.profilePicture} alt="Profile" className="w-full h-full object-cover" />
+                </div>
+              ) : isCreator ? (
+                <LayoutDashboard className={`w-5 h-5 ${isActive('/dashboard') ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
+              ) : (
+                <User className={`w-5 h-5 ${location.pathname.startsWith('/creator/') ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
+              )}
+              <span className="text-[10px] mt-1 tracking-tight">
+                {isCreator ? 'Studio' : 'Profile'}
+              </span>
+            </button>
 
-          {/* Wallet */}
-          <button onClick={() => currentUser ? navigate('/wallet') : navigate('/login')}
-            className={`flex flex-col items-center justify-center py-2 px-3 min-w-[60px] ${
-              isActive('/wallet') ? 'text-red-500' : 'text-gray-600'
-            }`}>
-            <Wallet className={`w-6 h-6 ${isActive('/wallet') ? 'fill-red-500' : ''}`} />
-            <span className="text-xs font-medium mt-1">Wallet</span>
-          </button>
-
+          </div>
         </div>
-      </div>
-    </nav>
+      </nav>
+
+      {/* Quick Action Sheet */}
+      <QuickCreateSheet
+        isOpen={showCreateSheet}
+        onClose={() => setShowCreateSheet(false)}
+      />
+    </>
   );
-}
+}

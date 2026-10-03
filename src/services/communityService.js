@@ -210,7 +210,9 @@ export const getCommunityPosts = async (communityId) => {
       })
       .slice(0, 50);
   } catch (error) {
-    console.error('Error getting community posts:', error);
+    if (error?.code !== 'permission-denied') {
+      console.warn('Could not load community posts:', error?.message || error);
+    }
     return [];
   }
 };

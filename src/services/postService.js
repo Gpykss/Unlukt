@@ -15,7 +15,8 @@ import {
   serverTimestamp,
   increment,
   arrayUnion,
-  arrayRemove
+  arrayRemove,
+  onSnapshot
 } from 'firebase/firestore';
 
 import { db } from '../config/firebase';
@@ -382,6 +383,29 @@ export const sharePost = async (postId) => {
  */
 export const addComment = async (postId, userId, commentText, userProfile) => {
   try {
+    const postRef = doc(db, 'posts', postId);
+    const postSnap = await getDoc(postRef);
+    if (!postSnap.exists()) throw new Error('Post not found');
+    const postData = postSnap.data();
+
+    // Determine commenter tier with creator (PRD 16.2)
+    let userTier = null;
+    if (userId === postData.userId) {
+      userTier = 'creator';
+    } else {
+      try {
+        const subSnap = await getDoc(doc(db, 'subscriptions', `${userId}_${postData.userId}`));
+        if (subSnap.exists()) {
+          const sub = subSnap.data();
+          if (sub.status === 'active') {
+            userTier = sub.tier || 'supporter';
+          }
+        }
+      } catch (tierErr) {
+        console.warn('Could not fetch commenter tier:', tierErr);
+      }
+    }
+
     const commentRef = doc(collection(db, 'posts', postId, 'comments'));
 
     const comment = {
@@ -390,15 +414,11 @@ export const addComment = async (postId, userId, commentText, userProfile) => {
       text: commentText,
       userName: userProfile?.displayName || 'Anonymous',
       userAvatar: userProfile?.avatar || null,
+      userTier: userTier || null,
       createdAt: serverTimestamp()
     };
 
     await setDoc(commentRef, comment);
-
-    const postRef = doc(db, 'posts', postId);
-    const postSnap = await getDoc(postRef);
-    if (!postSnap.exists()) throw new Error('Post not found');
-    const postData = postSnap.data();
 
     await updateDoc(postRef, {
       comments: increment(1),
@@ -440,6 +460,52 @@ export const getPostComments = async (postId) => {
   } catch (error) {
     console.error('❌ Error getting comments:', error);
     throw error;
+  }
+};
+
+/**
+ * Real-time subscription to comments for a post
+ */
+export const subscribeToPostComments = (postId, callback, onError) => {
+  if (!postId) return () => {};
+  try {
+    const commentsRef = collection(db, 'posts', postId, 'comments');
+    const q = query(commentsRef, orderBy('createdAt', 'asc'));
+
+    return onSnapshot(q, (snapshot) => {
+      const comments = [];
+      snapshot.forEach((docSnap) => {
+        comments.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      callback(comments);
+    }, (error) => {
+      console.warn('Real-time comments subscription warning:', error);
+      if (onError) onError(error);
+    });
+  } catch (error) {
+    console.error('❌ Error setting up comments subscription:', error);
+    return () => {};
+  }
+};
+
+/**
+ * Real-time subscription to a single post document (for instant like/comment count updates)
+ */
+export const subscribeToPost = (postId, callback, onError) => {
+  if (!postId) return () => {};
+  try {
+    const postRef = doc(db, 'posts', postId);
+    return onSnapshot(postRef, (docSnap) => {
+      if (docSnap.exists()) {
+        callback({ id: docSnap.id, ...docSnap.data() });
+      }
+    }, (error) => {
+      console.warn('Real-time post subscription warning:', error);
+      if (onError) onError(error);
+    });
+  } catch (error) {
+    console.error('❌ Error setting up post subscription:', error);
+    return () => {};
   }
 };
 

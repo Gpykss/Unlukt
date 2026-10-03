@@ -1,16 +1,17 @@
 // src/components/Dashboard/AvailabilityToggle.jsx - Call Availability Manager
 
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Video, Mic, DollarSign, ToggleLeft, ToggleRight, Loader2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Video, Mic, DollarSign, ToggleLeft, ToggleRight, Loader2, Sliders, ChevronDown, ChevronUp } from 'lucide-react';
 import { getCreatorAvailability, updateCreatorAvailability } from '../../services/videoCallService';
 import { useAuth } from '../../hooks/useAuth';
 import logger from '../../utils/logger';
 
-export default function AvailabilityToggle() {
+export default function AvailabilityToggle({ compact = false }) {
   const { currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showRates, setShowRates] = useState(false);
   const [availability, setAvailability] = useState({
     status: 'offline',
     videoCallPrice: 5,
@@ -77,15 +78,127 @@ export default function AvailabilityToggle() {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-2xl border border-gray-200 p-6">
-        <div className="flex items-center justify-center h-40">
-          <Loader2 className="w-8 h-8 text-rose-500 animate-spin" />
+      <div className={compact ? "py-4 flex items-center justify-center" : "bg-white rounded-2xl border border-gray-200 p-6"}>
+        <div className="flex items-center justify-center h-20">
+          <Loader2 className="w-6 h-6 text-rose-500 animate-spin" />
         </div>
       </div>
     );
   }
 
   const isAvailable = availability.status === 'available';
+
+  if (compact) {
+    return (
+      <div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleAvailability}
+              disabled={saving}
+              className={`relative inline-flex items-center h-11 w-20 rounded-full transition-all duration-300 shadow-inner ${
+                isAvailable ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-gray-300 hover:bg-gray-400'
+              } ${saving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+            >
+              <span
+                className={`inline-flex items-center justify-center h-9 w-9 transform rounded-full bg-white shadow-md transition-transform duration-300 ${
+                  isAvailable ? 'translate-x-10' : 'translate-x-1'
+                }`}
+              >
+                {saving ? (
+                  <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+                ) : isAvailable ? (
+                  <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+                ) : (
+                  <span className="w-3 h-3 rounded-full bg-gray-400" />
+                )}
+              </span>
+            </button>
+
+            <div>
+              <p className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+                {isAvailable ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>Live & Available for Calls</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-gray-400" />
+                    <span className="text-gray-600">Offline (Calls Paused)</span>
+                  </>
+                )}
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Video: ${availability.videoCallPrice || 5}/30m • Voice: ${availability.voiceCallPrice || 3}/30m
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setShowRates(prev => !prev)}
+            className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg flex items-center gap-1 transition"
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Rates</span>
+            {showRates ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+        </div>
+
+        {/* Collapsible Pricing Section */}
+        <AnimatePresence>
+          {showRates && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mt-4 pt-4 border-t border-gray-100 space-y-3 overflow-hidden"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                      <Video className="w-3.5 h-3.5 text-rose-500" /> Video Call
+                    </span>
+                    <span className="text-[10px] text-gray-400">30 mins</span>
+                  </div>
+                  <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
+                    <span className="text-xs text-gray-400 font-bold">$</span>
+                    <input
+                      type="number"
+                      min="5"
+                      value={availability.videoCallPrice || 5}
+                      onChange={(e) => updatePrice('video', e.target.value)}
+                      className="w-full text-sm font-bold text-gray-900 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                      <Mic className="w-3.5 h-3.5 text-blue-500" /> Voice Call
+                    </span>
+                    <span className="text-[10px] text-gray-400">30 mins</span>
+                  </div>
+                  <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
+                    <span className="text-xs text-gray-400 font-bold">$</span>
+                    <input
+                      type="number"
+                      min="3"
+                      value={availability.voiceCallPrice || 3}
+                      onChange={(e) => updatePrice('voice', e.target.value)}
+                      className="w-full text-sm font-bold text-gray-900 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
 
   return (
     <motion.div

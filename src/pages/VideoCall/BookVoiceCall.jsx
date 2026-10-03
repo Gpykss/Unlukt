@@ -7,7 +7,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { db } from '../../config/firebase';
 import { doc, getDoc, collection, addDoc, serverTimestamp, increment, setDoc, updateDoc, query, where, getDocs } from 'firebase/firestore';
 import { getWalletBalance, deductFromWallet } from '../../services/walletService';
-import { MINIMUM_VOICE_PRICE, CALL_DURATIONS, MIN_BOOKING_LEAD_MINS } from '../../services/videoCallService';
+import { MINIMUM_VOICE_PRICE, CALL_DURATIONS, MIN_BOOKING_LEAD_MINS, getCreatorAvailability } from '../../services/videoCallService';
 import { getCreatorSplit, creditAmbassadorCommission } from '../../services/commissionService';
 import { getUserTier, getCallDiscount } from '../../services/tierService';
 
@@ -39,8 +39,21 @@ export default function BookVoiceCall() {
 
   const loadData = async () => {
     try {
-      const snap = await getDoc(doc(db, 'users', creatorId));
-      if (snap.exists()) setCreator({ id: snap.id, ...snap.data() });
+      const [snap, availData] = await Promise.all([
+        getDoc(doc(db, 'users', creatorId)),
+        getCreatorAvailability(creatorId).catch(() => null),
+      ]);
+
+      if (snap.exists()) {
+        const uData = snap.data();
+        setCreator({
+          id: snap.id,
+          ...uData,
+          voiceCallPrice: availData?.voiceCallPrice ?? uData.voiceCallPrice ?? MINIMUM_VOICE_PRICE,
+          callsEnabled: availData?.callsEnabled ?? uData.callsEnabled ?? true,
+          availabilityStatus: availData?.status ?? (uData.isAvailableForCalls ? 'available' : 'offline'),
+        });
+      }
       if (currentUser) {
         setWalletBalance(await getWalletBalance(currentUser.uid));
         const tier = await getUserTier(currentUser.uid, creatorId);
@@ -102,6 +115,10 @@ export default function BookVoiceCall() {
 
   const handleBook = async () => {
     setError('');
+    if (!isAcceptingCalls) {
+      setError('Creator is currently offline or not accepting new calls.');
+      return;
+    }
     if (!scheduledDate || !scheduledTime) { setError('Please select a date and time'); return; }
 
     const scheduled = new Date(`${scheduledDate}T${scheduledTime}`);
@@ -257,6 +274,7 @@ export default function BookVoiceCall() {
 
   const price = getDiscountedPrice();
   const canAfford = walletBalance >= price;
+  const isAcceptingCalls = creator?.callsEnabled !== false && creator?.availabilityStatus !== 'offline';
   const minDateTime = getMinDateTime();
   const minDate = minDateTime.toISOString().split('T')[0];
 
@@ -295,13 +313,30 @@ export default function BookVoiceCall() {
                 : <User className="w-8 h-8 text-purple-400" />}
             </div>
             <div>
-              <h2 className="font-bold text-gray-900 text-lg">{creator.displayName}</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="font-bold text-gray-900 text-lg">{creator.displayName}</h2>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                  isAcceptingCalls ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {isAcceptingCalls ? '● Available' : 'Offline'}
+                </span>
+              </div>
               <p className="text-gray-500 text-sm">@{creator.username}</p>
               <div className="flex items-center space-x-1 mt-1">
                 <Phone className="w-4 h-4 text-purple-500" />
                 <span className="text-sm text-purple-600 font-semibold">${creator.voiceCallPrice || MINIMUM_VOICE_PRICE} / 30 min</span>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Offline Warning Banner */}
+        {creator && !isAcceptingCalls && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-3 text-amber-800 text-sm">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+            <p>
+              <b>@{creator.username || 'Creator'}</b> is currently offline or not taking calls. Bookings are temporarily paused.
+            </p>
           </div>
         )}
 
@@ -379,12 +414,18 @@ export default function BookVoiceCall() {
           </div>
         </div>
 
-        <button onClick={handleBook} disabled={booking || !canAfford}
+        <button onClick={handleBook} disabled={booking || !canAfford || !isAcceptingCalls}
           className={`w-full py-4 rounded-xl font-bold text-lg transition shadow-lg ${
-            canAfford ? 'bg-purple-500 hover:bg-purple-600 text-white' : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            !isAcceptingCalls
+              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              : canAfford
+              ? 'bg-purple-500 hover:bg-purple-600 text-white'
+              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
           }`}>
           {booking
             ? <span className="flex items-center justify-center space-x-2"><Loader2 className="w-5 h-5 animate-spin" /><span>Booking...</span></span>
+            : !isAcceptingCalls
+            ? 'Creator Offline — Calls Paused'
             : canAfford ? `Book Now — $${price.toFixed(2)}` : `Need $${(price - walletBalance).toFixed(2)} more`}
         </button>
       </div>

@@ -6,7 +6,7 @@ import {
   Heart, MessageCircle, Settings, ArrowLeft, Lock, Star,
   MapPin, Calendar, Link as LinkIcon, MoreVertical, Archive,
   Loader2, Camera, Flag, Ban, X, Eye, EyeOff, Video, Phone, Gift,
-  ShieldOff, RotateCcw
+  ShieldOff, RotateCcw, Crown, Sparkles
 } from 'lucide-react';
 
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
@@ -21,7 +21,8 @@ import PostCard from '../../components/feed/PostCard';
 import PostModal from '../../components/Modals/PostModal';
 import TipModal from '../../components/Modals/TipModal';
 import SubscribeModal from '../../components/Payment/SubscribeModal';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { getCreatorTiers, getUserTier, getTierBadge } from '../../services/tierService';
+import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { useContentSettings } from '../../hooks/useContentSettings';
 import { getPostImage } from '../../utils/imageHelpers';
@@ -40,6 +41,9 @@ export default function CreatorProfile() {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSubscribed, setIsSubscribed] = useState(false);
+  const [userTier, setUserTier] = useState(null);
+  const [creatorTiers, setCreatorTiers] = useState(null);
+  const [selectedTierForModal, setSelectedTierForModal] = useState('supporter');
   const [checkingSubscription, setCheckingSubscription] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -153,8 +157,18 @@ export default function CreatorProfile() {
       setCheckingSubscription(true);
       const has = await hasActiveSubscription(currentUser.uid, creator.uid);
       setIsSubscribed(has);
-    } catch (e) { console.error(e); }
-    finally { setCheckingSubscription(false); }
+      if (has) {
+        const tier = await getUserTier(currentUser.uid, creator.uid);
+        setUserTier(tier || 'supporter');
+      } else {
+        setUserTier(null);
+      }
+    } catch (e) {
+      console.error(e);
+      setUserTier(null);
+    } finally {
+      setCheckingSubscription(false);
+    }
   };
 
   const checkBlockStatus = async () => {
@@ -170,8 +184,12 @@ export default function CreatorProfile() {
     try {
       setLoading(true);
       let foundCreator;
-      if (username) foundCreator = await getUserByUsername(username);
-      else if (currentUser) foundCreator = await getUserProfile(currentUser.uid);
+      if (username) {
+        foundCreator = await getUserByUsername(username);
+        if (!foundCreator) foundCreator = await getUserProfile(username);
+      } else if (currentUser) {
+        foundCreator = await getUserProfile(currentUser.uid);
+      }
 
       if (!foundCreator) { setCreator(null); return; }
 
@@ -256,6 +274,21 @@ export default function CreatorProfile() {
         livestreamPrice: foundCreator.livestreamPrice || 10,
       };
 
+      // Load creator 3-tier membership settings (PRD 16.1)
+      try {
+        const tiers = await getCreatorTiers(uid);
+        if (tiers) {
+          setCreatorTiers(tiers);
+          const suppPrice = tiers.supporter?.price;
+          if (suppPrice != null && Number(suppPrice) > 0) {
+            creatorObj.subscriptionPrice = Number(suppPrice);
+            creatorObj.subscriptionPriceMonthly = Number(suppPrice);
+          }
+        }
+      } catch (tierErr) {
+        console.warn('Could not load creator tiers:', tierErr);
+      }
+
       setCreator(creatorObj);
 
       // Load call availability
@@ -307,8 +340,12 @@ export default function CreatorProfile() {
   const refreshCreatorCounts = useCallback(async () => {
     try {
       let foundCreator;
-      if (username) foundCreator = await getUserByUsername(username);
-      else if (currentUser) foundCreator = await getUserProfile(currentUser.uid);
+      if (username) {
+        foundCreator = await getUserByUsername(username);
+        if (!foundCreator) foundCreator = await getUserProfile(username);
+      } else if (currentUser) {
+        foundCreator = await getUserProfile(currentUser.uid);
+      }
       if (!foundCreator) return;
 
       const uid = foundCreator.uid || foundCreator.id;
@@ -340,7 +377,67 @@ export default function CreatorProfile() {
     } catch (e) { console.error(e); }
   }, [username, currentUser]);
 
-  const handleFollowChange = async () => { await refreshCreatorCounts(); };
+  const handleFollowChange = async (newCount, delta) => {
+    setCreator(prev => {
+      if (!prev) return prev;
+      let nextFollowers = prev.followers || 0;
+      if (typeof newCount === 'number') {
+        nextFollowers = newCount;
+      } else if (typeof delta === 'number') {
+        nextFollowers = Math.max(0, nextFollowers + delta);
+      }
+      return { ...prev, followers: nextFollowers };
+    });
+    try {
+      await refreshCreatorCounts();
+    } catch {}
+  };
+
+  // ✅ Real-time Firestore listener for creator profile stats (followers, verified)
+  useEffect(() => {
+    if (!creator?.uid) return;
+    const unsub = onSnapshot(doc(db, 'users', creator.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const fCount = typeof data.followers === 'number'
+          ? data.followers
+          : (typeof data.followersCount === 'number' ? data.followersCount : null);
+
+        setCreator(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            followers: fCount !== null ? fCount : prev.followers,
+            verified: data.kycStatus === 'approved' || false,
+          };
+        });
+      }
+    }, (err) => {
+      console.warn("Real-time creator snapshot warning:", err);
+    });
+
+    // Real-time live active subscriber counter from subscriptions collection
+    const subsQ = query(
+      collection(db, 'subscriptions'),
+      where('creatorId', '==', creator.uid)
+    );
+    const unsubSubs = onSnapshot(subsQ, (snap) => {
+      const now = new Date();
+      const count = snap.docs.filter(d => {
+        const data = d.data();
+        const exp = data.expiresAt?.toDate?.() || (data.expiresAt?.seconds ? new Date(data.expiresAt.seconds * 1000) : null);
+        return (data.status === 'active' || !data.status) && (!exp || exp > now);
+      }).length;
+      setCreator(prev => prev ? { ...prev, subscribers: count } : prev);
+    }, (err) => {
+      console.warn("Real-time subscribers snapshot warning:", err);
+    });
+
+    return () => {
+      unsub();
+      unsubSubs();
+    };
+  }, [creator?.uid]);
 
   const handleJoinLivestream = async () => {
     if (!currentUser) {
@@ -431,8 +528,9 @@ export default function CreatorProfile() {
     }
   };
 
-  const handleSubscribe = () => {
+  const handleSubscribe = (tierKey = 'supporter') => {
     if (!currentUser) { navigate('/login'); return; }
+    setSelectedTierForModal(typeof tierKey === 'string' ? tierKey : 'supporter');
     setShowSubscribeModal(true);
   };
 
@@ -578,204 +676,6 @@ export default function CreatorProfile() {
           <button onClick={() => navigate('/feed')} className="px-6 py-3 bg-rose-500 text-white rounded-lg font-semibold">
             Back to Feed
           </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ✅ Light Campaign Landing Page for all logged-out visitors
-  if (!currentUser && !hasEntered) {
-    const cleanUsername = creator.username.replace('@', '').toLowerCase().trim();
-    return (
-      <div className="min-h-screen bg-slate-950 text-white font-sans selection:bg-rose-500 selection:text-white flex flex-col">
-        {/* Creator Header */}
-        <div className="sticky top-0 z-30 bg-slate-950/80 backdrop-blur-md border-b border-gray-900 px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-500 to-pink-500 p-0.5 shadow-md">
-              <div className="w-full h-full rounded-full bg-gray-950 overflow-hidden flex items-center justify-center">
-                {creator.avatar || creator.profilePicture ? (
-                  <img src={creator.avatar || creator.profilePicture} alt={creator.name} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-sm font-bold text-rose-400">{creator.name?.charAt(0)}</span>
-                )}
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center space-x-1">
-                <h2 className="font-extrabold text-sm tracking-tight text-white">{creator.name}</h2>
-                {creator.verified && (
-                  <span className="bg-blue-500 text-white p-0.5 rounded-full flex items-center justify-center w-3.5 h-3.5">
-                    <svg className="w-2 h-2" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                  </span>
-                )}
-              </div>
-              <p className="text-rose-400 text-xs font-semibold">@{creator.username}</p>
-            </div>
-          </div>
-          <div className="px-3 py-1 bg-rose-500/10 border border-rose-500/20 rounded-full text-[10px] font-bold text-rose-400 uppercase tracking-wider">
-            Premium Preview
-          </div>
-        </div>
-
-        {/* Main Content Area */}
-        <div className="flex-grow flex flex-col md:flex-row max-w-6xl w-full mx-auto p-4 md:p-6 lg:p-8 gap-6 md:gap-8 items-center md:items-stretch justify-center pb-32 md:pb-8">
-          {/* Left Side / Featured Media Pane */}
-          <div className="flex-1 max-w-md md:max-w-none w-full mx-auto md:mx-0 flex flex-col justify-center">
-            <div className="relative aspect-[3/4] w-full bg-slate-900 rounded-3xl overflow-hidden border border-gray-800 shadow-2xl transition duration-300 hover:border-rose-500/30">
-              <img 
-                src={`/ads/${cleanUsername}/fallback-1.webp`}
-                onError={(e) => {
-                  e.target.src = '/ads/default/fallback-1.webp';
-                }}
-                alt="Feature Preview" 
-                className="w-full h-full object-cover" 
-              />
-              {/* Dark gradient overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent pointer-events-none" />
-              
-              {/* Live Indicator */}
-              <div className="absolute top-4 left-4 bg-rose-600 text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full flex items-center space-x-1.5 shadow-md">
-                <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
-                <span>PREVIEW LIVE</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Side / Creator Details & Locked Gallery Pane */}
-          <div className="w-full max-w-md md:w-[380px] lg:w-[420px] mx-auto md:mx-0 flex flex-col justify-between bg-slate-900/40 border border-gray-800/80 rounded-3xl p-6 md:p-8">
-            <div className="space-y-6">
-              {/* Creator Bio Intro */}
-              <div className="text-center md:text-left">
-                <div className="hidden md:flex items-center space-x-4 mb-4">
-                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-rose-500 to-pink-500 p-0.5 shadow-md">
-                    <div className="w-full h-full rounded-full bg-gray-950 overflow-hidden flex items-center justify-center">
-                      {creator.avatar || creator.profilePicture ? (
-                        <img src={creator.avatar || creator.profilePicture} alt={creator.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-lg font-bold text-rose-400">{creator.name?.charAt(0)}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex items-center space-x-1">
-                      <h3 className="font-extrabold text-base text-white">{creator.name}</h3>
-                      {creator.verified && (
-                        <span className="bg-blue-500 text-white p-0.5 rounded-full flex items-center justify-center w-4 h-4">
-                          <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 00-1.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                          </svg>
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-rose-400 text-xs font-semibold">@{creator.username}</p>
-                  </div>
-                </div>
-                
-                <h3 className="text-xl md:text-2xl font-black tracking-tight text-white">{creator.name}'s Premium Gallery</h3>
-                <p className="text-gray-400 text-xs mt-2 leading-relaxed">{creator.bio || "Unlock private photos, exclusive high-definition video loops, and direct chat messaging access."}</p>
-              </div>
-
-              {/* Grid Gallery */}
-              <div>
-                <div className="flex items-center justify-between mb-3 px-1">
-                  <h4 className="text-xs font-bold uppercase tracking-widest text-gray-500">Locked Premium Gallery</h4>
-                  <span className="text-[10px] font-semibold text-rose-400 uppercase tracking-wider">Premium Items</span>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Asset 2 (Video Loop 2) */}
-                  <div className="relative aspect-square bg-slate-950 rounded-2xl overflow-hidden border border-gray-800 group hover:border-gray-700 transition">
-                    <img 
-                      src={`/ads/${cleanUsername}/fallback-2.webp`}
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                      }}
-                      className="w-full h-full object-cover" 
-                    />
-                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent p-3 pt-8 flex flex-col justify-end">
-                      <span className="text-[10px] font-bold text-gray-200">Video Loop 2</span>
-                      <span className="text-[8px] text-rose-400 font-semibold uppercase tracking-wider">Premium Preview</span>
-                    </div>
-                  </div>
-
-                  {/* Asset 3 (Image 1) */}
-                  <div className="relative aspect-square bg-slate-950 rounded-2xl overflow-hidden border border-gray-800 group hover:border-gray-700 transition">
-                    <img 
-                      src={`/ads/${cleanUsername}/image-1.webp`}
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                      }}
-                      className="w-full h-full object-cover" 
-                    />
-                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent p-3 pt-8 flex flex-col justify-end">
-                      <span className="text-[10px] font-bold text-gray-200">Private Photo 1</span>
-                      <span className="text-[8px] text-rose-400 font-semibold uppercase tracking-wider">HD Premium</span>
-                    </div>
-                  </div>
-
-                  {/* Asset 4 (Image 2) */}
-                  <div className="relative aspect-square bg-slate-950 rounded-2xl overflow-hidden border border-gray-800 group hover:border-gray-700 transition">
-                    <img 
-                      src={`/ads/${cleanUsername}/image-2.webp`}
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                      }}
-                      className="w-full h-full object-cover" 
-                    />
-                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent p-3 pt-8 flex flex-col justify-end">
-                      <span className="text-[10px] font-bold text-gray-200">Private Photo 2</span>
-                      <span className="text-[8px] text-rose-400 font-semibold uppercase tracking-wider">HD Premium</span>
-                    </div>
-                  </div>
-
-                  {/* Asset 5 (Image 3) */}
-                  <div className="relative aspect-square bg-slate-950 rounded-2xl overflow-hidden border border-gray-800 group hover:border-gray-700 transition">
-                    <img 
-                      src={`/ads/${cleanUsername}/image-3.webp`}
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                      }}
-                      className="w-full h-full object-cover" 
-                    />
-                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent p-3 pt-8 flex flex-col justify-end">
-                      <span className="text-[10px] font-bold text-gray-200">Private Photo 3</span>
-                      <span className="text-[8px] text-rose-400 font-semibold uppercase tracking-wider">HD Premium</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Permanent CTA for Desktop */}
-            <div className="mt-8 hidden md:block space-y-3">
-              <button
-                onClick={() => navigate(`/creator/${cleanUsername}?entered=true`)}
-                className="w-full py-4 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-extrabold text-sm rounded-2xl shadow-lg shadow-rose-950/40 hover:scale-[1.02] active:scale-[0.98] transition duration-200 flex items-center justify-center space-x-2 border border-rose-400/20"
-              >
-                <span>{creator.is_live ? 'Tap to Join Her Live Private Room Now 🔴' : 'Tap to Enter Her Premium Private Gallery'}</span>
-              </button>
-              <p className="text-[10px] text-center text-gray-500">
-                By entering, you confirm you are 18+ and agree to the Terms of Service.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Floating Bottom CTA for Mobile */}
-        <div className="md:hidden fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-slate-950 via-slate-950 to-transparent z-40">
-          <div className="max-w-md mx-auto">
-            <button
-              onClick={() => navigate(`/creator/${cleanUsername}?entered=true`)}
-              className="w-full py-4 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-extrabold text-sm rounded-2xl shadow-lg shadow-rose-950/40 hover:scale-[1.02] active:scale-[0.98] transition duration-200 flex items-center justify-center space-x-2 border border-rose-400/20"
-            >
-              <span>{creator.is_live ? 'Tap to Join Her Live Private Room Now 🔴' : 'Tap to Enter Her Premium Private Gallery'}</span>
-            </button>
-            <p className="text-[10px] text-center text-gray-500 mt-2">
-              By entering, you confirm you are 18+ and agree to the Terms of Service.
-            </p>
-          </div>
         </div>
       </div>
     );
@@ -1103,15 +1003,65 @@ export default function CreatorProfile() {
                 <FollowButton userId={creator.uid} username={creator.username} size="md" onFollowChange={handleFollowChange} />
 
                 <button
-                  onClick={handleSubscribe}
-                  className={`px-4 py-2 rounded-full font-bold text-sm transition shadow-sm ${
+                  onClick={() => handleSubscribe('supporter')}
+                  className={`px-4 py-2 rounded-full font-bold text-sm transition shadow-sm flex items-center gap-1.5 ${
                     isSubscribed
-                      ? 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200'
+                      ? userTier === 'superfan'
+                        ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                        : userTier === 'vip'
+                          ? 'bg-purple-100 text-purple-800 border border-purple-300'
+                          : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                       : 'bg-gradient-to-r from-rose-500 to-pink-600 text-white hover:from-rose-600 hover:to-pink-700'
                   }`}
                 >
-                {isSubscribed ? '✓ Subscribed' : `Subscribe • $${Number(creator.subscriptionPriceMonthly ?? creator.subscriptionPrice ?? 9.99).toFixed(2)}/mo`}
+                  {isSubscribed ? (
+                    <span>
+                      {userTier === 'superfan' ? '👑 Superfan' : userTier === 'vip' ? '⭐ VIP Member' : '🌱 Supporter'}
+                    </span>
+                  ) : (
+                    `Subscribe • from $${Number(creatorTiers?.supporter?.price || (creator.subscriptionPriceMonthly ?? creator.subscriptionPrice ?? 9.99)).toFixed(2)}/mo`
+                  )}
                 </button>
+              </div>
+            )}
+
+            {/* Membership Tiers Showcase (PRD 16.1) */}
+            {creatorTiers && !isSubscribed && !isOwnProfile && (
+              <div className="mt-4 p-3.5 bg-gradient-to-r from-gray-50 via-rose-50/30 to-amber-50/30 rounded-2xl border border-gray-200/80">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <Crown className="w-3.5 h-3.5 text-amber-500" />
+                    Membership Tiers
+                  </span>
+                  <span className="text-[11px] text-gray-400">Cancel anytime</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {[
+                    { key: 'supporter', name: 'Supporter', icon: '🌱', price: creatorTiers.supporter?.price || 9.99, badge: '🌱 Supporter', color: 'border-emerald-200 hover:border-emerald-400 bg-white' },
+                    { key: 'vip', name: 'VIP', icon: '⭐', price: creatorTiers.vip?.price || 19.99, badge: '⭐ VIP', color: 'border-purple-200 hover:border-purple-400 bg-white' },
+                    { key: 'superfan', name: 'Superfan', icon: '👑', price: creatorTiers.superfan?.price || 49.99, badge: '👑 Superfan', color: 'border-amber-200 hover:border-amber-400 bg-white' },
+                  ].map(t => (
+                    <button
+                      key={t.key}
+                      onClick={() => handleSubscribe(t.key)}
+                      className={`p-2.5 rounded-xl border text-left transition shadow-2xs hover:shadow-xs flex items-center justify-between sm:flex-col sm:items-start ${t.color}`}
+                    >
+                      <div>
+                        <div className="flex items-center gap-1.5 font-bold text-xs text-gray-900">
+                          <span>{t.icon}</span>
+                          <span>{t.name}</span>
+                        </div>
+                        <p className="text-[10px] text-gray-500 mt-0.5">
+                          {t.key === 'superfan' ? 'VIP + Voice notes & 20% off' : t.key === 'vip' ? 'Priority DMs & 10% off' : 'Full feed access'}
+                        </p>
+                      </div>
+                      <div className="text-right sm:text-left sm:mt-2">
+                        <span className="text-xs font-black text-rose-600">${Number(t.price).toFixed(2)}</span>
+                        <span className="text-[10px] text-gray-400">/mo</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -1223,8 +1173,10 @@ export default function CreatorProfile() {
         isOpen={showSubscribeModal}
         onClose={() => setShowSubscribeModal(false)}
         creator={creator}
-        onSuccess={(duration) => {
+        initialTier={selectedTierForModal}
+        onSuccess={(duration, tier) => {
           setIsSubscribed(true);
+          setUserTier(tier || selectedTierForModal || 'supporter');
           setShowSubscribeModal(false);
           // Optimistically increment subscriber count immediately
           setCreator(prev => ({ ...prev, subscribers: (prev?.subscribers || 0) + 1 }));

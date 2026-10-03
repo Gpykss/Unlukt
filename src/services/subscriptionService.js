@@ -64,23 +64,37 @@ export const getExpiryDate = (duration) => {
   return expiry;
 };
 
-export const subscribeToCreator = async (userId, creatorId, duration = 'monthly', monthlyPrice = 9.99, discount = null, creatorPrices = null) => {
+export const subscribeToCreator = async (
+  userId,
+  creatorId,
+  duration = 'monthly',
+  monthlyPrice = 9.99,
+  discount = null,
+  creatorPrices = null,
+  selectedTier = 'supporter',
+  customPrice = null
+) => {
   if (!userId) throw new Error('Not logged in');
   if (!creatorId) throw new Error('Invalid creator');
   if (userId === creatorId) throw new Error('You cannot subscribe to yourself');
 
-  const price = getPriceForDuration(monthlyPrice, duration, discount, creatorPrices);
+  const price = customPrice != null && Number(customPrice) > 0
+    ? Number(customPrice)
+    : getPriceForDuration(monthlyPrice, duration, discount, creatorPrices);
+
   const expiresAt = getExpiryDate(duration);
   const durationLabel = DURATIONS[duration]?.label ?? 'Monthly';
+  const tier = selectedTier || 'supporter';
 
   const creatorDoc = await getDoc(doc(db, 'users', creatorId));
   const creatorName = creatorDoc.exists() ? creatorDoc.data().displayName || 'Creator' : 'Creator';
 
   // 1. Deduct from wallet
-  await deductFromWallet(userId, price, `${durationLabel} subscription to ${creatorName}`, {
+  await deductFromWallet(userId, price, `${tier.toUpperCase()} subscription to ${creatorName} (${durationLabel})`, {
     contentType: 'subscription',
     creatorId,
     duration,
+    tier,
   });
 
   // 2. ✅ Dynamic split: ambassador=90%, referred creator=80+5amb+15plat, normal=80/20
@@ -121,6 +135,7 @@ export const subscribeToCreator = async (userId, creatorId, duration = 'monthly'
     status: 'active',
     duration,
     durationLabel,
+    tier, // ✅ PRD 16.2: active tier ('supporter' | 'vip' | 'superfan')
     amount: price,
     monthlyPrice: Number(monthlyPrice),
     creatorEarning,
@@ -150,6 +165,20 @@ export const subscribeToCreator = async (userId, creatorId, duration = 'monthly'
     } catch (e) {
       console.error('Failed to update subscribersCount:', e);
     }
+  }
+
+  // 3b. Update fan doc under creator for CRM & roster visibility
+  try {
+    const fanDocRef = doc(db, 'creators', creatorId, 'fans', userId);
+    await setDoc(fanDocRef, {
+      tier,
+      subscribedAt: serverTimestamp(),
+      lastSubscribedAt: serverTimestamp(),
+      lifetimeSpendMinor: increment(Math.round(price * 100)),
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+  } catch (fanErr) {
+    console.warn('Could not update creator fan document:', fanErr);
   }
 
   // 4. Log transaction

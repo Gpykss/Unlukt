@@ -17,10 +17,18 @@ import { db } from '../../config/firebase';
 import { useAuth } from '../../hooks/useAuth';
 import AvailabilityToggle from '../../components/Dashboard/AvailabilityToggle';
 import WithdrawModal from '../../components/Dashboard/WithdrawModal';
+import { isNewDashboard } from '../../utils/featureFlags';
+import SimplifiedDashboard from './SimplifiedDashboard';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { currentUser, userProfile } = useAuth();
+  const [forceLegacy, setForceLegacy] = useState(false);
+
+  // Feature flag check (PRD Section 15.5)
+  if (isNewDashboard(userProfile) && !forceLegacy) {
+    return <SimplifiedDashboard onSwitchToLegacy={() => setForceLegacy(true)} />;
+  }
 
   const [balance, setBalance]               = useState(null);
   const [stats, setStats]                   = useState(null);
@@ -76,14 +84,22 @@ export default function Dashboard() {
     try {
       setLoadingBalance(true);
       const snap = await getDoc(doc(db, 'creator_balances', currentUser.uid));
+      let available = 0;
+      let total = 0;
       if (snap.exists()) {
         const d = snap.data();
-        // Combine old pendingBalance + new availableBalance so historical data is not hidden
-        const available = (d.availableBalance || 0) + (d.pendingBalance || 0);
-        setBalance({ available, total: d.totalEarnings || available });
-      } else {
-        setBalance({ available: 0, total: 0 });
+        available = (d.availableBalance || 0) + (d.pendingBalance || 0);
+        total = d.totalEarnings || available;
       }
+      try {
+        const wSnap = await getDoc(doc(db, 'wallets', currentUser.uid));
+        if (wSnap.exists() && wSnap.data().balanceMinor !== undefined) {
+          const wBal = wSnap.data().balanceMinor / 100;
+          available = Math.max(available, wBal);
+          total = Math.max(total, available);
+        }
+      } catch (_) {}
+      setBalance({ available, total });
     } catch { setBalance({ available: 0, total: 0 }); }
     finally { setLoadingBalance(false); }
   };
@@ -446,7 +462,17 @@ export default function Dashboard() {
           <button onClick={() => navigate('/feed')} className="p-2 hover:bg-gray-100 rounded-lg transition">
             <ArrowLeft className="w-5 h-5 text-gray-600" />
           </button>
-          <h1 className="text-lg font-bold text-gray-900">Dashboard</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-lg font-bold text-gray-900">Dashboard</h1>
+            {forceLegacy && (
+              <button
+                onClick={() => setForceLegacy(false)}
+                className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-lg"
+              >
+                Modern View
+              </button>
+            )}
+          </div>
           <button onClick={() => navigate('/settings')} className="p-2 hover:bg-gray-100 rounded-lg transition">
             <Settings className="w-5 h-5 text-gray-600" />
           </button>
@@ -454,12 +480,20 @@ export default function Dashboard() {
       </div>
 
       {/* Desktop back */}
-      <div className="hidden lg:block max-w-7xl mx-auto px-6 pt-6">
+      <div className="hidden lg:flex items-center justify-between max-w-7xl mx-auto px-6 pt-6">
         <button onClick={() => navigate('/feed')}
           className="flex items-center space-x-2 text-gray-700 hover:text-gray-900 mb-4">
           <ArrowLeft className="w-5 h-5" />
           <span className="font-semibold">Back to Feed</span>
         </button>
+        {forceLegacy && (
+          <button
+            onClick={() => setForceLegacy(false)}
+            className="flex items-center gap-1.5 text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 hover:bg-rose-100 px-3 py-1.5 rounded-xl transition shadow-xs mb-4"
+          >
+            Switch to Modern View ✨
+          </button>
+        )}
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-8">

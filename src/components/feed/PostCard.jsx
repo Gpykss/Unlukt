@@ -14,192 +14,14 @@ import { useUserProfile } from '../../hooks/useUserProfile';
 import { useContentSettings } from '../../hooks/useContentSettings';
 
 import { getUserProfile } from '../../services/firestoreService';
-import { likePost, unlikePost, deletePost, updatePost, canViewPost } from '../../services/postService';
+import { likePost, unlikePost, deletePost, updatePost, canViewPost, subscribeToPost } from '../../services/postService';
 import { getWalletBalance, deductFromWallet } from '../../services/walletService';
 import { db } from '../../config/firebase';
 import { getPostImage } from '../../utils/imageHelpers';
 import TipModal from '../Modals/TipModal';
 import WatermarkedImage from '../Media/WatermarkedImage';
 import WatermarkedVideo from '../Media/WatermarkedVideo';
-
-// ── Inline Unlock Modal ──────────────────────────────────────────────────────
-function UnlockModal({ isOpen, onClose, post, creator, onUnlocked }) {
-  const navigate = useNavigate();
-  const { currentUser } = useAuth();
-
-  const [balance, setBalance] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
-
-  const price = Number(post?.price || 0);
-
-  useEffect(() => {
-    if (isOpen && currentUser) {
-      setError('');
-      setSuccess(false);
-      getWalletBalance(currentUser.uid).then(setBalance);
-    }
-  }, [isOpen, currentUser]);
-
-  const handleUnlock = async () => {
-    if (!currentUser) { navigate('/login'); return; }
-    setError('');
-    setLoading(true);
-    try {
-      await deductFromWallet(
-        currentUser.uid,
-        price,
-        `Unlock post by ${creator?.displayName || 'creator'}`,
-        { contentType: 'unlock', postId: post?.id, creatorId: post?.userId }
-      );
-
-      await setDoc(doc(db, 'unlocked_content', `${currentUser.uid}_${post.id}`), {
-        userId: currentUser.uid,
-        postId: post.id,
-        creatorId: post.userId,
-        price,
-        unlockedAt: serverTimestamp(),
-      });
-
-      setSuccess(true);
-      setBalance(prev => prev - price);
-      setTimeout(() => {
-        onUnlocked();
-        onClose();
-      }, 1200);
-    } catch (e) {
-      setError(e.message || 'Failed to unlock');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (!isOpen || !post) return null;
-
-  const hasEnough = balance !== null && balance >= price;
-
-  return (
-    <AnimatePresence>
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-        onClick={onClose}
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          onClick={e => e.stopPropagation()}
-          className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl"
-        >
-          {success ? (
-            <div className="p-8 text-center">
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: 'spring', stiffness: 200 }}
-                className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"
-              >
-                <CheckCircle className="w-8 h-8 text-green-500" />
-              </motion.div>
-              <p className="font-bold text-gray-900 text-lg">Post Unlocked!</p>
-              <p className="text-sm text-gray-500 mt-1">Enjoy the content</p>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center justify-between px-5 pt-5 pb-3">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center">
-                    <Lock className="w-5 h-5 text-rose-500" />
-                  </div>
-                  <div>
-                    <p className="font-bold text-gray-900 text-sm">Unlock Post</p>
-                    <p className="text-xs text-gray-500">by {creator?.displayName || 'Creator'}</p>
-                  </div>
-                </div>
-                <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition">
-                  <X className="w-5 h-5 text-gray-500" />
-                </button>
-              </div>
-
-              <div className="px-5 pb-5 space-y-4">
-                <div className={`px-4 py-3 rounded-xl flex items-center justify-between text-sm border ${
-                  !hasEnough && balance !== null ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'
-                }`}>
-                  <div className="flex items-center space-x-2">
-                    <Wallet className="w-4 h-4 text-gray-500" />
-                    <span className="text-gray-600">
-                      Balance: <span className="font-bold text-gray-900">
-                        ${balance !== null ? balance.toFixed(2) : '...'}
-                      </span>
-                    </span>
-                  </div>
-                  {!hasEnough && balance !== null && (
-                    <button
-                      onClick={() => { onClose(); navigate('/wallet'); }}
-                      className="text-xs font-bold text-rose-600 underline"
-                    >
-                      Add Funds
-                    </button>
-                  )}
-                </div>
-
-                <div className="text-center py-2">
-                  <p className="text-3xl font-bold text-gray-900">${price.toFixed(2)}</p>
-                  <p className="text-sm text-gray-500 mt-1">one-time unlock</p>
-                </div>
-
-                {error && (
-                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
-                    {error}
-                  </div>
-                )}
-
-                {hasEnough ? (
-                  <button
-                    onClick={handleUnlock}
-                    disabled={loading}
-                    className="w-full py-4 bg-rose-500 hover:bg-rose-600 disabled:bg-gray-200 text-white rounded-xl font-bold transition flex items-center justify-center space-x-2"
-                  >
-                    {loading
-                      ? <Loader2 className="w-5 h-5 animate-spin" />
-                      : <><Lock className="w-5 h-5" /><span>Unlock for ${price.toFixed(2)}</span></>
-                    }
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => { onClose(); navigate('/wallet'); }}
-                    className="w-full py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold transition flex items-center justify-center space-x-2"
-                  >
-                    <Wallet className="w-5 h-5" />
-                    <span>Add Funds to Unlock</span>
-                  </button>
-                )}
-
-                <button
-                  onClick={() => {
-                    onClose();
-                    navigate('/wallet', {
-                      state: {
-                        action: 'subscribe',
-                        creatorId: post?.userId,
-                        creatorName: creator?.displayName || 'this creator',
-                        monthlyPrice: Number(creator?.subscriptionPrice || 9.99),
-                      }
-                    });
-                  }}
-                  className="w-full py-3 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl font-semibold transition text-sm"
-                >
-                  Subscribe • ${Number(creator?.subscriptionPrice || 9.99).toFixed(2)}/mo
-                </button>
-              </div>
-            </>
-          )}
-        </motion.div>
-      </div>
-    </AnimatePresence>
-  );
-}
+import PostUnlockSheet from './PostUnlockSheet';
 
 // DiagonalWatermark is now imported from ../Media/WatermarkedImage and WatermarkedVideo
 
@@ -268,7 +90,7 @@ export default function PostCard({
   }, [post?.userId]);
 
   useEffect(() => {
-    if (!post) return;
+    if (!post?.id) return;
     setLikesCount(post.likes || 0);
     setCommentsCount(post.comments || 0);
     if (currentUser && Array.isArray(post.likedBy)) {
@@ -276,7 +98,20 @@ export default function PostCard({
     } else {
       setIsLiked(false);
     }
-  }, [post, currentUser]);
+
+    // Subscribe to post document for live updates
+    const unsub = subscribeToPost(post.id, (freshPost) => {
+      if (freshPost) {
+        if (typeof freshPost.likes === 'number') setLikesCount(freshPost.likes);
+        if (typeof freshPost.comments === 'number') setCommentsCount(freshPost.comments);
+        if (currentUser && Array.isArray(freshPost.likedBy)) {
+          setIsLiked(freshPost.likedBy.includes(currentUser.uid));
+        }
+      }
+    });
+
+    return () => unsub();
+  }, [post?.id, currentUser]);
 
   useEffect(() => {
     let mounted = true;
@@ -312,25 +147,78 @@ export default function PostCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [post?.id, post?.type, post?.price, post?.userId, currentUser?.uid, isOwnPost]);
 
-  const formatDate = (timestamp) => {
-    if (!timestamp) return 'Just now';
+  // ✅ PRD 16.3: Live 60s ticker to update relative times in real time without refetching
+  const [, setTimeTick] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setTimeTick(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const parseTimestamp = (timestamp) => {
+    if (!timestamp) return null;
     try {
-      let date;
-      if (timestamp.toDate) date = timestamp.toDate();
-      else if (timestamp instanceof Date) date = timestamp;
-      else if (timestamp.seconds) date = new Date(timestamp.seconds * 1000);
-      else return 'Recently';
-      const now = new Date();
-      const diff = now - date;
-      const minutes = Math.floor(diff / 60000);
-      const hours = Math.floor(diff / 3600000);
-      const days = Math.floor(diff / 86400000);
-      if (minutes < 1) return 'Just now';
-      if (minutes < 60) return `${minutes}min ago`;
-      if (hours < 24) return `${hours}h ago`;
-      if (days < 7) return `${days}d ago`;
-      return date.toLocaleDateString();
-    } catch { return 'Just now'; }
+      if (typeof timestamp.toDate === 'function') return timestamp.toDate();
+      if (timestamp instanceof Date) return timestamp;
+      if (timestamp.seconds != null) return new Date(timestamp.seconds * 1000);
+      if (timestamp._seconds != null) return new Date(timestamp._seconds * 1000);
+      if (typeof timestamp === 'number') {
+        return new Date(timestamp < 1e11 ? timestamp * 1000 : timestamp);
+      }
+      if (typeof timestamp === 'string') {
+        const parsed = new Date(timestamp);
+        if (!isNaN(parsed.getTime())) return parsed;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  // ✅ PRD 16.3: Shows accurate relative time AND the actual time
+  const formatPostTime = (timestamp) => {
+    const date = parseTimestamp(timestamp);
+    if (!date) return 'Just now';
+
+    const now = new Date();
+    const diff = now - date;
+
+    const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+    // Same calendar day
+    const isToday = now.toDateString() === date.toDateString();
+
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const isYesterday = yesterday.toDateString() === date.toDateString();
+
+    const minutes = Math.floor(Math.abs(diff) / 60000);
+    const hours = Math.floor(Math.abs(diff) / 3600000);
+
+    if (isToday) {
+      if (minutes < 1) {
+        return `Just now • ${timeStr}`;
+      }
+      if (minutes < 60) {
+        return `${minutes}m ago • ${timeStr}`;
+      }
+      return `${hours}h ago • ${timeStr}`;
+    }
+
+    if (isYesterday) {
+      return `Yesterday • ${timeStr}`;
+    }
+
+    const dateStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    return `${dateStr} • ${timeStr}`;
+  };
+
+  const getFullDateTime = (timestamp) => {
+    const date = parseTimestamp(timestamp);
+    if (!date) return '';
+    return date.toLocaleString(undefined, {
+      dateStyle: 'full',
+      timeStyle: 'medium',
+    });
   };
 
   const goToCreator = (e) => {
@@ -347,19 +235,7 @@ export default function PostCard({
       return;
     }
     if (isLocked) {
-      if (isSubscribersOnly) {
-        // Subscriber-only post: prompt to subscribe, not pay
-        navigate('/wallet', {
-          state: {
-            action: 'subscribe',
-            creatorId: post?.userId,
-            creatorName: creator?.displayName || 'this creator',
-            monthlyPrice: Number(creator?.subscriptionPrice || 9.99),
-          }
-        });
-      } else {
-        setShowUnlockModal(true);
-      }
+      setShowUnlockModal(true);
       return;
     }
     if (onPostClick) onPostClick(post);
@@ -516,7 +392,10 @@ export default function PostCard({
               </div>
 
               <p className="text-sm text-gray-500">
-                @{creator?.username || post?.username || 'user'} • {formatDate(post?.createdAt)}
+                @{creator?.username || post?.username || 'user'} •{' '}
+                <span title={getFullDateTime(post?.createdAt)} className="cursor-help hover:text-gray-700 transition">
+                  {formatPostTime(post?.createdAt)}
+                </span>
               </p>
             </div>
           </div>
@@ -565,8 +444,16 @@ export default function PostCard({
           )}
         </div>
 
-        {/* FIX: Media — uncropped, full image shown, watermark diagonal */}
-        <div className="relative bg-black">
+        {/* Media Container - Optimized responsive display with ambient blur backdrop */}
+        <div className="relative w-full overflow-hidden bg-gray-950 flex items-center justify-center max-h-[460px] sm:max-h-[580px] min-h-[240px]">
+          {/* Ambient blurred backdrop to soften non-standard aspect ratios */}
+          {imageUrl && (
+            <div
+              className="absolute inset-0 bg-cover bg-center filter blur-2xl opacity-25 scale-125 pointer-events-none"
+              style={{ backgroundImage: `url(${imageUrl})` }}
+            />
+          )}
+
           {imageUrl ? (
             (() => {
               const mediaItem = post?.images?.[0];
@@ -581,8 +468,7 @@ export default function PostCard({
                   controls
                   playsInline
                   preload="metadata"
-                  className={`max-w-full w-auto h-auto mx-auto block object-contain ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
-                  style={{ maxHeight: '600px', backgroundColor: 'black' }}
+                  className={`relative z-1 w-full h-auto max-h-[460px] sm:max-h-[580px] object-contain mx-auto block ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
                   onClick={(e) => e.stopPropagation()}
                   showWatermark={showWatermark}
                   username={viewerUsername}
@@ -591,8 +477,7 @@ export default function PostCard({
                 <WatermarkedImage
                   src={imageUrl}
                   alt="Post"
-                  className={`max-w-full w-auto h-auto object-contain mx-auto block ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
-                  style={{ maxHeight: '600px', backgroundColor: 'black' }}
+                  className={`relative z-1 w-full h-auto max-h-[460px] sm:max-h-[580px] object-cover sm:object-contain mx-auto block ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
                   loading="lazy"
                   showWatermark={showWatermark}
                   username={viewerUsername}
@@ -600,7 +485,7 @@ export default function PostCard({
               );
             })()
           ) : (
-            <div className="w-full h-[380px] flex items-center justify-center text-7xl text-white">📸</div>
+            <div className="w-full h-[280px] flex items-center justify-center text-6xl text-white">📸</div>
           )}
 
           {/* NSFW overlay */}
@@ -622,73 +507,31 @@ export default function PostCard({
             </div>
           )}
 
-          {/* Locked overlay */}
+          {/* PRD Section 15.3: Frosted-Glass Blur & Lock Pill Overlay */}
           {isLocked && (
-            <div className="absolute inset-0 flex items-center justify-center p-6">
-              <div className="bg-white/95 rounded-2xl border border-gray-200 shadow-xl p-5 max-w-sm w-full text-center">
-                <div className="flex items-center justify-center gap-2 mb-2">
-                  <Lock className="w-5 h-5 text-gray-800" />
-                  <p className="font-bold text-gray-900">
-                    {isSubscribersOnly ? 'Subscribers Only' : 'Locked Post'}
-                  </p>
-                </div>
-                <p className="text-sm text-gray-600 mb-4">
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!currentUser) { navigate('/login'); return; }
+                setShowUnlockModal(true);
+              }}
+              className="absolute inset-0 flex flex-col items-center justify-center p-6 cursor-pointer bg-black/35 backdrop-blur-md transition-all hover:bg-black/45 group"
+            >
+              <motion.div
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.96 }}
+                className="px-6 py-3 rounded-full bg-white/95 text-gray-900 border border-white/60 shadow-xl flex items-center gap-2.5 transition"
+              >
+                <Lock className="w-4 h-4 text-rose-500" />
+                <span className="font-bold text-sm tracking-wide">
                   {isSubscribersOnly
-                    ? 'Subscribe to this creator to get access to all their exclusive posts.'
-                    : 'Purchase this post or subscribe for full access.'}
-                </p>
-
-                {/* Primary CTA */}
-                {isSubscribersOnly ? (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!currentUser) { navigate('/login'); return; }
-                      navigate('/wallet', {
-                        state: {
-                          action: 'subscribe',
-                          creatorId: post?.userId,
-                          creatorName: creator?.displayName || 'this creator',
-                          monthlyPrice: Number(creator?.subscriptionPrice || 9.99),
-                        }
-                      });
-                    }}
-                    className="w-full px-4 py-2.5 rounded-xl font-semibold bg-rose-500 hover:bg-rose-600 text-white transition"
-                  >
-                    Subscribe • ${Number(creator?.subscriptionPrice || 9.99).toFixed(2)}/mo
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (!currentUser) { navigate('/login'); return; }
-                        setShowUnlockModal(true);
-                      }}
-                      className="w-full px-4 py-2.5 rounded-xl font-semibold bg-rose-500 hover:bg-rose-600 text-white transition"
-                    >
-                      Unlock • ${Number(post?.price || 0).toFixed(2)}
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (!currentUser) { navigate('/login'); return; }
-                        navigate('/wallet', {
-                          state: {
-                            action: 'subscribe',
-                            creatorId: post?.userId,
-                            creatorName: creator?.displayName || 'this creator',
-                            monthlyPrice: Number(creator?.subscriptionPrice || 9.99),
-                          }
-                        });
-                      }}
-                      className="w-full mt-2 px-4 py-2.5 rounded-xl font-semibold bg-gray-100 hover:bg-gray-200 text-gray-800 transition"
-                    >
-                      Subscribe • ${Number(creator?.subscriptionPrice || 9.99).toFixed(2)}/mo
-                    </button>
-                  </>
-                )}
-              </div>
+                    ? '👑 Subscribers Only'
+                    : `🔒 Unlock • $${Number(post?.price || 0).toFixed(2)}`}
+                </span>
+              </motion.div>
+              <p className="text-white/90 text-xs mt-2.5 font-medium drop-shadow-md">
+                Tap to unlock inline without leaving the feed
+              </p>
             </div>
           )}
         </div>
@@ -721,12 +564,15 @@ export default function PostCard({
         <div className="p-4 pt-3 border-t border-gray-100 mt-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <button
+              <motion.button
+                whileTap={{ scale: 0.85 }}
+                animate={isLiked ? { scale: [1, 1.25, 1] } : { scale: 1 }}
+                transition={{ duration: 0.25 }}
                 onClick={handleLike}
                 className={`transition ${isLiked ? 'text-rose-500' : 'text-gray-600 hover:text-rose-500'}`}
               >
                 <Heart className={`w-6 h-6 ${isLiked ? 'fill-rose-500' : ''}`} />
-              </button>
+              </motion.button>
 
               <button
                 onClick={(e) => {
@@ -760,7 +606,7 @@ export default function PostCard({
         </div>
       </motion.div>
 
-      <UnlockModal
+      <PostUnlockSheet
         isOpen={showUnlockModal}
         onClose={() => setShowUnlockModal(false)}
         post={post}

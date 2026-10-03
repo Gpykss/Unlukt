@@ -1,7 +1,7 @@
 // functions/index.js
 const admin = require("firebase-admin");
 const cors = require("cors");
-const { onRequest } = require("firebase-functions/v2/https");
+const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 
 admin.initializeApp();
@@ -10,6 +10,7 @@ const corsHandler = cors({ origin: true });
 
 // ✅ SECRETS
 const BUNNY_STORAGE_PASSWORD = defineSecret("BUNNY_STORAGE_PASSWORD");
+const BUNNY_SECURITY_KEY = defineSecret("BUNNY_SECURITY_KEY");
 const NOWPAYMENTS_API_KEY = defineSecret("NOWPAYMENTS_API_KEY");
 const NOWPAYMENTS_IPN_SECRET = defineSecret("NOWPAYMENTS_IPN_SECRET");
 const AGORA_APP_ID = defineSecret("AGORA_APP_ID");
@@ -388,12 +389,18 @@ async function processPayment(db, paymentData, paymentId) {
 
     switch (contentType) {
       case "subscription":
-        await db.collection("subscriptions").add({
-          userId, creatorId, paymentId, amount: finalAmount,
-          paymentType: "crypto", status: "active",
+        await db.collection("subscriptions").doc(`${userId}_${creatorId}`).set({
+          userId,
+          creatorId,
+          paymentId,
+          amount: finalAmount,
+          tier: paymentData.tier || "supporter",
+          paymentType: "crypto",
+          status: "active",
           startedAt: admin.firestore.FieldValue.serverTimestamp(),
           expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        });
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
         break;
 
       case "unlock":
@@ -404,35 +411,33 @@ async function processPayment(db, paymentData, paymentId) {
         });
         break;
 
-      case "topup":
-        const userBalanceRef = db.collection("user_balances").doc(userId);
-        const userBalanceDoc = await userBalanceRef.get();
-        let newBalance = finalAmount;
-        if (userBalanceDoc.exists) {
-          newBalance = (userBalanceDoc.data().balance || 0) + finalAmount;
-          await userBalanceRef.update({
-            balance: newBalance,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      case "topup": {
+        const receivedMinor = Math.round(finalAmount * 100);
+        if (receivedMinor > 0) {
+          const { creditTopup } = require("./src/ledger");
+          const topupRes = await creditTopup({
+            providerPaymentId: String(paymentId || `topup_${Date.now()}`),
+            fanUid: userId,
+            receivedMinor,
           });
-        } else {
-          await userBalanceRef.set({
-            userId, balance: finalAmount,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-        }
 
-        // Log transaction history
-        await db.collection("transactions").add({
-          userId,
-          amount: finalAmount,
-          type: "topup",
-          description: "Wallet top-up (Crypto)",
-          paymentId: paymentId || null,
-          balanceAfter: newBalance,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+          if (topupRes.credited) {
+            const balSnap = await db.collection("user_balances").doc(userId).get();
+            const balanceAfter = balSnap.exists ? (balSnap.data().balance || finalAmount) : finalAmount;
+
+            await db.collection("transactions").add({
+              userId,
+              amount: finalAmount,
+              type: "topup",
+              description: "Wallet top-up (Crypto)",
+              paymentId: paymentId || null,
+              balanceAfter,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+          }
+        }
         break;
+      }
 
       case "tip":
         await db.collection("tips").add({
@@ -1296,6 +1301,267 @@ exports.resolveCoHostRequest = onRequest(
         console.error("resolveCoHostRequest error:", err);
         return res.status(500).json({ error: err?.message || "Server error" });
       }
+    });
+  }
+);
+
+// ============================================================
+// ✅ CREATOR CRM & LEDGER CALLABLE ENDPOINTS
+// ============================================================
+
+/**
+ * Fan taps unlock on a message.
+ * Atomic transaction: debit fan, credit creator net, credit platform fee.
+ * Generates signed Bunny CDN URL with short expiration.
+ */
+exports.unlock = onCall(
+  {
+    region: "us-central1",
+    secrets: [BUNNY_STORAGE_PASSWORD, BUNNY_SECURITY_KEY],
+    cors: true,
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in required");
+    }
+
+    const { conversationId, messageId, postId } = request.data || {};
+    if (!postId && (!conversationId || !messageId)) {
+      throw new HttpsError("invalid-argument", "Missing postId or (conversationId, messageId)");
+    }
+
+    const { unlockMessage, unlockPost } = require("./src/ledger");
+    const { signBunnyUrl } = require("./src/bunny");
+
+    // Case 1: Feed Post Unlock
+    if (postId) {
+      const result = await unlockPost({
+        fanUid: request.auth.uid,
+        postId,
+      });
+      return {
+        success: true,
+        alreadyUnlocked: result.alreadyUnlocked,
+        postId: result.postId,
+        txId: result.txId,
+      };
+    }
+
+    // Case 2: Message Unlock
+    const result = await unlockMessage({
+      fanUid: request.auth.uid,
+      conversationId,
+      messageId,
+    });
+
+    let url = result.bunnyPath || "";
+    if (url && !url.startsWith("http")) {
+      try {
+        let secKey = "";
+        try {
+          secKey = BUNNY_SECURITY_KEY.value();
+        } catch (_) {
+          secKey = BUNNY_STORAGE_PASSWORD.value();
+        }
+
+        url = signBunnyUrl({
+          host: BUNNY_PULL_ZONE,
+          path: result.bunnyPath,
+          securityKey: secKey,
+          ttlSeconds: 3600,
+        });
+      } catch (signErr) {
+        console.warn("Bunny URL signing skipped:", signErr.message);
+        url = result.bunnyPath;
+      }
+    }
+
+    return {
+      url,
+      alreadyUnlocked: result.alreadyUnlocked,
+      txId: result.txId,
+    };
+  }
+);
+
+/**
+ * Creator requests a payout.
+ * Verifies address freeze and reserves funds in ledger under payout:pending.
+ */
+exports.requestPayout = onCall(
+  {
+    region: "us-central1",
+    cors: true,
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in required");
+    }
+
+    const { amountMinor, payoutAddress, networkFeeMinor } = request.data || {};
+    const { requestPayout } = require("./src/ledger");
+
+    return await requestPayout({
+      creatorId: request.auth.uid,
+      ownerUid: request.auth.uid,
+      amountMinor: Number(amountMinor),
+      payoutAddress,
+      networkFeeMinor: networkFeeMinor ? Number(networkFeeMinor) : 100,
+    });
+  }
+);
+
+/**
+ * Admin approves payout after manual USDT transfer on chain.
+ * Settles payout:pending against external:crypto and external:network_fees.
+ */
+exports.approvePayout = onCall(
+  {
+    region: "us-central1",
+    cors: true,
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in required");
+    }
+
+    const db = admin.firestore();
+    const callerSnap = await db.collection("users").doc(request.auth.uid).get();
+    const isAdmin = callerSnap.exists && (callerSnap.get("isAdmin") === true || callerSnap.get("role") === "admin");
+    if (!isAdmin) {
+      throw new HttpsError("permission-denied", "Admin access required");
+    }
+
+    const { payoutId, txHash } = request.data || {};
+    if (!payoutId || !txHash) {
+      throw new HttpsError("invalid-argument", "payoutId and txHash required");
+    }
+
+    const { assertBalanced, payoutTxId } = require("./src/ledger-math");
+    const payoutRef = db.doc(`payouts/${payoutId}`);
+
+    return await db.runTransaction(async (tx) => {
+      const pSnap = await tx.get(payoutRef);
+      if (!pSnap.exists) throw new HttpsError("not-found", "Payout not found");
+      const pData = pSnap.data();
+      if (pData.status !== "requested") {
+        throw new HttpsError("failed-precondition", `Payout status is ${pData.status}`);
+      }
+
+      const amountMinor = pData.amountMinor;
+      const networkFeeMinor = pData.networkFeeMinor || 100;
+      const netPayoutMinor = amountMinor - networkFeeMinor;
+
+      const lines = [
+        { account: "payout:pending", deltaMinor: -amountMinor },
+        { account: "external:crypto", deltaMinor: netPayoutMinor },
+        { account: "external:network_fees", deltaMinor: networkFeeMinor },
+      ];
+      assertBalanced(lines);
+
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      const txId = payoutTxId(`${payoutId}_approved`);
+
+      tx.set(db.doc(`ledger/${txId}`), {
+        type: "payout_sent",
+        lines,
+        idempotencyKey: txId,
+        createdAt: now,
+      });
+
+      tx.update(payoutRef, {
+        status: "sent",
+        txHash,
+        approvedBy: request.auth.uid,
+        sentAt: now,
+        updatedAt: now,
+      });
+
+      return { success: true, payoutId, status: "sent" };
+    });
+  }
+);
+
+/**
+ * Admin rejects payout request. Reverses reserved funds back to creator.
+ */
+exports.rejectPayout = onCall(
+  {
+    region: "us-central1",
+    cors: true,
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in required");
+    }
+
+    const db = admin.firestore();
+    const callerSnap = await db.collection("users").doc(request.auth.uid).get();
+    const isAdmin = callerSnap.exists && (callerSnap.get("isAdmin") === true || callerSnap.get("role") === "admin");
+    if (!isAdmin) {
+      throw new HttpsError("permission-denied", "Admin access required");
+    }
+
+    const { payoutId, reason } = request.data || {};
+    if (!payoutId) {
+      throw new HttpsError("invalid-argument", "payoutId required");
+    }
+
+    const { assertBalanced, payoutTxId } = require("./src/ledger-math");
+    const payoutRef = db.doc(`payouts/${payoutId}`);
+
+    return await db.runTransaction(async (tx) => {
+      const pSnap = await tx.get(payoutRef);
+      if (!pSnap.exists) throw new HttpsError("not-found", "Payout not found");
+      const pData = pSnap.data();
+      if (pData.status !== "requested") {
+        throw new HttpsError("failed-precondition", `Payout status is ${pData.status}`);
+      }
+
+      const amountMinor = pData.amountMinor;
+      const creatorId = pData.creatorId;
+
+      const lines = [
+        { account: "payout:pending", deltaMinor: -amountMinor },
+        { account: `creator:${creatorId}:available`, deltaMinor: amountMinor },
+      ];
+      assertBalanced(lines);
+
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      const txId = payoutTxId(`${payoutId}_rejected`);
+
+      tx.set(db.doc(`ledger/${txId}`), {
+        type: "payout_rejected",
+        lines,
+        idempotencyKey: txId,
+        createdAt: now,
+      });
+
+      // Restore shard
+      tx.set(
+        db.doc(`creatorEarnings/${creatorId}/shards/0`),
+        { availableMinor: admin.firestore.FieldValue.increment(amountMinor) },
+        { merge: true }
+      );
+
+      // Restore legacy creator_balances
+      tx.set(
+        db.doc(`creator_balances/${creatorId}`),
+        {
+          availableBalance: admin.firestore.FieldValue.increment(amountMinor / 100),
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      tx.update(payoutRef, {
+        status: "rejected",
+        rejectionReason: reason || "Rejected by admin",
+        rejectedBy: request.auth.uid,
+        updatedAt: now,
+      });
+
+      return { success: true, payoutId, status: "rejected" };
     });
   }
 );

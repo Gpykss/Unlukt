@@ -1,10 +1,11 @@
 // src/pages/Admin/Payouts.jsx
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { CreditCard, CheckCircle, XCircle, Clock, ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
+import { CreditCard, CheckCircle, XCircle, Clock, ArrowLeft, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, orderBy, getDocs, updateDoc, doc } from 'firebase/firestore';
-import { db } from '../../config/firebase';
+import { collection, query, orderBy, getDocs, updateDoc, doc, serverTimestamp, increment } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../../config/firebase';
 import { getUserProfile } from '../../services/firestoreService';
 
 export default function Payouts() {
@@ -20,16 +21,46 @@ export default function Payouts() {
   const loadRequests = async () => {
     try {
       setLoading(true);
-      const snap = await getDocs(query(collection(db, 'payout_requests'), orderBy('createdAt', 'desc')));
-      
+      const [payoutsSnap, legacySnap] = await Promise.all([
+        getDocs(query(collection(db, 'payouts'), orderBy('createdAt', 'desc'))).catch(() => ({ docs: [] })),
+        getDocs(query(collection(db, 'payout_requests'), orderBy('createdAt', 'desc'))).catch(() => ({ docs: [] })),
+      ]);
+
+      const seenIds = new Set();
+      const combinedDocs = [];
+
+      payoutsSnap.docs.forEach((d) => {
+        seenIds.add(d.id);
+        const data = d.data();
+        combinedDocs.push({
+          id: d.id,
+          ...data,
+          amount: data.amountMinor ? data.amountMinor / 100 : (data.amount || 0),
+          fee: data.networkFeeMinor ? data.networkFeeMinor / 100 : (data.fee || 1),
+          netAmount: data.amountMinor ? (data.amountMinor - (data.networkFeeMinor || 100)) / 100 : (data.netAmount || 0),
+          walletAddress: data.payoutAddress || data.walletAddress || '',
+          method: data.method || 'USDT TRC20',
+          source: 'payouts',
+        });
+      });
+
+      legacySnap.docs.forEach((d) => {
+        if (!seenIds.has(d.id)) {
+          combinedDocs.push({
+            id: d.id,
+            ...d.data(),
+            source: 'payout_requests',
+          });
+        }
+      });
+
       const enriched = await Promise.all(
-        snap.docs.map(async (d) => {
-          const data = { id: d.id, ...d.data() };
+        combinedDocs.map(async (data) => {
           const creator = await getUserProfile(data.creatorId).catch(() => null);
           return { ...data, creator };
         })
       );
-      
+
       setRequests(enriched);
     } catch (error) {
       console.error('Error loading payouts:', error);
@@ -38,24 +69,82 @@ export default function Payouts() {
     }
   };
 
-  const handleUpdateStatus = async (id, newStatus) => {
-    if (!window.confirm(`Mark this payout request as ${newStatus}?`)) return;
+  const handleApprove = async (request) => {
+    const txHash = window.prompt(
+      `Approve payout of $${request.amount?.toFixed(2)} to ${request.walletAddress}?\n\nEnter the on-chain USDT TRC20 transaction hash (txHash):`
+    );
+    if (!txHash || !txHash.trim()) return;
+
     try {
-      setProcessingId(id);
-      await updateDoc(doc(db, 'payout_requests', id), {
-        status: newStatus,
-        processedAt: new Date()
-      });
-      setRequests(prev => prev.map(r => r.id === id ? { ...r, status: newStatus } : r));
+      setProcessingId(request.id);
+      if (request.source === 'payouts') {
+        const approveFn = httpsCallable(functions, 'approvePayout');
+        await approveFn({ payoutId: request.id, txHash: txHash.trim() });
+      } else {
+        await updateDoc(doc(db, 'payout_requests', request.id), {
+          status: 'completed',
+          txHash: txHash.trim(),
+          processedAt: new Date(),
+        });
+      }
+      setRequests(prev => prev.map(r => r.id === request.id ? { ...r, status: 'sent', txHash: txHash.trim() } : r));
+      alert('Payout approved and settled in ledger.');
     } catch (error) {
-      console.error('Error updating status:', error);
-      alert('Failed to update status');
+      console.error('Error approving payout:', error);
+      alert('Failed to approve payout: ' + (error.message || 'Unknown error'));
     } finally {
       setProcessingId(null);
     }
   };
 
-  const pendingCount = requests.filter(r => r.status === 'pending').length;
+  const handleReject = async (request) => {
+    const reason = window.prompt(
+      `Reject payout for $${request.amount?.toFixed(2)}?\n\nEnter reason for rejection (creator will be refunded):`
+    );
+    if (reason === null) return;
+
+    try {
+      setProcessingId(request.id);
+      if (request.source === 'payouts') {
+        const rejectFn = httpsCallable(functions, 'rejectPayout');
+        await rejectFn({ payoutId: request.id, reason: reason.trim() || 'Rejected by admin' });
+      } else {
+        await updateDoc(doc(db, 'payout_requests', request.id), {
+          status: 'rejected',
+          rejectionReason: reason.trim() || 'Rejected by admin',
+          processedAt: serverTimestamp(),
+        });
+
+        // Refund the creator balance
+        if (request.creatorId && request.amount) {
+          try {
+            const creatorBalRef = doc(db, 'creator_balances', request.creatorId);
+            await updateDoc(creatorBalRef, {
+              availableBalance: increment(request.amount),
+              pendingPayoutBalance: increment(-request.amount),
+              updatedAt: serverTimestamp(),
+            });
+            const wRef = doc(db, 'wallets', request.creatorId);
+            await updateDoc(wRef, {
+              balanceMinor: increment(Math.round(request.amount * 100)),
+              updatedAt: serverTimestamp(),
+            });
+          } catch (rErr) {
+            console.warn('Refund error:', rErr);
+          }
+        }
+      }
+      setRequests(prev => prev.map(r => r.id === request.id ? { ...r, status: 'rejected', rejectionReason: reason } : r));
+      alert('Payout rejected and funds returned to creator.');
+    } catch (error) {
+      console.error('Error rejecting payout:', error);
+      alert('Failed to reject payout: ' + (error.message || 'Unknown error'));
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const pendingCount = requests.filter(r => r.status === 'pending' || r.status === 'requested').length;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
@@ -131,31 +220,57 @@ export default function Payouts() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        {request.status === 'pending' && <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800"><Clock className="w-3 h-3" />Pending</span>}
-                        {request.status === 'completed' && <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800"><CheckCircle className="w-3 h-3" />Paid</span>}
-                        {request.status === 'rejected' && <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800"><XCircle className="w-3 h-3" />Rejected</span>}
+                        {(request.status === 'pending' || request.status === 'requested') && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                            <Clock className="w-3 h-3" />Requested
+                          </span>
+                        )}
+                        {(request.status === 'completed' || request.status === 'sent') && (
+                          <div className="space-y-1">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+                              <CheckCircle className="w-3 h-3" />Sent (Paid)
+                            </span>
+                            {request.txHash && (
+                              <p className="text-[10px] font-mono text-gray-500 truncate max-w-[140px]" title={request.txHash}>
+                                tx: {request.txHash}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        {request.status === 'rejected' && (
+                          <div className="space-y-1">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                              <XCircle className="w-3 h-3" />Rejected
+                            </span>
+                            {request.rejectionReason && (
+                              <p className="text-[10px] text-red-600 truncate max-w-[140px]" title={request.rejectionReason}>
+                                {request.rejectionReason}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        {request.status === 'pending' ? (
+                        {(request.status === 'pending' || request.status === 'requested') ? (
                           <div className="flex items-center justify-end space-x-2">
                             <button
-                              onClick={() => handleUpdateStatus(request.id, 'completed')}
+                              onClick={() => handleApprove(request)}
                               disabled={processingId === request.id}
-                              className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white text-xs font-semibold rounded-lg flex items-center gap-1 transition"
+                              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg flex items-center gap-1 transition shadow-xs"
                             >
                               {processingId === request.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
-                              Complete
+                              Approve & Settle
                             </button>
                             <button
-                              onClick={() => handleUpdateStatus(request.id, 'rejected')}
+                              onClick={() => handleReject(request)}
                               disabled={processingId === request.id}
-                              className="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold rounded-lg flex items-center gap-1 transition"
+                              className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold rounded-lg flex items-center gap-1 transition border border-red-200"
                             >
-                              Reject
+                              Reject & Refund
                             </button>
                           </div>
                         ) : (
-                          <span className="text-gray-400 text-sm">Processed</span>
+                          <span className="text-gray-400 text-xs font-medium">Settled in Ledger</span>
                         )}
                       </td>
                     </tr>

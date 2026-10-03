@@ -69,11 +69,15 @@ export const updateCreatorAvailability = async (creatorId, data) => {
     };
     await setDoc(availRef, update, { merge: true });
 
-    // Sync to user profile document so other views see the price
+    // Sync to user profile document so other views see the price and status
     const userRef = doc(db, 'users', creatorId);
     await updateDoc(userRef, {
-      livestreamPrice: livePrice
-    }).catch(e => logger.warn('Non-critical: could not sync livestreamPrice to users profile collection', e));
+      livestreamPrice: livePrice,
+      videoCallPrice: videoPrice,
+      voiceCallPrice: voicePrice,
+      callsEnabled: update.callsEnabled,
+      isAvailableForCalls: update.status === 'available' && update.callsEnabled,
+    }).catch(e => logger.warn('Non-critical: could not sync call availability to users profile collection', e));
 
     return update;
   } catch (error) {

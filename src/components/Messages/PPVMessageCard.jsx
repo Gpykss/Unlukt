@@ -16,6 +16,8 @@ export default function PPVMessageCard({ message, conversationId }) {
     message.senderId === currentUser?.uid || message.unlockedBy?.includes(currentUser?.uid)
   );
 
+  const [unlockedMediaUrl, setUnlockedMediaUrl] = useState(null);
+
   const handleUnlock = async () => {
     if (!currentUser) {
       alert('Please log in to unlock this message');
@@ -25,7 +27,10 @@ export default function PPVMessageCard({ message, conversationId }) {
 
     try {
       setUnlocking(true);
-      await unlockPPVMessage(conversationId, message.id, currentUser.uid);
+      const res = await unlockPPVMessage(conversationId, message.id, currentUser.uid);
+      if (res?.mediaUrl) {
+        setUnlockedMediaUrl(res.mediaUrl);
+      }
       setIsUnlocked(true);
     } catch (error) {
       logger.error('Error unlocking message:', error);
@@ -50,7 +55,7 @@ export default function PPVMessageCard({ message, conversationId }) {
 
   // Already unlocked
   if (isUnlocked) {
-    return <NormalMessage message={message} />;
+    return <NormalMessage message={message} customMediaUrl={unlockedMediaUrl} />;
   }
 
   // Locked preview
@@ -106,14 +111,15 @@ export default function PPVMessageCard({ message, conversationId }) {
   );
 }
 
-function NormalMessage({ message, isSender }) {
+function NormalMessage({ message, isSender, customMediaUrl }) {
+  const displayUrl = customMediaUrl || message.mediaUrl;
   return (
     <div className={`rounded-2xl p-3 mb-3 max-w-xs ${isSender ? 'bg-rose-500 text-white ml-auto' : 'bg-white shadow-sm'}`}>
-      {message.mediaUrl && message.mediaType && message.mediaType !== 'text' && (
+      {displayUrl && message.mediaType && message.mediaType !== 'text' && (
         <div className="mb-2 rounded-xl overflow-hidden">
           {message.mediaType === 'video' ? (
             <video
-              src={message.mediaUrl}
+              src={displayUrl}
               controls
               playsInline
               className="w-full rounded-xl"
@@ -122,7 +128,7 @@ function NormalMessage({ message, isSender }) {
             />
           ) : (
             <img
-              src={message.mediaUrl}
+              src={displayUrl}
               alt="Message"
               className="w-full rounded-xl"
               onContextMenu={(e) => e.preventDefault()}

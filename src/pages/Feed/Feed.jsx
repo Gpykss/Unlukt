@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Loader2, Users, Sparkles, ChevronRight, EyeOff, Eye, Crown, MessageSquare, ArrowRight } from 'lucide-react';
+import { Loader2, Users, Sparkles, Clock, ChevronRight, EyeOff, Eye, Crown, MessageSquare, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import PostCard from '../../components/feed/PostCard';
@@ -136,8 +136,7 @@ export default function Feed() {
                 ...c,
                 latestPost: posts && posts.length > 0 ? posts[0] : null,
               };
-            } catch (err) {
-              console.error(`Error loading posts for community ${c.id}:`, err);
+            } catch {
               return { ...c, latestPost: null };
             }
           })
@@ -152,6 +151,7 @@ export default function Feed() {
 
   const tabs = [
     { id: 'foryou', label: 'For You', icon: Sparkles },
+    { id: 'latest', label: 'Latest', icon: Clock },
     { id: 'following', label: 'Following', icon: Users },
   ];
 
@@ -190,7 +190,6 @@ export default function Feed() {
       });
 
       // ✅ Speed Optimization: Sort and set creators immediately.
-      // Removed the heavy database-wide scanning of all posts and active subscriptions on page load.
       creators.sort((a, b) => {
         const subA = a.subscriberCount || 0;
         const subB = b.subscriberCount || 0;
@@ -204,23 +203,52 @@ export default function Feed() {
     }
   };
 
-  // FIX: Score-based algorithm — mix of recency + engagement
+  // Timestamp extraction helper for server timestamps
+  const getPostTimestamp = (post) => {
+    if (!post?.createdAt) return 0;
+    try {
+      if (typeof post.createdAt.toDate === 'function') return post.createdAt.toDate().getTime();
+      if (post.createdAt instanceof Date) return post.createdAt.getTime();
+      if (post.createdAt.seconds) return post.createdAt.seconds * 1000;
+      if (typeof post.createdAt === 'number') {
+        return post.createdAt < 1e11 ? post.createdAt * 1000 : post.createdAt;
+      }
+      if (typeof post.createdAt === 'string') {
+        const parsed = new Date(post.createdAt).getTime();
+        if (!isNaN(parsed)) return parsed;
+      }
+    } catch {
+      return 0;
+    }
+    return 0;
+  };
+
+  // ✅ PRD 16.4: Main Feed Ranking Formula (For You)
+  // engagement = likes + 2*comments + 3*unlocks
+  // score = engagement / (ageHours + 2)^1.5 + fresh post boost
   const scorePost = (post) => {
     const now = Date.now();
-    let createdAt = now;
-    if (post.createdAt) {
-      if (typeof post.createdAt.toDate === 'function') createdAt = post.createdAt.toDate().getTime();
-      else if (post.createdAt instanceof Date) createdAt = post.createdAt.getTime();
-      else if (post.createdAt.seconds) createdAt = post.createdAt.seconds * 1000;
-      else if (typeof post.createdAt === 'number') createdAt = post.createdAt;
+    const createdAt = getPostTimestamp(post) || now;
+    const ageHours = Math.max(0, (now - createdAt) / 3600000);
+
+    // Posts older than 7 days fall back to chronological order (low base score)
+    if (ageHours > 168) {
+      return createdAt / 1e12;
     }
-    const ageHours = (now - createdAt) / 3600000;
-    const likes = post.likes || 0;
-    const comments = post.comments || 0;
-    const engagementScore = likes * 1.0 + comments * 1.5;
-    // Recency decay: posts lose score as they age, engagement boosts ranking
-    const recencyScore = Math.max(0, 48 - ageHours) * 2;
-    return engagementScore + recencyScore;
+
+    const likes = Number(post.likes || 0);
+    const comments = Number(post.comments || 0);
+    const unlocks = Number(post.unlockCount || post.unlocks || 0);
+
+    const engagement = likes + 2 * comments + 3 * unlocks;
+    let score = engagement / Math.pow(ageHours + 2, 1.5);
+
+    // Small boost for brand-new posts (< 24h) so new creators & fresh posts get seen
+    if (ageHours < 24) {
+      score += (24 - ageHours) * 0.25;
+    }
+
+    return score;
   };
 
   const loadPosts = async () => {
@@ -237,14 +265,21 @@ export default function Feed() {
           setLoading(false);
           return;
         }
-        fetchedPosts = await getFollowingPosts(currentUser.uid, 20);
+        fetchedPosts = await getFollowingPosts(currentUser.uid, 50);
+      } else if (activeTab === 'latest') {
+        // ✅ PRD 16.4: Strictly newest first by server createdAt
+        const allPosts = await getAllPosts(100);
+        fetchedPosts = allPosts
+          .filter(p => !p.archived)
+          .sort((a, b) => getPostTimestamp(b) - getPostTimestamp(a))
+          .slice(0, 30);
       } else {
-        // FIX: Fetch more posts and sort by score (recency + engagement mix)
+        // ✅ PRD 16.4: For You ranked by engagement decay score
         const allPosts = await getAllPosts(100);
         fetchedPosts = allPosts
           .filter(p => !p.archived)
           .sort((a, b) => scorePost(b) - scorePost(a))
-          .slice(0, 20);
+          .slice(0, 30);
       }
 
       setPosts(fetchedPosts.filter((post) => !post.archived));
@@ -282,7 +317,7 @@ export default function Feed() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-6 lg:px-6">
+      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-3 sm:py-6 lg:px-6 w-full overflow-x-hidden">
 
         {/* FIX: Top Creators - bigger cards, bigger avatars, profile picture more visible */}
         <div className="lg:hidden mb-4 sm:mb-6">
@@ -301,7 +336,7 @@ export default function Feed() {
           </div>
 
           {/* FIX: Horizontal scroll row instead of cramped grid — each card bigger */}
-          <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-hide">
+          <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-hide -mx-3 px-3">
             {topCreators.slice(0, 12).map((creator) => (
               <motion.div
                 key={creator.id}
@@ -354,56 +389,45 @@ export default function Feed() {
           </div>
         </div>
 
-        {/* Tabs + NSFW Toggle */}
-        <div className="bg-white rounded-xl sm:rounded-2xl border border-gray-200 p-1.5 sm:p-2 mb-4 sm:mb-6 sticky top-0 z-10 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div className="flex items-center space-x-2">
+        {/* Feed Tabs + NSFW Toggle */}
+        <div className="bg-white rounded-xl sm:rounded-2xl border border-gray-200 p-1 sm:p-2 mb-4 sm:mb-6 sticky top-14 lg:top-0 z-20 shadow-xs">
+          <div className="flex items-center justify-between gap-1.5 sm:gap-2">
+            <div className="flex items-center space-x-1 sm:space-x-2 flex-1 min-w-0">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
                 return (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-semibold transition ${
-                      activeTab === tab.id ? 'bg-red-500 text-white' : 'text-gray-600 hover:bg-gray-50'
+                    className={`flex-1 flex items-center justify-center space-x-1 sm:space-x-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-bold text-xs sm:text-sm transition whitespace-nowrap ${
+                      activeTab === tab.id
+                        ? 'bg-rose-500 text-white shadow-xs'
+                        : 'text-gray-600 hover:bg-gray-50'
                     }`}
                   >
-                    <Icon className="w-5 h-5" />
-                    <span>{tab.label}</span>
+                    <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                    <span className="truncate">{tab.label}</span>
                   </button>
                 );
               })}
             </div>
 
-            {/* NSFW Toggle */}
+            {/* Inline NSFW Toggle */}
             <button
               type="button"
               onClick={() => setShowNSFW((v) => !v)}
-              className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-semibold transition border ${
+              className={`flex items-center gap-1 px-2.5 sm:px-3 py-2 rounded-lg sm:rounded-xl text-xs font-bold transition border shrink-0 whitespace-nowrap ${
                 showNSFW
-                  ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
-                  : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                  ? 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
+                  : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
               }`}
-              title={showNSFW ? 'NSFW is visible' : 'NSFW is hidden'}
+              title={showNSFW ? 'NSFW content is visible' : 'NSFW content is hidden'}
             >
-              {showNSFW ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
-              <span className="text-sm">{showNSFW ? 'Show NSFW: ON' : 'Show NSFW: OFF'}</span>
+              {showNSFW ? <Eye className="w-3.5 h-3.5 text-rose-500 shrink-0" /> : <EyeOff className="w-3.5 h-3.5 text-gray-400 shrink-0" />}
+              <span>{showNSFW ? 'NSFW: ON' : 'NSFW: OFF'}</span>
             </button>
           </div>
         </div>
-
-        {!showNSFW && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg"
-          >
-            <p className="text-sm text-gray-700 flex items-center space-x-2">
-              <EyeOff className="w-4 h-4" />
-              <span>NSFW content is hidden. Turn it on if you want to see everything.</span>
-            </p>
-          </motion.div>
-        )}
 
         {error && (
           <motion.div

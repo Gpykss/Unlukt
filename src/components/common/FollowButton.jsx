@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { UserPlus, UserCheck, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { followUser, unfollowUser, isFollowing, getFollowerCount } from '../../services/followService';
+import { followUser, unfollowUser, isFollowing, getFollowerCount, subscribeToFollowStatus } from '../../services/followService';
 import { useAuth } from '../../hooks/useAuth';
 
 export default function FollowButton({ 
@@ -20,24 +20,20 @@ export default function FollowButton({
   const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
-    checkFollowStatus();
-  }, [userId, currentUser]);
-
-  const checkFollowStatus = async () => {
     if (!currentUser || !userId || currentUser.uid === userId) {
       setLoading(false);
       return;
     }
 
-    try {
-      const status = await isFollowing(currentUser.uid, userId);
+    setLoading(true);
+    // Real-time listener for follow status between currentUser and userId
+    const unsubscribe = subscribeToFollowStatus(currentUser.uid, userId, (status) => {
       setFollowing(status);
-    } catch (error) {
-      console.error('Error checking follow status:', error);
-    } finally {
       setLoading(false);
-    }
-  };
+    });
+
+    return () => unsubscribe();
+  }, [userId, currentUser?.uid]);
 
   const handleFollow = async () => {
     if (!currentUser) {
@@ -45,30 +41,38 @@ export default function FollowButton({
       return;
     }
 
+    if (actionLoading) return;
+
+    const willFollow = !following;
+    const delta = willFollow ? 1 : -1;
+
+    // 1. Optimistic UI update immediately
+    setFollowing(willFollow);
+    if (onFollowChange) {
+      onFollowChange(undefined, delta);
+    }
+
     try {
       setActionLoading(true);
       
-      if (following) {
+      if (!willFollow) {
         await unfollowUser(currentUser.uid, userId);
-        setFollowing(false);
-        
-        // ✅ Get updated follower count and pass to parent
-        if (onFollowChange) {
-          const newCount = await getFollowerCount(userId);
-          onFollowChange(newCount);
-        }
       } else {
         await followUser(currentUser.uid, userId);
-        setFollowing(true);
-        
-        // ✅ Get updated follower count and pass to parent
-        if (onFollowChange) {
-          const newCount = await getFollowerCount(userId);
-          onFollowChange(newCount);
-        }
+      }
+
+      // 2. Fetch fresh confirmed follower count and pass to parent
+      if (onFollowChange) {
+        const freshCount = await getFollowerCount(userId);
+        onFollowChange(freshCount, 0);
       }
     } catch (error) {
       console.error('Error toggling follow:', error);
+      // Revert optimistic state on failure
+      setFollowing(!willFollow);
+      if (onFollowChange) {
+        onFollowChange(undefined, -delta);
+      }
       alert('Failed to update follow status');
     } finally {
       setActionLoading(false);

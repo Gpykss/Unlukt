@@ -174,7 +174,13 @@ export const getUserByUsername = async (username) => {
       };
     }
 
-    console.warn('⚠️ User not found with username:', cleanUsername);
+    // Fallback: Check if the string passed is directly a user ID
+    const directUser = await getUserProfile(username.trim());
+    if (directUser) {
+      return directUser;
+    }
+
+    console.warn('⚠️ User not found with username or UID:', cleanUsername);
     return null;
   } catch (error) {
     console.error('❌ Error getting user by username:', error);

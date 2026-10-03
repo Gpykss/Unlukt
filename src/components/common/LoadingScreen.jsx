@@ -1,25 +1,13 @@
-// src/components/common/LoadingScreen.jsx - ANIMATED LOCK ICON
-
+// src/components/common/LoadingScreen.jsx - Sleek Minimal Loader
 import React from 'react';
-import { LockKeyhole } from 'lucide-react';
-import './LoadingScreen.css';
 
 const LoadingScreen = () => {
   return (
-    <div className="loading-screen">
-      <div className="loading-content">
-        {/* ✅ Animated unlukt logo */}
-        <div className="logo-container">
-          <span className="logo-text">Unl</span>
-          <LockKeyhole className="logo-icon animate-lock" strokeWidth={1.8} fill="none" />
-          <span className="logo-text">kt</span>
-        </div>
-        
-        {/* Loading dots */}
-        <div className="loading-dots">
-          <span></span>
-          <span></span>
-          <span></span>
+    <div className="fixed inset-0 bg-white/95 backdrop-blur-xs flex items-center justify-center z-[99999]">
+      <div className="flex flex-col items-center justify-center space-y-3">
+        <div className="relative w-9 h-9">
+          <div className="absolute inset-0 rounded-full border-2 border-rose-100" />
+          <div className="absolute inset-0 rounded-full border-2 border-rose-500 border-t-transparent animate-spin" />
         </div>
       </div>
     </div>

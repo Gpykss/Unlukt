@@ -20,6 +20,7 @@ import { useNavigate } from 'react-router-dom';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { useAuth } from '../../hooks/useAuth';
 import { createPost } from '../../services/postService';
+import { updateUserProfile } from '../../services/firestoreService';
 import { auth } from '../../config/firebase';
 import { compressVideo } from '../../utils/videoCompression';
 
@@ -31,6 +32,7 @@ export default function NewPost() {
   const [caption, setCaption] = useState('');
   const [price, setPrice] = useState('');
   const [visibility, setVisibility] = useState('subscribers');
+  const [subPrice, setSubPrice] = useState(profile?.subscriptionPrice || 9.99);
 
   const [mediaType, setMediaType] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -271,6 +273,13 @@ export default function NewPost() {
       };
 
       console.log('📝 Creating post with data:', postData);
+
+      // PRD Section 15.4: Progressive update of subscription price if set on New Post
+      if (visibility === 'subscribers' && subPrice && Number(subPrice) > 0) {
+        if (Number(subPrice) !== Number(profile?.subscriptionPrice)) {
+          await updateUserProfile(currentUser.uid, { subscriptionPrice: Number(subPrice) });
+        }
+      }
 
       const newPost = await createPost(currentUser.uid, postData);
 
@@ -684,6 +693,39 @@ export default function NewPost() {
               </button>
             </div>
           </div>
+
+          {/* PRD Section 15.4: Progressive Disclosure for Subscription Price */}
+          {visibility === 'subscribers' && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="bg-purple-50/80 border border-purple-200 rounded-xl sm:rounded-2xl p-4 sm:p-5"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-purple-800">
+                    Monthly Subscription Price
+                  </p>
+                  <p className="text-xs text-purple-600 mt-0.5">
+                    What fans pay monthly for access to all your subscriber content
+                  </p>
+                </div>
+                <div className="relative w-36">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-purple-700" />
+                  <input
+                    type="number"
+                    value={subPrice}
+                    onChange={(e) => setSubPrice(e.target.value)}
+                    min="1"
+                    max="100"
+                    step="0.50"
+                    disabled={uploading}
+                    className="w-full pl-8 pr-3 py-2 rounded-xl bg-white border border-purple-300 font-bold text-purple-900 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  />
+                </div>
+              </div>
+            </motion.div>
+          )}
 
           {/* Price (if paid) */}
           {visibility === 'paid' && (

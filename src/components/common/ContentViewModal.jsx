@@ -25,6 +25,7 @@ import {
   unlikePost, 
   addComment, 
   getPostComments,
+  subscribeToPostComments,
   deletePost,
   sharePost,
   updatePost
@@ -78,12 +79,28 @@ export default function ContentViewModal({ isOpen, onClose, post, onPostUpdate }
     }
   }, [post]);
 
-  // Load comments when modal opens
+  // Subscribe to comments in real-time when modal opens
   useEffect(() => {
-    if (isOpen && post) {
-      loadComments();
-    }
-  }, [isOpen, post]);
+    if (!isOpen || !post?.id) return;
+    setLoadingComments(true);
+
+    const unsubscribe = subscribeToPostComments(post.id, (realtimeComments) => {
+      setComments(realtimeComments || []);
+      setCommentsCount(realtimeComments ? realtimeComments.length : 0);
+      setLoadingComments(false);
+
+      if (onPostUpdate && post) {
+        onPostUpdate({ ...post, comments: realtimeComments ? realtimeComments.length : 0 });
+      }
+    }, (err) => {
+      console.warn('Real-time comments subscription warning:', err);
+      setLoadingComments(false);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isOpen, post?.id]);
 
   const loadPostCreator = async () => {
     try {
@@ -91,18 +108,6 @@ export default function ContentViewModal({ isOpen, onClose, post, onPostUpdate }
       setPostCreator(creator);
     } catch (error) {
       console.error('Error loading creator:', error);
-    }
-  };
-
-  const loadComments = async () => {
-    try {
-      setLoadingComments(true);
-      const fetchedComments = await getPostComments(post.id);
-      setComments(fetchedComments);
-    } catch (error) {
-      console.error('Error loading comments:', error);
-    } finally {
-      setLoadingComments(false);
     }
   };
 
@@ -575,8 +580,28 @@ export default function ContentViewModal({ isOpen, onClose, post, onPostUpdate }
                     </div>
                     <div className="flex-1">
                       <div className="bg-gray-50 rounded-2xl px-4 py-3">
-                        <div className="flex items-center space-x-2 mb-1">
+                        <div className="flex items-center space-x-2 mb-1 flex-wrap">
                           <span className="font-semibold text-gray-900 text-sm">{comment.userName}</span>
+                          {comment.userTier === 'creator' && (
+                            <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200 uppercase tracking-wider">
+                              Creator
+                            </span>
+                          )}
+                          {comment.userTier === 'superfan' && (
+                            <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                              👑 Superfan
+                            </span>
+                          )}
+                          {comment.userTier === 'vip' && (
+                            <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                              ⭐ VIP
+                            </span>
+                          )}
+                          {comment.userTier === 'supporter' && (
+                            <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              🌱 Supporter
+                            </span>
+                          )}
                           <span className="text-gray-500 text-xs">{formatDate(comment.createdAt)}</span>
                         </div>
                         <p className="text-gray-700 text-sm">{comment.text}</p>

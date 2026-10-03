@@ -40,6 +40,7 @@ import {
   subscribeToUserStatus
 } from '../../services/messageService';
 import TipModal from '../../components/Modals/TipModal'; 
+import { getUserTier } from '../../services/tierService';
 
 export default function Messages() {
   const navigate = useNavigate();
@@ -49,6 +50,7 @@ export default function Messages() {
   const [selectedChat, setSelectedChat] = useState(null);
   const [message, setMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [inboxTab, setInboxTab] = useState('all');
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [conversations, setConversations] = useState([]);
   const [messages, setMessages] = useState([]);
@@ -66,9 +68,31 @@ export default function Messages() {
   const [sendingPPV, setSendingPPV] = useState(false);
   const [ppvMedia, setPPVMedia] = useState(null);
   const [showTipModal, setShowTipModal] = useState(false);
+  const [chatTier, setChatTier] = useState(null);
 
   const messagesEndRef = useRef(null);
-  const messageInputRef = useRef(null); 
+  const messageInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!currentUser || !selectedChat?.otherUser?.id) {
+      setChatTier(null);
+      return;
+    }
+    let active = true;
+    const fetchChatTier = async () => {
+      try {
+        let tier = await getUserTier(selectedChat.otherUser.id, currentUser.uid);
+        if (!tier) {
+          tier = await getUserTier(currentUser.uid, selectedChat.otherUser.id);
+        }
+        if (active) setChatTier(tier);
+      } catch (err) {
+        if (active) setChatTier(null);
+      }
+    };
+    fetchChatTier();
+    return () => { active = false; };
+  }, [currentUser?.uid, selectedChat?.otherUser?.id]);
 
   useEffect(() => {
     const checkBlockStatus = async () => {
@@ -129,21 +153,73 @@ export default function Messages() {
 
   useEffect(() => {
     if (!selectedChat?.otherUser?.id) return;
-    const unsubscribe = subscribeToUserStatus(selectedChat.otherUser.id, (isOnline) => {
+    const unsubscribe = subscribeToUserStatus(selectedChat.otherUser.id, (status) => {
+      const isOnline = typeof status === 'object' ? status.isOnline : Boolean(status);
+      const lastSeen = typeof status === 'object' ? status.lastSeen : null;
+
       setSelectedChat(prev => {
         if (!prev || prev.id !== selectedChat.id) return prev;
-        return { ...prev, otherUser: { ...prev.otherUser, online: isOnline } };
+        return {
+          ...prev,
+          otherUser: {
+            ...prev.otherUser,
+            online: isOnline,
+            lastSeen: lastSeen || prev.otherUser?.lastSeen,
+          }
+        };
       });
+
       setConversations(prevConvos =>
         prevConvos.map(convo =>
           convo.otherUser?.id === selectedChat.otherUser.id
-            ? { ...convo, otherUser: { ...convo.otherUser, online: isOnline } }
+            ? {
+                ...convo,
+                otherUser: {
+                  ...convo.otherUser,
+                  online: isOnline,
+                  lastSeen: lastSeen || convo.otherUser?.lastSeen,
+                }
+              }
             : convo
         )
       );
     });
     return () => unsubscribe();
   }, [selectedChat?.otherUser?.id]);
+
+  // Real-time live status tracking for visible conversation partners
+  useEffect(() => {
+    if (!conversations || conversations.length === 0) return;
+    const partnerIds = Array.from(
+      new Set(conversations.map(c => c.otherUser?.id).filter(Boolean))
+    ).slice(0, 15);
+
+    const unsubscribes = partnerIds.map(uid => {
+      return subscribeToUserStatus(uid, (status) => {
+        const isOnline = typeof status === 'object' ? status.isOnline : Boolean(status);
+        const lastSeen = typeof status === 'object' ? status.lastSeen : null;
+
+        setConversations(prevConvos =>
+          prevConvos.map(convo =>
+            convo.otherUser?.id === uid
+              ? {
+                  ...convo,
+                  otherUser: {
+                    ...convo.otherUser,
+                    online: isOnline,
+                    lastSeen: lastSeen || convo.otherUser?.lastSeen,
+                  }
+                }
+              : convo
+          )
+        );
+      });
+    });
+
+    return () => {
+      unsubscribes.forEach(unsub => unsub && unsub());
+    };
+  }, [conversations.map(c => c.otherUser?.id).join(',')]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -175,10 +251,25 @@ export default function Messages() {
     }
   };
 
-  const filteredConversations = conversations.filter(conv =>
-    conv.otherUser.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    conv.otherUser.username.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredConversations = conversations.filter(conv => {
+    const otherUser = conv.otherUser || {};
+    const name = (otherUser.name || '').toLowerCase();
+    const username = (otherUser.username || '').toLowerCase();
+    const query = searchQuery.toLowerCase();
+    const matchesSearch = name.includes(query) || username.includes(query);
+    if (!matchesSearch) return false;
+
+    if (inboxTab === 'online') {
+      return otherUser.online === true;
+    }
+    if (inboxTab === 'unread') {
+      return (conv.unreadCount || 0) > 0;
+    }
+    if (inboxTab === 'spenders') {
+      return Boolean(conv.isSpender || conv.isSubscriber || conv.tier || (conv.totalSpent && conv.totalSpent > 0));
+    }
+    return true;
+  });
 
   const handleSendMessage = async () => {
     if (!message.trim() || !selectedChat || sending) return;
@@ -284,29 +375,120 @@ export default function Messages() {
     }
   };
 
+  const parseTimestamp = (timestamp) => {
+    if (!timestamp) return null;
+    try {
+      if (typeof timestamp.toDate === 'function') return timestamp.toDate();
+      if (timestamp instanceof Date) return timestamp;
+      if (timestamp.seconds != null) return new Date(timestamp.seconds * 1000);
+      if (timestamp._seconds != null) return new Date(timestamp._seconds * 1000);
+      if (typeof timestamp === 'number') {
+        return new Date(timestamp < 1e11 ? timestamp * 1000 : timestamp);
+      }
+      if (typeof timestamp === 'string') {
+        const parsed = new Date(timestamp);
+        if (!isNaN(parsed.getTime())) return parsed;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
     try {
-      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+      const date = parseTimestamp(timestamp);
+      if (!date || isNaN(date.getTime())) return '';
       const now = new Date();
-      const diff = now - date;
-      const minutes = Math.floor(diff / 60000);
-      const hours = Math.floor(diff / 3600000);
-      const days = Math.floor(diff / 86400000);
-      if (minutes < 1) return 'Just now';
-      if (minutes < 60) return `${minutes}m ago`;
-      if (hours < 24) return `${hours}h ago`;
-      if (days < 7) return `${days}d ago`;
-      return date.toLocaleDateString();
+      const diffMs = now - date;
+      const diffSecs = Math.max(0, Math.floor(diffMs / 1000));
+      const diffMins = Math.floor(diffSecs / 60);
+
+      if (diffSecs < 60) return 'Just now';
+      if (diffMins < 60) return `${diffMins}m`;
+
+      const isToday = now.toDateString() === date.toDateString();
+      if (isToday) {
+        return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+      }
+
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      if (yesterday.toDateString() === date.toDateString()) {
+        return 'Yesterday';
+      }
+
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      if (diffDays < 7) {
+        return date.toLocaleDateString([], { weekday: 'short' });
+      }
+
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
     } catch { return ''; }
   };
 
   const formatMessageTime = (timestamp) => {
     if (!timestamp) return '';
     try {
-      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-      return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      const date = parseTimestamp(timestamp);
+      if (!date || isNaN(date.getTime())) return '';
+      return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
     } catch { return ''; }
+  };
+
+  const formatLastSeen = (isOnline, lastSeenTimestamp) => {
+    if (isOnline) return 'Active now';
+    if (!lastSeenTimestamp) return 'Offline';
+    try {
+      const date = parseTimestamp(lastSeenTimestamp);
+      if (!date || isNaN(date.getTime())) return 'Offline';
+      const now = new Date();
+      const diffMs = now - date;
+      const diffSecs = Math.max(0, Math.floor(diffMs / 1000));
+      const diffMins = Math.floor(diffSecs / 60);
+      const diffHours = Math.floor(diffMins / 60);
+
+      if (diffSecs < 60) return 'Last seen just now';
+      if (diffMins < 60) return `Last seen ${diffMins}m ago`;
+
+      const isToday = now.toDateString() === date.toDateString();
+      if (isToday) {
+        if (diffHours < 6) return `Last seen ${diffHours}h ago`;
+        return `Last seen today at ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+      }
+
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      if (yesterday.toDateString() === date.toDateString()) {
+        return `Last seen yesterday at ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+      }
+
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      if (diffDays < 7) {
+        return `Last seen ${date.toLocaleDateString([], { weekday: 'short' })} at ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+      }
+
+      return `Last seen ${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+    } catch {
+      return 'Offline';
+    }
+  };
+
+  const getMessageDateDivider = (timestamp) => {
+    if (!timestamp) return null;
+    try {
+      const date = parseTimestamp(timestamp);
+      if (!date || isNaN(date.getTime())) return null;
+      const now = new Date();
+      if (now.toDateString() === date.toDateString()) return 'Today';
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      if (yesterday.toDateString() === date.toDateString()) return 'Yesterday';
+      return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    } catch {
+      return null;
+    }
   };
 
   if (loading) {
@@ -343,13 +525,75 @@ export default function Messages() {
                 className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100"
               />
             </div>
+
+            {/* Filter Tabs */}
+            <div className="flex items-center gap-1 mt-3 p-1 bg-gray-100 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setInboxTab('all')}
+                className={`flex-1 py-1.5 px-2 text-xs font-bold rounded-lg transition ${
+                  inboxTab === 'all'
+                    ? 'bg-white text-gray-900 shadow-2xs'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setInboxTab('online')}
+                className={`flex-1 py-1.5 px-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1 ${
+                  inboxTab === 'online'
+                    ? 'bg-white text-emerald-600 shadow-2xs'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span>Online</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setInboxTab('unread')}
+                className={`flex-1 py-1.5 px-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1 ${
+                  inboxTab === 'unread'
+                    ? 'bg-white text-rose-600 shadow-2xs'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <span>Unread</span>
+                {conversations.filter(c => (c.unreadCount || 0) > 0).length > 0 && (
+                  <span className="px-1.5 py-0.2 bg-rose-500 text-white text-[10px] rounded-full">
+                    {conversations.filter(c => (c.unreadCount || 0) > 0).length}
+                  </span>
+                )}
+              </button>
+              {profile?.isCreator && (
+                <button
+                  type="button"
+                  onClick={() => setInboxTab('spenders')}
+                  className={`flex-1 py-1.5 px-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1 ${
+                    inboxTab === 'spenders'
+                      ? 'bg-white text-amber-600 shadow-2xs'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <span>⭐ VIP</span>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto">
             {filteredConversations.length === 0 ? (
               <div className="p-8 text-center">
-                <p className="text-gray-500">No conversations yet</p>
-                <p className="text-sm text-gray-400 mt-2">Start chatting with creators!</p>
+                <p className="text-gray-500">No conversations found</p>
+                <p className="text-sm text-gray-400 mt-2">
+                  {inboxTab === 'online'
+                    ? 'No contacts are currently online'
+                    : inboxTab === 'unread'
+                    ? 'You have caught up with all messages!'
+                    : 'Start chatting with creators and fans!'}
+                </p>
               </div>
             ) : (
               filteredConversations.map((conversation) => (
@@ -368,14 +612,38 @@ export default function Messages() {
                             <span>{conversation.otherUser.avatar || '👤'}</span>
                           )}
                         </div>
-                        {conversation.otherUser.online && (
-                          <div className="absolute bottom-0 right-0 w-3 h-3 sm:w-4 sm:h-4 bg-green-500 border-2 border-white rounded-full"></div>
+                        {conversation.otherUser.online ? (
+                          <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full ring-2 ring-emerald-500/20" title="Active now"></div>
+                        ) : (
+                          <div className="absolute bottom-0 right-0 w-3 h-3 bg-gray-300 border-2 border-white rounded-full" title="Offline"></div>
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
-                          <p className="font-semibold text-sm sm:text-base text-gray-900 truncate">{conversation.otherUser.name}</p>
-                          <span className="text-xs text-gray-500">{formatTime(conversation.lastMessageTime)}</span>
+                          <div className="flex items-center gap-1.5 truncate">
+                            <p className="font-semibold text-sm sm:text-base text-gray-900 truncate">{conversation.otherUser.name}</p>
+                            {conversation.tier === 'superfan' && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 flex-shrink-0">
+                                👑 Superfan
+                              </span>
+                            )}
+                            {conversation.tier === 'vip' && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300 flex-shrink-0">
+                                ⭐ VIP
+                              </span>
+                            )}
+                            {conversation.tier === 'supporter' && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex-shrink-0">
+                                🌱 Supporter
+                              </span>
+                            )}
+                            {conversation.otherUser.online && (
+                              <span className="inline-flex items-center text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                                Online
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs text-gray-500 flex-shrink-0 ml-2">{formatTime(conversation.lastMessageTime)}</span>
                         </div>
                         <div className="flex items-center justify-between">
                           <p className={`text-xs sm:text-sm truncate ${conversation.unreadCount > 0 ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
@@ -423,11 +691,11 @@ export default function Messages() {
         </div>
 
         {/* Chat Area */}
-        <div className={`flex-1 flex flex-col bg-white min-h-0 ${showMobileChat ? 'flex' : 'hidden md:flex'}`}>
+        <div className={`flex-1 flex flex-col bg-white min-h-0 ${showMobileChat ? 'fixed inset-0 z-[60] md:static md:z-auto flex h-[100dvh] md:h-full' : 'hidden md:flex'}`}>
           {selectedChat ? (
             <>
               {/* Chat Header */}
-              <div className="p-3 sm:p-4 border-b border-gray-200 flex-shrink-0">
+              <div className="p-3 sm:p-4 border-b border-gray-200 flex-shrink-0 bg-white">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <button onClick={handleBackToList} className="p-2 hover:bg-gray-100 rounded-lg transition md:hidden">
@@ -441,13 +709,37 @@ export default function Messages() {
                           <span>{selectedChat.otherUser.avatar || '👤'}</span>
                         )}
                       </div>
-                      {selectedChat.otherUser.online && (
-                        <div className="absolute bottom-0 right-0 w-2.5 h-2.5 sm:w-3 sm:h-3 bg-green-500 border-2 border-white rounded-full"></div>
+                      {selectedChat.otherUser.online ? (
+                        <div className="absolute bottom-0 right-0 w-3 h-3 sm:w-3.5 sm:h-3.5 bg-emerald-500 border-2 border-white rounded-full ring-2 ring-emerald-500/20"></div>
+                      ) : (
+                        <div className="absolute bottom-0 right-0 w-3 h-3 sm:w-3.5 sm:h-3.5 bg-gray-300 border-2 border-white rounded-full"></div>
                       )}
                     </div>
                     <div>
-                      <p className="font-semibold text-sm sm:text-base text-gray-900">{selectedChat.otherUser.name}</p>
-                      <p className="text-xs sm:text-sm text-gray-500">{selectedChat.otherUser.online ? 'Active now' : 'Offline'}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="font-semibold text-sm sm:text-base text-gray-900">{selectedChat.otherUser.name}</p>
+                        {chatTier === 'superfan' && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                            👑 Superfan
+                          </span>
+                        )}
+                        {chatTier === 'vip' && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
+                            ⭐ VIP
+                          </span>
+                        )}
+                        {chatTier === 'supporter' && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            🌱 Supporter
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className={`w-2 h-2 rounded-full ${selectedChat.otherUser.online ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`}></span>
+                        <p className={`text-xs ${selectedChat.otherUser.online ? 'text-emerald-600 font-semibold' : 'text-gray-500 font-medium'}`}>
+                          {formatLastSeen(selectedChat.otherUser.online, selectedChat.otherUser.lastSeen)}
+                        </p>
+                      </div>
                     </div>
                   </div>
 
@@ -554,46 +846,82 @@ export default function Messages() {
               </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 pb-24 md:pb-6 space-y-2 sm:space-y-3 md:space-y-4">
-                {messages.map((msg) => (
-                  msg.isPPV ? (
-                    <PPVMessageCard
-                      key={msg.id} message={msg} conversationId={selectedChat.id}
-                      onUnlock={(payment) => window.open(payment.paymentUrl, '_blank')}
-                    />
-                  ) : (
-                    <motion.div
-                      key={msg.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                      className={`flex ${msg.senderId === currentUser.uid ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div className="max-w-[85%] sm:max-w-[75%] md:max-w-xs lg:max-w-md">
-                        <div className={`rounded-2xl px-3 sm:px-4 py-2 sm:py-3 ${msg.senderId === currentUser.uid ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-900'}`}>
-                          <p className="text-sm sm:text-base break-words">
-                            {(() => {
-                              if (!msg) return '';
-                              if (typeof msg.text === 'string') return msg.text;
-                              if (msg.text && typeof msg.text === 'object' && msg.text.text) return String(msg.text.text);
-                              if (msg.content) return String(msg.content);
-                              if (msg.text) return JSON.stringify(msg.text);
-                              return '';
-                            })()}
-                          </p>
+              <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 space-y-2 sm:space-y-3 md:space-y-4 min-h-0">
+                {messages.map((msg, idx) => {
+                  const msgTime = msg.createdAt || msg.timestamp || msg.sentAt || msg.time || msg.date;
+                  const prevMsg = idx > 0 ? messages[idx - 1] : null;
+                  const prevMsgTime = prevMsg ? (prevMsg.createdAt || prevMsg.timestamp || prevMsg.sentAt || prevMsg.time || prevMsg.date) : null;
+                  const dateDivider = getMessageDateDivider(msgTime);
+                  const prevDateDivider = prevMsgTime ? getMessageDateDivider(prevMsgTime) : null;
+                  const showDateDivider = dateDivider && dateDivider !== prevDateDivider;
+
+                  return (
+                    <div key={msg.id || idx}>
+                      {showDateDivider && (
+                        <div className="flex justify-center my-3">
+                          <span className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-[11px] font-semibold tracking-wide border border-gray-200/50 shadow-2xs">
+                            {dateDivider}
+                          </span>
                         </div>
-                        <p className={`text-xs text-gray-400 mt-1 ${msg.senderId === currentUser.uid ? 'text-right' : 'text-left'}`}>
-                          {formatMessageTime(msg.createdAt)}
-                        </p>
-                      </div>
-                    </motion.div>
-                  )
-                ))}
+                      )}
+
+                      {msg.isPPV ? (
+                        <PPVMessageCard
+                          key={msg.id} message={msg} conversationId={selectedChat.id}
+                          onUnlock={(payment) => window.open(payment.paymentUrl, '_blank')}
+                        />
+                      ) : (
+                        <motion.div
+                          key={msg.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                          className={`flex ${msg.senderId === currentUser.uid ? 'justify-end' : 'justify-start'}`}
+                        >
+                          <div className="max-w-[85%] sm:max-w-[75%] md:max-w-xs lg:max-w-md">
+                            {msg.senderId !== currentUser.uid && chatTier && (
+                              <div className="flex items-center gap-1 mb-1 pl-1">
+                                <span className="text-[10px] text-gray-500 font-semibold">{selectedChat.otherUser.name}</span>
+                                {chatTier === 'superfan' && (
+                                   <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                     👑 Superfan
+                                   </span>
+                                )}
+                                {chatTier === 'vip' && (
+                                   <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
+                                     ⭐ VIP
+                                   </span>
+                                )}
+                                {chatTier === 'supporter' && (
+                                   <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                     🌱 Supporter
+                                   </span>
+                                )}
+                              </div>
+                            )}
+                            <div className={`rounded-2xl px-3 sm:px-4 py-2 sm:py-3 ${msg.senderId === currentUser.uid ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-900'}`}>
+                              <p className="text-sm sm:text-base break-words">
+                                {(() => {
+                                  if (!msg) return '';
+                                  if (typeof msg.text === 'string') return msg.text;
+                                  if (msg.text && typeof msg.text === 'object' && msg.text.text) return String(msg.text.text);
+                                  if (msg.content) return String(msg.content);
+                                  if (msg.text) return JSON.stringify(msg.text);
+                                  return '';
+                                })()}
+                              </p>
+                            </div>
+                            <p className={`text-[11px] font-medium text-gray-400 mt-1 ${msg.senderId === currentUser.uid ? 'text-right' : 'text-left'}`}>
+                              {formatMessageTime(msgTime)}
+                            </p>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                  );
+                })}
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Message Input */}
-              <div
-                className="p-3 sm:p-4 border-t border-gray-200 flex-shrink-0 bg-white z-10 fixed left-0 right-0 md:static md:bottom-auto md:left-auto md:right-auto shadow-[0_-2px_10px_rgba(0,0,0,0.06)]"
-                style={{ bottom: window.innerWidth < 768 ? '70px' : undefined, paddingBottom: '0.5rem' }}
-              >
+              {/* Message Input (Pinned at Bottom of Chat) */}
+              <div className="p-3 sm:p-4 border-t border-gray-200 bg-white flex-shrink-0 shadow-2xs pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
                 <div className="flex items-center space-x-2 sm:space-x-3">
                   <div className="flex-1 relative">
                     <input

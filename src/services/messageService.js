@@ -16,6 +16,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { getUserTier } from './tierService';
 
 /**
  * ✅ FIXED: Check if user is blocked — never throws, returns false on error
@@ -189,16 +190,35 @@ export const sendMessage = async (conversationId, senderId, receiverId, messageT
   }
 };
 
+const parseTimeMs = (t) => {
+  if (!t) return 0;
+  try {
+    if (typeof t.toMillis === 'function') return t.toMillis();
+    if (typeof t.toDate === 'function') return t.toDate().getTime();
+    if (t instanceof Date) return t.getTime();
+    if (t.seconds != null) return t.seconds * 1000;
+    if (t._seconds != null) return t._seconds * 1000;
+    if (typeof t === 'number') return t < 1e11 ? t * 1000 : t;
+    if (typeof t === 'string') {
+      const p = new Date(t).getTime();
+      return isNaN(p) ? 0 : p;
+    }
+  } catch {
+    return 0;
+  }
+  return 0;
+};
+
 /**
  * Subscribe to conversations (real-time)
+ * Avoids rigid orderBy('lastMessageTime') which hides older conversations missing the field
  */
 export const subscribeToConversations = (userId, callback) => {
   try {
     const conversationsRef = collection(db, 'conversations');
     const q = query(
       conversationsRef,
-      where('participants', 'array-contains', userId),
-      orderBy('lastMessageTime', 'desc')
+      where('participants', 'array-contains', userId)
     );
 
     const unsubscribe = onSnapshot(q, async (snapshot) => {
@@ -207,30 +227,56 @@ export const subscribeToConversations = (userId, callback) => {
       for (const docSnap of snapshot.docs) {
         const data = docSnap.data();
         const otherUserId = data.participants.find((id) => id !== userId);
+        if (!otherUserId) continue;
 
-        const otherUserDoc = await getDoc(doc(db, 'users', otherUserId));
-        const freshUserData = otherUserDoc.exists() ? otherUserDoc.data() : {};
+        let freshUserData = {};
+        try {
+          const otherUserDoc = await getDoc(doc(db, 'users', otherUserId));
+          freshUserData = otherUserDoc.exists() ? otherUserDoc.data() : {};
+        } catch (e) {
+          // ignore read error
+        }
         const participantDetails = data.participantDetails?.[otherUserId];
 
         const rawLastMessage = data.lastMessage;
         const lastMessageText =
           typeof rawLastMessage === 'string' ? rawLastMessage : rawLastMessage?.text || '';
 
+        // Resolve tier for other user (checks both directions for fan <-> creator)
+        let tier = null;
+        try {
+          tier = await getUserTier(otherUserId, userId);
+          if (!tier) {
+            tier = await getUserTier(userId, otherUserId);
+          }
+        } catch (e) {}
+
+        const lastTime = data.lastMessageTime || data.updatedAt || data.createdAt || data.timestamp || null;
+
         conversations.push({
           id: docSnap.id,
           ...data,
           lastMessage: lastMessageText,
+          lastMessageTime: lastTime,
+          tier: tier || data.tier || null,
+          isSubscriber: Boolean(tier || data.isSubscriber),
+          isSpender: Boolean(tier || data.isSpender || (data.totalSpent && data.totalSpent > 0)),
           otherUser: {
             id: otherUserId,
             name: freshUserData.displayName || participantDetails?.displayName || 'User',
             username: freshUserData.username || participantDetails?.username || '',
             avatar: freshUserData.avatar || participantDetails?.avatar || '👤',
             online: freshUserData.isOnline === true,
+            lastSeen: freshUserData.lastSeen || null,
+            tier: tier || null,
           },
           unreadCount: data.unreadCount?.[userId] || 0,
           muted: data.muted?.[userId] || false,
         });
       }
+
+      // Sort in memory by newest activity
+      conversations.sort((a, b) => parseTimeMs(b.lastMessageTime) - parseTimeMs(a.lastMessageTime));
 
       callback(conversations);
     }, (error) => {
@@ -247,15 +293,27 @@ export const subscribeToConversations = (userId, callback) => {
 
 /**
  * Subscribe to messages in a conversation (real-time)
+ * Queries all messages and sorts in memory to ensure older messages (with timestamp/time/sentAt)
+ * are NEVER excluded by Firestore's strict orderBy clause
  */
 export const subscribeToMessages = (conversationId, callback) => {
   try {
     const messagesRef = collection(db, 'conversations', conversationId, 'messages');
-    const q = query(messagesRef, orderBy('createdAt', 'asc'));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(messagesRef, (snapshot) => {
       const messages = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+      // Chronological sort handling all field variations across older and newer messages
+      messages.sort((a, b) => {
+        const timeA = parseTimeMs(a.createdAt || a.timestamp || a.sentAt || a.time || a.date);
+        const timeB = parseTimeMs(b.createdAt || b.timestamp || b.sentAt || b.time || b.date);
+        return timeA - timeB;
+      });
+
       callback(messages);
+    }, (error) => {
+      console.warn('⚠️ Messages listener error (non-fatal):', error.message);
+      callback([]);
     });
 
     return unsubscribe;
@@ -456,9 +514,18 @@ export const updateUserOnlineStatus = async (userId, isOnline) => {
  * Subscribe to user's online status
  */
 export const subscribeToUserStatus = (userId, callback) => {
+  if (!userId) return () => {};
   try {
     const unsubscribe = onSnapshot(doc(db, 'users', userId), (d) => {
-      if (d.exists()) callback(d.data().isOnline || false);
+      if (d.exists()) {
+        const data = d.data();
+        callback({
+          isOnline: data.isOnline === true,
+          lastSeen: data.lastSeen || null,
+        });
+      }
+    }, (err) => {
+      console.warn('⚠️ User status listener error (non-fatal):', err.message);
     });
     return unsubscribe;
   } catch (error) {
@@ -531,6 +598,7 @@ export const getUserConversations = async (userId) => {
           username: freshUserData.username || participantDetails?.username || '',
           avatar: freshUserData.avatar || participantDetails?.avatar || '👤',
           online: freshUserData.isOnline === true,
+          lastSeen: freshUserData.lastSeen || null,
         },
         unreadCount: data.unreadCount?.[userId] || 0,
       });

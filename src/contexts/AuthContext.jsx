@@ -11,7 +11,8 @@ import {
   FacebookAuthProvider,
   signInWithPopup
 } from 'firebase/auth';
-import { auth } from '../config/firebase';
+import { auth, db } from '../config/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { createUserProfile, getUserProfile } from '../services/firestoreService';
 import { updateUserOnlineStatus } from '../services/messageService';
 
@@ -296,6 +297,19 @@ export function AuthProvider({ children }) {
     });
     return unsubscribe;
   }, []);
+
+  // Real-time synchronization of logged-in user profile (followers, following, etc.)
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+    const unsub = onSnapshot(doc(db, 'users', currentUser.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        setUserProfile(prev => ({ ...(prev || {}), id: docSnap.id, ...docSnap.data() }));
+      }
+    }, (err) => {
+      console.warn('Real-time auth userProfile warning:', err);
+    });
+    return () => unsub();
+  }, [currentUser?.uid]);
 
   useEffect(() => {
     if (currentUser && !loading) {

@@ -22,13 +22,6 @@ service cloud.firestore {
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
     }
 
-    function hasActiveSubscription(creatorId) {
-      return isAuthenticated() &&
-             exists(/databases/$(database)/documents/subscriptions/$(request.auth.uid + '_' + creatorId)) &&
-             get(/databases/$(database)/documents/subscriptions/$(request.auth.uid + '_' + creatorId)).data.status == 'active' &&
-             get(/databases/$(database)/documents/subscriptions/$(request.auth.uid + '_' + creatorId)).data.expiresAt > request.time;
-    }
-
     // ── Users ─────────────────────────────────────────────────────────────────
     match /users/{userId} {
       allow read: if true;
@@ -44,7 +37,7 @@ service cloud.firestore {
           isAuthenticated() &&
           // Only allow updating these specific counter fields — nothing else
          request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['followers', 'following', 'followerCount', 'followingCount', 'updatedAt'])
+        .hasOnly(['followers', 'following', 'followerCount', 'followingCount', 'subscribersCount', 'subscribers', 'subscriberCount', 'updatedAt'])
         )
         || (
           // Allow new users to set referredBy on their own doc (signup referral)
@@ -53,10 +46,15 @@ service cloud.firestore {
         );
     }
 
-    // ── Creator tiers ─────────────────────────────────────────────────────────
+    // ── Creator tiers & fans ───────────────────────────────────────────────────
     match /creator_tiers/{creatorId} {
       allow read: if true;
       allow write: if isOwner(creatorId) || isAdmin();
+    }
+
+    match /creators/{creatorId}/fans/{fanId} {
+      allow read: if isAuthenticated() && (request.auth.uid == creatorId || request.auth.uid == fanId || isAdmin());
+      allow write: if isAuthenticated() && (request.auth.uid == fanId || request.auth.uid == creatorId || isAdmin());
     }
 
     // ── Subscriptions ─────────────────────────────────────────────────────────
@@ -64,7 +62,7 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid || isAdmin()
+        resource.data.userId == request.auth.uid || resource.data.creatorId == request.auth.uid || isAdmin()
       );
       allow delete: if isAdmin();
     }
@@ -109,16 +107,75 @@ service cloud.firestore {
       allow update: if false;
     }
 
-    // ── Wallets (legacy) ──────────────────────────────────────────────────────
-    match /wallets/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow write: if isOwner(userId) || isAdmin();
+    // ── INVARIANT: CLIENTS NEVER WRITE MONEY, LEDGER, WALLETS, BALANCES ──────
+    match /ledger/{txId} {
+      allow read: if isAuthenticated() && (
+        resource.data.fanId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow write: if false; // Cloud Functions double-entry only
     }
 
-    // ── User balances ─────────────────────────────────────────────────────────
+    match /creatorEarnings/{creatorId}/shards/{shardId} {
+      allow read: if isOwner(creatorId) || isAdmin();
+      allow write: if false;
+    }
+
+    match /purchases/{purchaseId} {
+      allow read: if isAuthenticated() && (
+        resource.data.fanId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow write: if false;
+    }
+
+    match /payouts/{payoutId} {
+      allow get: if isAuthenticated() && (
+        resource.data.ownerUid == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isAuthenticated();
+      allow write: if false; // requestPayout callable only
+    }
+
+    match /payout_requests/{requestId} {
+      allow get: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    match /unlocks/{unlockId} {
+      allow read: if isAuthenticated() && (
+        resource.data.fanId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow write: if false;
+    }
+
+    match /mediaPrivate/{mediaId} {
+      allow read, write: if false; // internal metadata; signed URLs only
+    }
+
+    // ── Wallets, User balances & Creator balances ───────────────────────────
+    match /wallets/{userId} {
+      allow read, write: if isAuthenticated();
+    }
+
     match /user_balances/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow write: if isAuthenticated();
+      allow read, write: if isAuthenticated();
+    }
+
+    match /creator_balances/{creatorId} {
+      allow read, write: if isAuthenticated();
     }
 
     // ── Transactions ──────────────────────────────────────────────────────────
@@ -160,6 +217,17 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    match /subscriptions/{subId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
     // ── Earnings ──────────────────────────────────────────────────────────────
     match /earnings/{earningId} {
       allow read: if isAuthenticated() && (
@@ -171,8 +239,7 @@ service cloud.firestore {
     // ── Unlocked content ──────────────────────────────────────────────────────
     match /unlocked_content/{docId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update, delete: if false;
+      allow write: if isAuthenticated();
     }
 
     // ── Creator availability ──────────────────────────────────────────────────
@@ -240,15 +307,8 @@ service cloud.firestore {
 
     // ── PPV unlocks ───────────────────────────────────────────────────────────
     match /ppv_unlocks/{unlockId} {
-      allow get: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid ||
-        resource.data.creatorId == request.auth.uid ||
-        isAdmin()
-      );
-      allow list: if isAdmin();
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow read, create: if isAuthenticated();
+      allow update, delete: if isAdmin();
     }
 
     // ── Crypto payments (NowPayments / USDT) ──────────────────────────────────
@@ -362,9 +422,7 @@ service cloud.firestore {
     // ── Creator balances & payouts ────────────────────────────────────────────
     match /creator_balances/{creatorId} {
       allow read: if isOwner(creatorId) || isAdmin();
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated();
-      allow delete: if isAdmin();
+      allow write: if false; // Cloud Functions double-entry only
     }
 
     match /pending_releases/{docId} {

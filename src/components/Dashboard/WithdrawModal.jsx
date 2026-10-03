@@ -7,11 +7,11 @@ import {
   AlertCircle, Info, CreditCard, Clock
 } from 'lucide-react';
 import {
-  doc, getDoc, addDoc, collection,
-  updateDoc, serverTimestamp, increment,
-  query, where, orderBy, getDocs
+  doc, getDoc, updateDoc, addDoc, collection,
+  query, where, orderBy, getDocs, serverTimestamp, increment
 } from 'firebase/firestore';
-import { db } from '../../config/firebase';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../../config/firebase';
 import { useAuth } from '../../hooks/useAuth';
 
 const MIN_WITHDRAW = 20;
@@ -22,7 +22,7 @@ const METHODS = [
   { id: 'btc',        label: 'Bitcoin (BTC)', emoji: '₿', desc: 'Bitcoin network' },
 ];
 
-export default function WithdrawModal({ isOpen, onClose }) {
+export default function WithdrawModal({ isOpen, onClose, initialTab = 'withdraw' }) {
   const { currentUser } = useAuth();
 
   const [balance, setBalance]     = useState({ available: 0 });
@@ -34,7 +34,7 @@ export default function WithdrawModal({ isOpen, onClose }) {
   const [success, setSuccess]     = useState(false);
   const [error, setError]         = useState('');
 
-  const [tab, setTab] = useState('withdraw'); // 'withdraw' | 'history'
+  const [tab, setTab] = useState(initialTab); // 'withdraw' | 'history'
   const [history, setHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
@@ -42,14 +42,14 @@ export default function WithdrawModal({ isOpen, onClose }) {
     if (!isOpen) {
       setAmount(''); setAddress(''); setError('');
       setSuccess(false); setMethod(METHODS[0].id);
-      setTab('withdraw');
       return;
     }
+    setTab(initialTab);
     if (currentUser) {
       loadBalance();
-      if (tab === 'history') loadHistory();
+      loadHistory();
     }
-  }, [isOpen, currentUser, tab]);
+  }, [isOpen, currentUser, initialTab]);
 
   const loadHistory = async () => {
     try {
@@ -81,14 +81,19 @@ export default function WithdrawModal({ isOpen, onClose }) {
     try {
       setLoading(true);
       const snap = await getDoc(doc(db, 'creator_balances', currentUser.uid));
+      let available = 0;
       if (snap.exists()) {
         const d = snap.data();
-        // Combine old pendingBalance + availableBalance so historical earnings are withdrawable
-        const available = (d.availableBalance || 0) + (d.pendingBalance || 0);
-        setBalance({ available });
-      } else {
-        setBalance({ available: 0 });
+        available = (d.availableBalance || 0) + (d.pendingBalance || 0);
       }
+      try {
+        const wSnap = await getDoc(doc(db, 'wallets', currentUser.uid));
+        if (wSnap.exists() && wSnap.data().balanceMinor !== undefined) {
+          const wBal = wSnap.data().balanceMinor / 100;
+          available = Math.max(available, wBal);
+        }
+      } catch (_) {}
+      setBalance({ available });
     } catch (e) {
       console.error(e);
     } finally {
@@ -118,28 +123,65 @@ export default function WithdrawModal({ isOpen, onClose }) {
     try {
       setSubmitting(true);
 
-      // Create payout request
-      await addDoc(collection(db, 'payout_requests'), {
-        creatorId: currentUser.uid,
-        amount: amountNum,
-        fee,
-        netAmount: youGet,
-        method,
-        walletAddress: address.trim(),
-        status: 'pending',
-        createdAt: serverTimestamp(),
-      });
+      let submitted = false;
+      try {
+        // Call secure Cloud Function
+        const requestPayoutFn = httpsCallable(functions, 'requestPayout');
+        await requestPayoutFn({
+          amountMinor: Math.round(amountNum * 100),
+          payoutAddress: address.trim(),
+          networkFeeMinor: Math.round(fee * 100),
+        });
+        submitted = true;
+      } catch (cloudErr) {
+        console.warn('Cloud function requestPayout failed, falling back to direct payout request:', cloudErr.message);
 
-      // Deduct from available balance
-      await updateDoc(doc(db, 'creator_balances', currentUser.uid), {
-        availableBalance: increment(-amountNum),
-        updatedAt: serverTimestamp(),
-      });
+        // Fallback: direct reservation in creator_balances
+        const creatorBalRef = doc(db, 'creator_balances', currentUser.uid);
+        await updateDoc(creatorBalRef, {
+          availableBalance: increment(-amountNum),
+          pendingPayoutBalance: increment(amountNum),
+          updatedAt: serverTimestamp(),
+        });
 
-      setSuccess(true);
-      setBalance(prev => ({ ...prev, available: prev.available - amountNum }));
+        // Also decrement wallets if present
+        try {
+          const walletRef = doc(db, 'wallets', currentUser.uid);
+          const wSnap = await getDoc(walletRef);
+          if (wSnap.exists()) {
+            await updateDoc(walletRef, {
+              balanceMinor: increment(-Math.round(amountNum * 100)),
+              updatedAt: serverTimestamp(),
+            });
+          }
+        } catch (_) {}
+
+        // Create payout request doc
+        await addDoc(collection(db, 'payout_requests'), {
+          creatorId: currentUser.uid,
+          userId: currentUser.uid,
+          amount: amountNum,
+          amountMinor: Math.round(amountNum * 100),
+          fee,
+          networkFeeMinor: Math.round(fee * 100),
+          netAmount: youGet,
+          method,
+          walletAddress: address.trim(),
+          payoutAddress: address.trim(),
+          status: 'pending',
+          createdAt: serverTimestamp(),
+        });
+
+        submitted = true;
+      }
+
+      if (submitted) {
+        setSuccess(true);
+        setBalance(prev => ({ ...prev, available: Math.max(0, prev.available - amountNum) }));
+        if (tab === 'history') loadHistory();
+      }
     } catch (e) {
-      setError('Failed to submit withdrawal: ' + e.message);
+      setError('Failed to submit withdrawal: ' + (e.message || 'Unknown error'));
     } finally {
       setSubmitting(false);
     }
@@ -195,21 +237,56 @@ export default function WithdrawModal({ isOpen, onClose }) {
                   {loadingHistory ? (
                     <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
                   ) : history.length === 0 ? (
-                    <div className="text-center py-10 text-gray-500 text-sm">No withdrawal history found.</div>
+                    <div className="text-center py-10">
+                      <CreditCard className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                      <p className="text-gray-600 text-sm font-semibold">No withdrawal history found</p>
+                      <p className="text-gray-400 text-xs mt-1">Payout requests and blockchain settlements will show here.</p>
+                    </div>
                   ) : (
                     <div className="space-y-3">
                       {history.map(item => (
-                        <div key={item.id} className="p-3 border border-gray-100 rounded-xl bg-gray-50">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="font-bold text-gray-900">${item.amount?.toFixed(2)}</span>
-                            {item.status === 'pending' && <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded font-medium">Pending</span>}
-                            {item.status === 'completed' && <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded font-medium">Paid</span>}
-                            {item.status === 'rejected' && <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded font-medium">Rejected</span>}
+                        <div key={item.id} className="p-3.5 border border-gray-200/80 rounded-2xl bg-gray-50/80">
+                          <div className="flex justify-between items-center mb-1.5">
+                            <span className="font-extrabold text-gray-900 text-base">
+                              ${item.amount ? Number(item.amount).toFixed(2) : '0.00'}
+                            </span>
+                            {item.status === 'pending' && (
+                              <span className="bg-amber-100 text-amber-800 text-xs px-2.5 py-0.5 rounded-full font-bold">
+                                Pending Approval
+                              </span>
+                            )}
+                            {(item.status === 'completed' || item.status === 'sent') && (
+                              <span className="bg-emerald-100 text-emerald-800 text-xs px-2.5 py-0.5 rounded-full font-bold">
+                                Paid & Settled
+                              </span>
+                            )}
+                            {item.status === 'rejected' && (
+                              <span className="bg-rose-100 text-rose-800 text-xs px-2.5 py-0.5 rounded-full font-bold">
+                                Rejected & Refunded
+                              </span>
+                            )}
                           </div>
-                          <div className="flex justify-between items-center text-xs text-gray-500">
-                            <span>{item.method}</span>
+                          <div className="flex justify-between items-center text-xs text-gray-500 mb-1">
+                            <span className="font-medium">{item.method || 'USDT TRC20'}</span>
                             <span>{item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString() : 'Recent'}</span>
                           </div>
+                          <div className="text-[11px] text-gray-400 truncate font-mono">
+                            To: {item.walletAddress || item.payoutAddress || 'Wallet'}
+                          </div>
+                          {item.txHash && (
+                            <div className="mt-2 pt-2 border-t border-gray-200/60 flex items-center justify-between text-[11px]">
+                              <span className="text-gray-500 font-medium">TX Hash:</span>
+                              <a
+                                href={`https://tronscan.org/#/transaction/${item.txHash}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-700 font-mono flex items-center gap-1 font-semibold"
+                              >
+                                <span>{item.txHash.slice(0, 8)}...{item.txHash.slice(-6)}</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
