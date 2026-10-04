@@ -6,7 +6,7 @@ import {
   Heart, MessageCircle, Settings, ArrowLeft, Lock, Star,
   MapPin, Calendar, Link as LinkIcon, MoreVertical, Archive,
   Loader2, Camera, Flag, Ban, X, Eye, EyeOff, Video, Phone, Gift,
-  ShieldOff, RotateCcw, Crown, Sparkles
+  ShieldOff, RotateCcw, Crown, Sparkles, Globe
 } from 'lucide-react';
 
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
@@ -26,12 +26,13 @@ import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'fire
 import { db } from '../../config/firebase';
 import { useContentSettings } from '../../hooks/useContentSettings';
 import { getPostImage } from '../../utils/imageHelpers';
+import { detectUserCountry, isUserGeoBlocked } from '../../services/geoService';
 
 export default function CreatorProfile() {
   const navigate = useNavigate();
   const { username } = useParams();
   const location = useLocation();
-  const { currentUser } = useAuth();
+  const { currentUser, userProfile } = useAuth();
   const { showNSFW, setShowNSFW } = useContentSettings();
 
   const [activeTab, setActiveTab] = useState('posts');
@@ -56,6 +57,7 @@ export default function CreatorProfile() {
   const [showPostModal, setShowPostModal] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
+  const [isGeoBlocked, setIsGeoBlocked] = useState(false);
 
   // Livestream entry ticket states
   const [checkingTicket, setCheckingTicket] = useState(false);
@@ -194,6 +196,27 @@ export default function CreatorProfile() {
       if (!foundCreator) { setCreator(null); return; }
 
       const uid = foundCreator.uid || foundCreator.id;
+
+      // Check Geo-blocking
+      const isViewerOwnProfile = currentUser?.uid === uid;
+      if (!isViewerOwnProfile && foundCreator.geoBlockingEnabled && foundCreator.blockedCountries?.length > 0) {
+        try {
+          const viewerCountry = await detectUserCountry(userProfile);
+          if (isUserGeoBlocked(foundCreator, viewerCountry, isViewerOwnProfile)) {
+            setIsGeoBlocked(true);
+            setCreator({
+              uid,
+              username: foundCreator.username || 'creator',
+              name: foundCreator.displayName || 'Creator',
+            });
+            setLoading(false);
+            return;
+          }
+        } catch (geoErr) {
+          console.warn('Geo-block check error:', geoErr);
+        }
+      }
+      setIsGeoBlocked(false);
 
       // ✅ SPEED OPTIMIZATION FOR LOGGED-OUT USERS: Skip heavy queries (subscriptions, call settings, user posts) when on landing page
       if (!currentUser && !hasEntered) {
@@ -660,10 +683,35 @@ export default function CreatorProfile() {
   const isArchiveTab = activeTab === 'archive';
   const displayPosts = isArchiveTab ? filteredArchivedPosts : filteredActivePosts;
 
-  if (loading || (!currentUser && hasLocalAuthUser)) {
+  if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-rose-500 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="relative w-8 h-8">
+          <div className="absolute inset-0 rounded-full border-2 border-rose-100" />
+          <div className="absolute inset-0 rounded-full border-2 border-rose-500 border-t-transparent animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
+  if (isGeoBlocked) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-8 text-center border border-gray-100">
+          <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-rose-100 shadow-sm">
+            <Globe className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Content Unavailable in Your Region</h2>
+          <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+            This creator has restricted their profile and content from being viewed in your country.
+          </p>
+          <button
+            onClick={() => navigate('/discover')}
+            className="w-full py-3 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold rounded-xl shadow-md hover:from-rose-600 hover:to-pink-700 transition"
+          >
+            Explore Other Creators
+          </button>
+        </div>
       </div>
     );
   }

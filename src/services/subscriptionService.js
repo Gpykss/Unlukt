@@ -8,6 +8,8 @@ import {
 import { db } from '../config/firebase';
 import { deductFromWallet } from './walletService';
 import { getCreatorSplit, creditAmbassadorCommission } from './commissionService';
+import { createSubscriptionNotification } from './notificationService';
+import { sendCreatorAutoMessage } from './messageService';
 
 export const DURATIONS = {
   daily:   { label: 'Daily',   days: 1,  badge: '24hrs'   },
@@ -195,6 +197,22 @@ export const subscribeToCreator = async (
     expiresAt: Timestamp.fromDate(expiresAt),
     createdAt: serverTimestamp(),
   });
+
+  // 5. Notify creator about new subscriber
+  try {
+    const subscriberDoc = await getDoc(doc(db, 'users', userId));
+    const subscriberData = subscriberDoc.exists() ? subscriberDoc.data() : { displayName: 'Fan' };
+    await createSubscriptionNotification(userId, creatorId, subscriberData);
+  } catch (notifErr) {
+    console.warn('⚠️ Subscription notification error:', notifErr);
+  }
+
+  // 6. Send automated welcome message from creator to new subscriber
+  try {
+    await sendCreatorAutoMessage(creatorId, userId, 'subscription');
+  } catch (autoMsgErr) {
+    console.warn('⚠️ Automated subscriber welcome message error:', autoMsgErr);
+  }
 
   return { success: true, price, expiresAt, duration };
 };

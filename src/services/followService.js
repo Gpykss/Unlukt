@@ -16,6 +16,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { createFollowNotification } from './notificationService';
+import { sendCreatorAutoMessage } from './messageService';
 
 export const followUser = async (followerId, followingId) => {
   try {
@@ -72,6 +73,13 @@ export const followUser = async (followerId, followingId) => {
     } catch (notifError) {
       console.error('❌ Failed to create follow notification:', notifError.message);
       // Don't throw — notification failure shouldn't stop the follow
+    }
+
+    // Send automated welcome message from creator if enabled
+    try {
+      await sendCreatorAutoMessage(followingId, followerId, 'follow');
+    } catch (autoMsgErr) {
+      console.warn('⚠️ Automated follow message error:', autoMsgErr);
     }
 
     console.log('✅ Followed successfully');

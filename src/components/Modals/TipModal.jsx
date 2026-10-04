@@ -8,6 +8,7 @@ import { getWalletBalance, deductFromWallet } from '../../services/walletService
 import { doc, updateDoc, setDoc, serverTimestamp, increment, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { getCreatorSplit, creditAmbassadorCommission } from '../../services/commissionService';
+import { createTipNotification } from '../../services/notificationService';
 
 const QUICK_AMOUNTS = [1, 2, 5, 10, 20, 50];
 
@@ -22,7 +23,7 @@ const GIFTS = [
 
 export default function TipModal({ isOpen, onClose, creator }) {
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, userProfile } = useAuth();
 
   const [tab, setTab] = useState('gifts');
   const [selectedGift, setSelectedGift] = useState(null);
@@ -108,6 +109,14 @@ export default function TipModal({ isOpen, onClose, creator }) {
         giftId: selectedGift?.id || null, giftEmoji: selectedGift?.emoji || null,
         giftName: selectedGift?.name || null, message: message || null, createdAt: serverTimestamp(),
       });
+
+      // Notify creator about tip
+      try {
+        await createTipNotification(currentUser.uid, creator.uid, userProfile, tipAmount);
+      } catch (notifErr) {
+        console.warn('⚠️ Tip notification error:', notifErr);
+      }
+
       setSuccess(true);
       setBalance(prev => prev - tipAmount);
     } catch (e) {

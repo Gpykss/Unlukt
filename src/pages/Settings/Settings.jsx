@@ -5,8 +5,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   User, Lock, CreditCard, LogOut, ChevronRight, ChevronDown,
   Mail, Phone, Globe, Eye, EyeOff, Ban, Download,
-  Check, X, AlertTriangle, Loader2, ArrowLeft, MapPin, Tag, DollarSign, Crown, Sparkles
+  Check, X, AlertTriangle, Loader2, ArrowLeft, MapPin, Tag, DollarSign, Crown, Sparkles,
+  MessageSquare, Shield
 } from 'lucide-react';
+import { ALL_COUNTRIES } from '../../services/geoService';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useUserProfile } from '../../hooks/useUserProfile';
@@ -47,6 +49,21 @@ export default function Settings() {
   const [priceDaily, setPriceDaily]     = useState('');
   const [savingPrice, setSavingPrice] = useState(false);
 
+  // Automated Welcome Messages
+  const [autoMessages, setAutoMessages] = useState({
+    subscriberEnabled: true,
+    subscriberMessage: 'Hey {name}! 🎉 Thank you so much for subscribing to my profile. So excited to have you here! Feel free to DM me anytime.',
+    followerEnabled: true,
+    followerMessage: 'Hey {name}! 👋 Thanks for following my profile. Stay tuned for exclusive posts and updates!',
+  });
+  const [savingAutoMessages, setSavingAutoMessages] = useState(false);
+
+  // Geo-Blocking / Country Restrictions
+  const [geoBlockingEnabled, setGeoBlockingEnabled] = useState(false);
+  const [blockedCountries, setBlockedCountries] = useState([]);
+  const [savingGeo, setSavingGeo] = useState(false);
+  const [countrySearch, setCountrySearch] = useState('');
+
   // ✅ Collapsible sections state
   const [expandedSections, setExpandedSections] = useState({
     account: true,
@@ -79,6 +96,16 @@ export default function Settings() {
       setPriceMonthly(String(profile.subscriptionPriceMonthly ?? profile.subscriptionPrice ?? '9.99'));
       setPriceWeekly(String(profile.subscriptionPriceWeekly ?? ''));
       setPriceDaily(String(profile.subscriptionPriceDaily ?? ''));
+      if (profile.autoMessages) {
+        setAutoMessages({
+          subscriberEnabled: profile.autoMessages.subscriberEnabled !== false,
+          subscriberMessage: profile.autoMessages.subscriberMessage || 'Hey {name}! 🎉 Thank you so much for subscribing to my profile. So excited to have you here! Feel free to DM me anytime.',
+          followerEnabled: profile.autoMessages.followerEnabled !== false,
+          followerMessage: profile.autoMessages.followerMessage || 'Hey {name}! 👋 Thanks for following my profile. Stay tuned for exclusive posts and updates!',
+        });
+      }
+      setGeoBlockingEnabled(profile.geoBlockingEnabled === true);
+      setBlockedCountries(Array.isArray(profile.blockedCountries) ? profile.blockedCountries : []);
     }
   }, [profile]);
 
@@ -160,9 +187,45 @@ export default function Settings() {
         subscriptionPriceWeekly:  priceWeekly !== '' ? weekly  : null,
         subscriptionPriceDaily:   priceDaily  !== '' ? daily   : null,
       });
-      showToast('Subscription prices saved!');
-    } catch { showToast('Failed to save prices', 'error'); }
+      } catch { showToast('Failed to save prices', 'error'); }
     finally { setSavingPrice(false); }
+  };
+
+  const handleSaveAutoMessages = async () => {
+    if (!currentUser || !isCreator) return;
+    setSavingAutoMessages(true);
+    try {
+      await updateUserProfile(currentUser.uid, { autoMessages });
+      showToast('Automated welcome messages saved!');
+    } catch {
+      showToast('Failed to save automated messages', 'error');
+    } finally {
+      setSavingAutoMessages(false);
+    }
+  };
+
+  const handleToggleCountryBlock = (countryCode) => {
+    const code = countryCode.toUpperCase();
+    setBlockedCountries(prev => {
+      if (prev.includes(code)) return prev.filter(c => c !== code);
+      return [...prev, code];
+    });
+  };
+
+  const handleSaveGeoBlocking = async () => {
+    if (!currentUser || !isCreator) return;
+    setSavingGeo(true);
+    try {
+      await updateUserProfile(currentUser.uid, {
+        geoBlockingEnabled,
+        blockedCountries,
+      });
+      showToast('Geo-blocking preferences saved!');
+    } catch {
+      showToast('Failed to save geo-blocking preferences', 'error');
+    } finally {
+      setSavingGeo(false);
+    }
   };
 
   const handleDeleteAccount = async () => {
@@ -449,12 +512,215 @@ export default function Settings() {
             </div>
 
             {/* Discount Manager */}
-            <div className="p-6">
+            <div className="p-6 border-b border-gray-200">
               <CreatorDiscountManager
                 baseMonthly={parseFloat(priceMonthly) || 0}
                 baseWeekly={priceWeekly !== '' ? parseFloat(priceWeekly) : null}
                 baseDaily={priceDaily   !== '' ? parseFloat(priceDaily)  : null}
               />
+            </div>
+
+            {/* ========== AUTOMATED WELCOME MESSAGES ========== */}
+            <div className="p-6 border-b border-gray-200 bg-white">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="p-1.5 rounded-lg bg-sky-100 text-sky-600">
+                  <MessageSquare className="w-4 h-4" />
+                </span>
+                <h3 className="text-base font-bold text-gray-900">💬 Automated Welcome Messages</h3>
+              </div>
+              <p className="text-xs text-gray-500 mb-5">
+                Automatically send a personalized direct message to fans the moment they subscribe or follow you. Use <code className="bg-gray-100 px-1 py-0.5 rounded text-rose-600 font-bold">{'{name}'}</code> to personalize with the fan's name.
+              </p>
+
+              <div className="space-y-6 max-w-xl">
+                {/* 1. New Subscriber Auto-Message */}
+                <div className="p-4 bg-gray-50/70 border border-gray-200 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+                        <Crown className="w-4 h-4 text-amber-500" />
+                        <span>New Subscriber Greeting</span>
+                      </h4>
+                      <p className="text-xs text-gray-500">Sent immediately when a fan joins any paid membership tier.</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoMessages.subscriberEnabled}
+                        onChange={(e) => setAutoMessages(p => ({ ...p, subscriberEnabled: e.target.checked }))}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-500"></div>
+                    </label>
+                  </div>
+
+                  {autoMessages.subscriberEnabled && (
+                    <textarea
+                      rows={3}
+                      value={autoMessages.subscriberMessage}
+                      onChange={(e) => setAutoMessages(p => ({ ...p, subscriberMessage: e.target.value }))}
+                      placeholder="e.g. Hey {name}! 🎉 Thank you so much for subscribing to my profile. Feel free to DM me anytime!"
+                      className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 bg-white"
+                    />
+                  )}
+                </div>
+
+                {/* 2. New Follower Auto-Message */}
+                <div className="p-4 bg-gray-50/70 border border-gray-200 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+                        <User className="w-4 h-4 text-emerald-500" />
+                        <span>New Follower Greeting</span>
+                      </h4>
+                      <p className="text-xs text-gray-500">Sent immediately when someone follows your public profile.</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoMessages.followerEnabled}
+                        onChange={(e) => setAutoMessages(p => ({ ...p, followerEnabled: e.target.checked }))}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-500"></div>
+                    </label>
+                  </div>
+
+                  {autoMessages.followerEnabled && (
+                    <textarea
+                      rows={3}
+                      value={autoMessages.followerMessage}
+                      onChange={(e) => setAutoMessages(p => ({ ...p, followerMessage: e.target.value }))}
+                      placeholder="e.g. Hey {name}! 👋 Thanks for following my profile. Stay tuned for exclusive posts and updates!"
+                      className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 bg-white"
+                    />
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSaveAutoMessages}
+                  disabled={savingAutoMessages}
+                  className="px-5 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center justify-center gap-2"
+                >
+                  {savingAutoMessages ? <Loader2 className="w-4 h-4 animate-spin" /> : '💾 Save Automated Messages'}
+                </button>
+              </div>
+            </div>
+
+            {/* ========== GEO-BLOCKING / COUNTRY RESTRICTIONS ========== */}
+            <div className="p-6 bg-white">
+              <div className="flex items-center justify-between gap-4 mb-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="p-1.5 rounded-lg bg-rose-100 text-rose-600">
+                      <Globe className="w-4 h-4" />
+                    </span>
+                    <h3 className="text-base font-bold text-gray-900">🌍 Geo-Blocking / Regional Privacy</h3>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1 max-w-lg">
+                    Restrict users in selected countries from viewing your profile, exclusive posts, or subscribing.
+                  </p>
+                </div>
+
+                <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={geoBlockingEnabled}
+                    onChange={(e) => setGeoBlockingEnabled(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-500"></div>
+                </label>
+              </div>
+
+              {geoBlockingEnabled && (
+                <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-4 max-w-xl">
+                  {/* Selected countries chips */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+                      Blocked Countries ({blockedCountries.length})
+                    </label>
+                    {blockedCountries.length === 0 ? (
+                      <p className="text-xs text-gray-400 italic">No countries blocked yet. Select countries below to restrict access.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {blockedCountries.map((code) => {
+                          const cObj = ALL_COUNTRIES.find(c => c.code === code) || { code, name: code, flag: '🌐' };
+                          return (
+                            <span
+                              key={code}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-rose-200 rounded-full text-xs font-bold text-rose-700 shadow-2xs"
+                            >
+                              <span>{cObj.flag}</span>
+                              <span>{cObj.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleCountryBlock(code)}
+                                className="ml-1 text-gray-400 hover:text-red-600 transition"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Search / Add country */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                      Search & Add Country to Block:
+                    </label>
+                    <input
+                      type="text"
+                      value={countrySearch}
+                      onChange={(e) => setCountrySearch(e.target.value)}
+                      placeholder="Type country name (e.g. Nigeria, United States, Ghana)..."
+                      className="w-full p-2.5 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-rose-500 bg-white"
+                    />
+
+                    {/* Filtered suggestions list */}
+                    <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 rounded-xl bg-white divide-y divide-gray-100 shadow-inner">
+                      {ALL_COUNTRIES
+                        .filter(c => !countrySearch.trim() || c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase()))
+                        .map((c) => {
+                          const isBlocked = blockedCountries.includes(c.code);
+                          return (
+                            <button
+                              key={c.code}
+                              type="button"
+                              onClick={() => handleToggleCountryBlock(c.code)}
+                              className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between transition ${
+                                isBlocked ? 'bg-rose-50/80 font-bold text-rose-700' : 'hover:bg-gray-50 text-gray-700'
+                              }`}
+                            >
+                              <span className="flex items-center gap-2">
+                                <span className="text-base">{c.flag}</span>
+                                <span>{c.name} ({c.code})</span>
+                              </span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                                isBlocked ? 'bg-rose-200 text-rose-900' : 'bg-gray-100 text-gray-500'
+                              }`}>
+                                {isBlocked ? 'Blocked 🚫' : '+ Block'}
+                              </span>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveGeoBlocking}
+                    disabled={savingGeo}
+                    className="px-5 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center justify-center gap-2"
+                  >
+                    {savingGeo ? <Loader2 className="w-4 h-4 animate-spin" /> : '💾 Save Geo-Blocking Preferences'}
+                  </button>
+                </div>
+              )}
             </div>
           </CollapsibleSection>
         )}

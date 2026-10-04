@@ -327,8 +327,13 @@ export const likePost = async (postId, userId, postOwnerId, userProfile) => {
 
     if (userId !== postData.userId) {
       try {
+        let actorData = userProfile;
+        if (!actorData || !actorData.displayName) {
+          const uDoc = await getDoc(doc(db, 'users', userId));
+          if (uDoc.exists()) actorData = uDoc.data();
+        }
         const postImage = postData.images?.[0]?.url || null;
-        await createLikeNotification(userId, postData.userId, userProfile, postId, postImage);
+        await createLikeNotification(userId, postData.userId, actorData, postId, postImage);
       } catch (notifError) {
         console.error('⚠️ Like notification failed:', notifError);
       }

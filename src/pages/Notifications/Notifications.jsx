@@ -204,10 +204,34 @@ export default function Notifications() {
       try { await markNotificationAsRead(n.id); } catch {}
     }
     switch (n.type) {
-      case 'call_booking': if (n.bookingId) navigate(`/waiting-room/${n.bookingId}`); break;
-      case 'follow':       if (n.actorUsername) navigate(`/creator/${n.actorUsername}`); break;
-      case 'refund':       navigate('/wallet'); break;
-      default: break;
+      case 'call_booking':
+        if (n.bookingId) navigate(`/waiting-room/${n.bookingId}`);
+        break;
+      case 'follow':
+        if (n.actorUsername) navigate(`/creator/${n.actorUsername}`);
+        else if (n.actorId) navigate(`/creator/${n.actorId}`);
+        break;
+      case 'subscriber':
+        navigate('/dashboard');
+        break;
+      case 'tip':
+        navigate('/wallet');
+        break;
+      case 'like':
+      case 'comment':
+        if (n.actorUsername) navigate(`/creator/${n.actorUsername}`);
+        else navigate('/feed');
+        break;
+      case 'message':
+        navigate('/messages');
+        break;
+      case 'refund':
+      case 'payout':
+      case 'withdrawal':
+        navigate('/wallet');
+        break;
+      default:
+        break;
     }
   };
 

@@ -610,3 +610,92 @@ export const getUserConversations = async (userId) => {
     return [];
   }
 };
+
+/**
+ * Send automated message from creator to fan on subscription or follow
+ * @param {string} creatorId
+ * @param {string} fanId
+ * @param {'subscription' | 'follow'} type
+ */
+export const sendCreatorAutoMessage = async (creatorId, fanId, type = 'follow') => {
+  if (!creatorId || !fanId || creatorId === fanId) return;
+
+  try {
+    // 1. Fetch creator profile to read their auto-messages settings
+    const creatorDoc = await getDoc(doc(db, 'users', creatorId));
+    if (!creatorDoc.exists()) return;
+    const creatorData = creatorDoc.data();
+
+    const autoConfig = creatorData.autoMessages || {};
+    
+    let isEnabled = true;
+    let template = '';
+
+    if (type === 'subscription') {
+      isEnabled = autoConfig.subscriberEnabled !== false; // enabled by default
+      template = autoConfig.subscriberMessage || 'Hey {name}! 🎉 Thank you so much for subscribing to my profile. So excited to have you here! Feel free to DM me anytime.';
+    } else {
+      isEnabled = autoConfig.followerEnabled !== false; // enabled by default
+      template = autoConfig.followerMessage || 'Hey {name}! 👋 Thanks for following my profile. Stay tuned for exclusive posts and updates!';
+    }
+
+    if (!isEnabled || !template.trim()) {
+      return;
+    }
+
+    // 2. Fetch fan profile to personalize {name}
+    let fanName = 'there';
+    const fanDoc = await getDoc(doc(db, 'users', fanId));
+    let fanData = {};
+    if (fanDoc.exists()) {
+      fanData = fanDoc.data();
+      fanName = fanData.displayName || fanData.name || (fanData.username ? `@${fanData.username}` : 'there');
+    }
+
+    const messageText = template
+      .replace(/{name}/gi, fanName)
+      .replace(/{creator}/gi, creatorData.displayName || 'Creator');
+
+    // 3. Get or create conversation between creator and fan
+    const conversation = await getOrCreateConversation(creatorId, fanId);
+    if (!conversation?.id) return;
+
+    // 4. Send message from creator to fan
+    const messagesRef = collection(db, 'conversations', conversation.id, 'messages');
+    await addDoc(messagesRef, {
+      senderId: creatorId,
+      receiverId: fanId,
+      text: messageText,
+      read: false,
+      isAutoMessage: true,
+      createdAt: serverTimestamp(),
+    });
+
+    // 5. Update conversation unread count for fan
+    const conversationRef = doc(db, 'conversations', conversation.id);
+    const conversationSnap = await getDoc(conversationRef);
+    const currentUnread = conversationSnap.exists()
+      ? conversationSnap.data()?.unreadCount?.[fanId] || 0
+      : 0;
+
+    await updateDoc(conversationRef, {
+      lastMessage: messageText,
+      lastMessageTime: serverTimestamp(),
+      [`unreadCount.${fanId}`]: currentUnread + 1,
+      [`participantDetails.${creatorId}`]: {
+        displayName: creatorData.displayName || 'Creator',
+        avatar: creatorData.avatar || creatorData.photoURL || '👤',
+        username: creatorData.username || '',
+      },
+      [`participantDetails.${fanId}`]: {
+        displayName: fanData.displayName || 'User',
+        avatar: fanData.avatar || fanData.photoURL || '👤',
+        username: fanData.username || '',
+      }
+    });
+
+    console.log(`✅ Automated ${type} message sent from ${creatorId} to ${fanId}`);
+  } catch (error) {
+    console.warn(`⚠️ Failed to send automated ${type} message:`, error);
+  }
+};
