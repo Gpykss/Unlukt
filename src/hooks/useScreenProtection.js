@@ -1,45 +1,35 @@
 // src/hooks/useScreenProtection.js - React Hook for Anti-Piracy
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAuth } from './useAuth';
 import { initializeAntiPiracy } from '../utils/antiPiracy';
-import logger from '../utils/logger';
 
 /**
- * Hook to enable anti-piracy protection on a page/component
+ * Enable anti-piracy protection on a page/component.
+ * Sets up ONCE per signed-in user (not on every render) and fully cleans up on unmount.
  * @param {Array} elementRefs - Array of React refs to protected elements
- * @param {Object} options - Configuration options
+ * @param {Object} options - { onRecordingDetected, onDevToolsDetected }
  */
 export const useScreenProtection = (elementRefs = [], options = {}) => {
-  const { currentUser, userProfile } = useAuth();
-  
+  const { currentUser } = useAuth();
+  const optionsRef = useRef(options);
+  const refsRef = useRef(elementRefs);
   useEffect(() => {
-    if (!currentUser || !userProfile) return;
-    
-    const elements = elementRefs
-      .map(ref => ref?.current)
-      .filter(Boolean);
-    
-    const cleanup = initializeAntiPiracy({
-      userId: currentUser.uid,
-      userEmail: userProfile.email || currentUser.email,
+    optionsRef.current = options;
+    refsRef.current = elementRefs;
+  });
+
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+    const elements = refsRef.current.map((ref) => ref?.current).filter(Boolean);
+    return initializeAntiPiracy({
       protectedElements: elements,
-      onRecordingDetected: () => {
-        logger.error('Screen recording detected - content blocked');
-        if (options.onRecordingDetected) {
-          options.onRecordingDetected();
-        }
-      },
-      onDevToolsDetected: () => {
-        logger.warn('DevTools detected');
-        if (options.onDevToolsDetected) {
-          options.onDevToolsDetected();
-        }
-      }
+      onRecordingDetected: () => optionsRef.current.onRecordingDetected?.(),
+      onDevToolsDetected: optionsRef.current.onDevToolsDetected
+        ? () => optionsRef.current.onDevToolsDetected?.()
+        : undefined,
     });
-    
-    return cleanup;
-  }, [currentUser, userProfile, elementRefs, options]);
+  }, [currentUser?.uid]);
 };
 
 export default useScreenProtection;

@@ -2,14 +2,17 @@
 
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { consumeNext } from '../utils/authRedirect';
 
 export default function ProtectedRoute({ children, requireVerification = false }) {
   const { currentUser, userProfile } = useAuth();
   const location = useLocation();
 
   // Step 1: Not logged in at all → go to login
+  // Keep where they were going so sign-up / login brings them back here
   if (!currentUser) {
-    return <Navigate to="/login" replace />;
+    const next = location.pathname + location.search;
+    return <Navigate to={`/register?next=${encodeURIComponent(next)}`} replace />;
   }
 
   // Step 2: Email verification check — ONLY when requireVerification={true}
@@ -53,7 +56,7 @@ export default function ProtectedRoute({ children, requireVerification = false }
     location.pathname === '/complete-profile' &&
     userProfile.profileCompleted === true
   ) {
-    return <Navigate to="/feed" replace />;
+    return <Navigate to={consumeNext('/feed')} replace />;
   }
 
   return children;

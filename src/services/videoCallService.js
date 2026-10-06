@@ -2,9 +2,10 @@
 
 import {
   doc, getDoc, setDoc, updateDoc, collection, addDoc,
-  serverTimestamp, increment
+  serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { getCreatorCallStatus, refund as refundPayment, releaseCallEarning } from './payService';
 import logger from '../utils/logger';
 
 export const MINIMUM_VIDEO_PRICE = 5;
@@ -19,8 +20,22 @@ export const CALL_DURATIONS = [
   { mins: 90, label: '1.5 hours' },
 ];
 
-// ✅ Minimum booking lead time in minutes
-export const MIN_BOOKING_LEAD_MINS = 5;
+// ✅ Minimum booking lead time in minutes (creator can cancel if they weren't ready)
+export const MIN_BOOKING_LEAD_MINS = 2;
+
+// A booking nobody completed/cancelled stops blocking the creator this long after its slot ends
+// (so a no-show can't lock a creator out of bookings forever).
+const STALE_BOOKING_GRACE_MINS = 30;
+
+/**
+ * One booking at a time: returns the creator's open booking (confirmed / in progress) or null.
+ * Creators can't be booked again until that call is completed, cancelled or refunded.
+ */
+export const getCreatorActiveBooking = async (creatorId) => {
+  // Asked from the server: fans can't read other people's bookings (they hold notes and prices)
+  const r = await getCreatorCallStatus(creatorId);
+  return r?.busy ? { status: r.status, scheduledAtDate: new Date(r.scheduledAt) } : null;
+};
 
 export const END_CALL_REASONS = {
   ENDED: 'ended',           // call is done
@@ -64,6 +79,7 @@ export const updateCreatorAvailability = async (creatorId, data) => {
       videoCallPrice: videoPrice,
       voiceCallPrice: voicePrice,
       livestreamPrice: livePrice,
+      livestreamFree: data.livestreamFree !== false, // creator chooses: free live or paid 1-hour ticket
       callsEnabled: data.callsEnabled !== false,
       lastUpdated: serverTimestamp(),
     };
@@ -73,6 +89,7 @@ export const updateCreatorAvailability = async (creatorId, data) => {
     const userRef = doc(db, 'users', creatorId);
     await updateDoc(userRef, {
       livestreamPrice: livePrice,
+      livestreamFree: update.livestreamFree,
       videoCallPrice: videoPrice,
       voiceCallPrice: voicePrice,
       callsEnabled: update.callsEnabled,
@@ -100,6 +117,8 @@ export const startVideoCall = async (bookingId, userId) => {
     }
     await updateDoc(bookingRef, {
       status: 'in_progress',
+      // ✅ One shared start time → both sides and any rejoin see the same remaining time
+      ...(booking.callStartedAt ? {} : { callStartedAt: serverTimestamp() }),
       ...(isCreator
         ? { creatorEnteredCallAt: serverTimestamp() }
         : { userEnteredCallAt: serverTimestamp() }
@@ -170,7 +189,11 @@ export const endVideoCall = async (bookingId, userId, reason = END_CALL_REASONS.
 
     // Re-read to check if both ended
     const updated = (await getDoc(bookingRef)).data();
-    const bothEnded = updated.userEnded === true && updated.creatorEnded === true;
+    // Once the booked time is over (+10 min), one person ending is enough to close the call —
+    // otherwise a call the other side never ends stays "in progress" forever.
+    const start = updated.scheduledAt?.toDate?.() || new Date(updated.scheduledAt);
+    const slotOver = Date.now() > start.getTime() + ((updated.duration || CALL_DURATION) + 10) * 60 * 1000;
+    const bothEnded = (updated.userEnded === true && updated.creatorEnded === true) || slotOver;
 
     if (bothEnded) {
       await updateDoc(bookingRef, {
@@ -179,27 +202,9 @@ export const endVideoCall = async (bookingId, userId, reason = END_CALL_REASONS.
         updatedAt: serverTimestamp(),
       });
 
-      // Release creator earnings
-      if (!booking.creatorPaid && booking.creatorEarning) {
-        const creatorBalRef = doc(db, 'creator_balances', booking.creatorId);
-        const month = new Date().toLocaleString('default', { month: 'short' });
-        try {
-          await updateDoc(creatorBalRef, {
-            availableBalance: increment(booking.creatorEarning),
-            [`monthlyEarnings.${month}`]: increment(booking.creatorEarning),
-            updatedAt: serverTimestamp(),
-          });
-        } catch {
-          await setDoc(creatorBalRef, {
-            creatorId: booking.creatorId,
-            availableBalance: booking.creatorEarning,
-            totalEarnings: booking.creatorEarning,
-            monthlyEarnings: { [month]: booking.creatorEarning },
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-        }
-        await updateDoc(bookingRef, { creatorPaid: true });
+      // Older bookings paid the creator on completion — the server releases that (once)
+      if (booking.creatorPaid === false && booking.creatorEarning) {
+        await releaseCallEarning(bookingId).catch((e) => logger.error('Release earning failed', e));
       }
       logger.info('Call fully completed (both ended):', bookingId);
     }
@@ -211,57 +216,26 @@ export const endVideoCall = async (bookingId, userId, reason = END_CALL_REASONS.
   }
 };
 
-export const refundBooking = async (bookingId, bookingData) => {
+/**
+ * Refund a booking that was never started (no-show) — done by the server: fan refunded in full,
+ * creator's (and any ambassador's) share taken back. Safe to call twice.
+ */
+export const refundBooking = async (bookingId) => {
   try {
-    const bookingRef = doc(db, 'call_bookings', bookingId);
-    const snap = await getDoc(bookingRef);
-    if (!snap.exists()) throw new Error('Booking not found');
-    const latest = snap.data();
-    if (latest.status === 'refunded' || latest.status === 'completed') return;
-
-    const price = latest.price || bookingData?.price || 0;
-    const userId = latest.userId || bookingData?.userId;
-    const creatorId = latest.creatorId || bookingData?.creatorId;
-    const creatorEarning = latest.creatorEarning || bookingData?.creatorEarning || 0;
-
-    const userBalRef = doc(db, 'user_balances', userId);
-    try {
-      await updateDoc(userBalRef, { balance: increment(price), updatedAt: serverTimestamp() });
-    } catch {
-      await setDoc(userBalRef, { userId, balance: price, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    }
-
-    await addDoc(collection(db, 'transactions'), {
-      userId, amount: price, type: 'refund',
-      description: 'Call not initiated — automatic refund',
-      bookingId, createdAt: serverTimestamp(),
-    });
-
-    if (creatorEarning > 0) {
-      const creatorBalRef = doc(db, 'creator_balances', creatorId);
-      try {
-        await updateDoc(creatorBalRef, {
-          availableBalance: increment(-creatorEarning),
-          totalEarnings: increment(-creatorEarning),
-          updatedAt: serverTimestamp(),
-        });
-      } catch { /* doc doesn't exist */ }
-    }
-
-    await addDoc(collection(db, 'notifications'), {
-      userId, type: 'refund',
-      message: `Your $${price.toFixed(2)} booking was refunded — the call was not initiated in time.`,
-      bookingId, read: false, createdAt: serverTimestamp(),
-    });
-
-    await updateDoc(bookingRef, {
-      status: 'refunded', refundedAt: serverTimestamp(), updatedAt: serverTimestamp(),
-    });
+    return await refundPayment('call', { bookingId });
   } catch (error) {
+    if (/status: (refunded|completed|cancelled|rejected)/.test(error.message || '')) return null; // already done
     logger.error('Error processing refund:', error);
     throw error;
   }
 };
+
+/**
+ * Creator rejects a booking, or the fan cancels it (before it starts). Fan always gets a full
+ * refund; the other side is notified. All done on the server.
+ */
+export const cancelBooking = async (bookingId, _byUserId, reason = '') =>
+  refundPayment('call', { bookingId, reason: reason || null });
 
 export default {
   getCreatorAvailability, updateCreatorAvailability,

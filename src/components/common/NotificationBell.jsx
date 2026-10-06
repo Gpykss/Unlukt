@@ -5,6 +5,7 @@ import { Bell } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { subscribeToNotifications } from '../../services/notificationService';
+import { authUrl, herePath } from '../../utils/authRedirect';
 
 export default function NotificationBell({ showLabel = false }) {
   const navigate = useNavigate();
@@ -31,7 +32,7 @@ export default function NotificationBell({ showLabel = false }) {
 
   return (
     <button
-      onClick={() => currentUser ? navigate('/notifications') : navigate('/login')}
+      onClick={() => currentUser ? navigate('/notifications') : navigate(authUrl(herePath()))}
       className={`relative flex items-center space-x-3 ${
         showLabel ? 'w-full px-4 py-3 rounded-lg font-medium transition' : ''
       } ${

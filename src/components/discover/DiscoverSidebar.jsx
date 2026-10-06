@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TrendingUp, Loader2, ChevronRight, Users, Crown, Image as ImageIcon } from 'lucide-react';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 
 export default function DiscoverSidebar() {
@@ -11,47 +11,23 @@ export default function DiscoverSidebar() {
   const [topCreators, setTopCreators] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // ✅ Realtime creator list (counts are refreshed each time the list changes)
   useEffect(() => {
-    loadTopCreators();
+    const unsub = onSnapshot(
+      query(collection(db, 'users'), where('isCreator', '==', true)),
+      (snap) => loadTopCreators(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setLoading(false)
+    );
+    return () => unsub();
   }, []);
 
-  const loadTopCreators = async () => {
+  const loadTopCreators = async (creators) => {
     try {
-      const usersSnapshot = await getDocs(collection(db, 'users'));
-      const creators = [];
-      usersSnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.isCreator) creators.push({ id: doc.id, ...data });
-      });
-
-      let subCounts = {};
-      try {
-        const subsSnapshot = await getDocs(query(
-          collection(db, 'subscriptions'),
-          where('status', '==', 'active')
-        ));
-        subsSnapshot.forEach((doc) => {
-          const creatorId = doc.data().creatorId;
-          if (creatorId) subCounts[creatorId] = (subCounts[creatorId] || 0) + 1;
-        });
-      } catch (error) {
-        console.warn('Could not fetch active subscriptions count (expected for guest):', error);
-      }
-
-      let postCounts = {};
-      try {
-        const postsSnapshot = await getDocs(collection(db, 'posts'));
-        postsSnapshot.forEach((doc) => {
-          const { userId, archived } = doc.data();
-          if (userId && !archived) postCounts[userId] = (postCounts[userId] || 0) + 1;
-        });
-      } catch (error) {
-        console.warn('Could not fetch posts count for sidebar:', error);
-      }
 
       creators.forEach((c) => {
-        c.subscriberCount = subCounts[c.id] || c.subscribersCount || 0;
-        c.postCount = postCounts[c.id] || c.postCount || 0;
+        // Counts kept on the profile by the server — no downloading every post/subscription
+        c.subscriberCount = c.subscribersCount || c.subscriberCount || 0;
+        c.postCount = c.postCount || 0;
       });
 
       creators.sort((a, b) =>
@@ -109,13 +85,14 @@ export default function DiscoverSidebar() {
                 {/* Banner */}
                 <div className="w-full h-20 rounded-lg bg-gradient-to-br from-rose-100 to-pink-100 overflow-hidden">
                   {creator.banner && !creator.banner.includes('🎨') ? (
-                    <img src={creator.banner} alt="" className="w-full h-full object-cover" />
+                    <img src={creator.banner} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                   ) : null}
                 </div>
                 {/* Profile picture — circular overlay */}
                 <div className="absolute -bottom-4 left-3 w-12 h-12 rounded-full border-3 border-white bg-gradient-to-br from-rose-200 to-pink-200 overflow-hidden flex items-center justify-center shadow-md" style={{ border: '3px solid white' }}>
                   {(creator.profilePicture || (creator.avatar && !creator.avatar.includes('👤'))) ? (
                     <img
+                      loading="lazy"
                       src={creator.profilePicture || creator.avatar}
                       alt={creator.displayName}
                       className="w-full h-full object-cover"

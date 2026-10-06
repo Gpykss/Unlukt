@@ -12,6 +12,7 @@ import {
   doc, getDoc
 } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { withContact } from '../../utils/adminContact';
 
 export default function Ambassadors() {
   const navigate = useNavigate();
@@ -60,7 +61,7 @@ export default function Ambassadors() {
         })
       );
 
-      setAmbassadors(enriched);
+      setAmbassadors(await withContact(enriched));
     } catch (err) {
       console.error('Error loading ambassadors:', err);
     } finally {

@@ -7,11 +7,10 @@ import {
   AlertCircle, Info, CreditCard, Clock
 } from 'lucide-react';
 import {
-  doc, getDoc, updateDoc, addDoc, collection,
-  query, where, orderBy, getDocs, serverTimestamp, increment
+  doc, getDoc, collection, query, where, getDocs,
 } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
-import { db, functions } from '../../config/firebase';
+import { requestWithdrawal } from '../../services/payService';
+import { db } from '../../config/firebase';
 import { useAuth } from '../../hooks/useAuth';
 
 const MIN_WITHDRAW = 20;
@@ -61,7 +60,21 @@ export default function WithdrawModal({ isOpen, onClose, initialTab = 'withdraw'
         )
       );
       
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // New withdrawals live in `payouts` (server-created); older ones in `payout_requests`
+      const payoutsSnap = await getDocs(query(collection(db, 'payouts'), where('creatorId', '==', currentUser.uid))).catch(() => ({ docs: [] }));
+      const STATUS = { requested: 'pending', sent: 'approved', rejected: 'rejected' };
+      const data = [
+        ...snap.docs.map(d => ({ id: d.id, ...d.data() })),
+        ...payoutsSnap.docs.map(d => {
+          const p = d.data();
+          const amount = (p.amountMinor || 0) / 100;
+          const fee = (p.networkFeeMinor || 0) / 100;
+          return {
+            id: d.id, ...p, amount, fee, netAmount: amount - fee,
+            walletAddress: p.payoutAddress, status: STATUS[p.status] || p.status,
+          };
+        }),
+      ];
       // Sort locally to avoid requiring composite index
       data.sort((a, b) => {
         const ta = a.createdAt?.toDate?.() || new Date(0);
@@ -83,16 +96,9 @@ export default function WithdrawModal({ isOpen, onClose, initialTab = 'withdraw'
       const snap = await getDoc(doc(db, 'creator_balances', currentUser.uid));
       let available = 0;
       if (snap.exists()) {
-        const d = snap.data();
-        available = (d.availableBalance || 0) + (d.pendingBalance || 0);
+        // Withdrawable = what the server will actually let you withdraw
+        available = Math.max(0, Number(snap.data().availableBalance || 0));
       }
-      try {
-        const wSnap = await getDoc(doc(db, 'wallets', currentUser.uid));
-        if (wSnap.exists() && wSnap.data().balanceMinor !== undefined) {
-          const wBal = wSnap.data().balanceMinor / 100;
-          available = Math.max(available, wBal);
-        }
-      } catch (_) {}
       setBalance({ available });
     } catch (e) {
       console.error(e);
@@ -123,57 +129,9 @@ export default function WithdrawModal({ isOpen, onClose, initialTab = 'withdraw'
     try {
       setSubmitting(true);
 
-      let submitted = false;
-      try {
-        // Call secure Cloud Function
-        const requestPayoutFn = httpsCallable(functions, 'requestPayout');
-        await requestPayoutFn({
-          amountMinor: Math.round(amountNum * 100),
-          payoutAddress: address.trim(),
-          networkFeeMinor: Math.round(fee * 100),
-        });
-        submitted = true;
-      } catch (cloudErr) {
-        console.warn('Cloud function requestPayout failed, falling back to direct payout request:', cloudErr.message);
-
-        // Fallback: direct reservation in creator_balances
-        const creatorBalRef = doc(db, 'creator_balances', currentUser.uid);
-        await updateDoc(creatorBalRef, {
-          availableBalance: increment(-amountNum),
-          pendingPayoutBalance: increment(amountNum),
-          updatedAt: serverTimestamp(),
-        });
-
-        // Also decrement wallets if present
-        try {
-          const walletRef = doc(db, 'wallets', currentUser.uid);
-          const wSnap = await getDoc(walletRef);
-          if (wSnap.exists()) {
-            await updateDoc(walletRef, {
-              balanceMinor: increment(-Math.round(amountNum * 100)),
-              updatedAt: serverTimestamp(),
-            });
-          }
-        } catch (_) {}
-
-        // Create payout request doc
-        await addDoc(collection(db, 'payout_requests'), {
-          creatorId: currentUser.uid,
-          userId: currentUser.uid,
-          amount: amountNum,
-          amountMinor: Math.round(amountNum * 100),
-          fee,
-          networkFeeMinor: Math.round(fee * 100),
-          netAmount: youGet,
-          method,
-          walletAddress: address.trim(),
-          payoutAddress: address.trim(),
-          status: 'pending',
-          createdAt: serverTimestamp(),
-        });
-
-        submitted = true;
-      }
+      // The server checks your real balance, sets the 2% fee and reserves the money
+      await requestWithdrawal({ amount: amountNum, address });
+      const submitted = true;
 
       if (submitted) {
         setSuccess(true);

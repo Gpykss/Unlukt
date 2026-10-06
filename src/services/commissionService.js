@@ -8,7 +8,7 @@
 // Ambassador referral commission is paid for 1 year from the creator's signup date.
 
 import {
-  doc, getDoc, updateDoc, addDoc,
+  doc, getDoc, updateDoc, addDoc, setDoc,
   collection, serverTimestamp, increment,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -27,8 +27,8 @@ export async function getCreatorSplit(creatorId, gross) {
     const creatorSnap = await getDoc(doc(db, 'users', creatorId));
     const creator = creatorSnap.exists() ? creatorSnap.data() : {};
 
-    const isAmbassador = creator.role === 'ambassador';
-    const referredBy = creator.referredBy || null;
+    const isAmbassador = creator.role === 'ambassador' || creator.isAmbassador === true;
+    const referredBy = creator.referredBy && creator.referredBy !== creatorId ? creator.referredBy : null;
 
     // Check if still within the 1-year referral commission window
     let withinReferralPeriod = false;
@@ -114,6 +114,48 @@ export async function creditAmbassadorCommission(ambassadorId, amount, referredC
     // Non-fatal — don't block the main payment
     console.error('creditAmbassadorCommission failed (non-blocking):', err.message);
   }
+}
+
+/**
+ * Credit a creator for a sale the fan already paid for (live tips, live requests, guest requests…).
+ * Applies the standard split, adds the creator's share to their earnings, and pays the referring
+ * ambassador 5% when applicable. Returns the split so callers can store / reverse it.
+ */
+export async function creditCreatorSale(creatorId, gross, source = 'live') {
+  const split = await getCreatorSplit(creatorId, gross);
+  const month = new Date().toLocaleString('default', { month: 'short' });
+  const ref = doc(db, 'creator_balances', creatorId);
+  try {
+    await updateDoc(ref, {
+      availableBalance: increment(split.creatorEarning),
+      totalEarnings: increment(split.creatorEarning),
+      [`monthlyEarnings.${month}`]: increment(split.creatorEarning),
+      updatedAt: serverTimestamp(),
+    });
+  } catch {
+    await setDoc(ref, {
+      creatorId,
+      availableBalance: split.creatorEarning,
+      totalEarnings: split.creatorEarning,
+      monthlyEarnings: { [month]: split.creatorEarning },
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+  }
+  await creditAmbassadorCommission(split.ambassadorId, split.ambassadorCommission, creatorId, source);
+  return split;
+}
+
+/** Undo a creditCreatorSale (e.g. creator declines a paid live request → fan refunded). */
+export async function reverseCreatorSale(creatorId, creatorEarning) {
+  if (!(creatorEarning > 0)) return;
+  try {
+    await updateDoc(doc(db, 'creator_balances', creatorId), {
+      availableBalance: increment(-creatorEarning),
+      totalEarnings: increment(-creatorEarning),
+      updatedAt: serverTimestamp(),
+    });
+  } catch { /* nothing to reverse */ }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import { UserPlus, UserCheck, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { followUser, unfollowUser, isFollowing, getFollowerCount, subscribeToFollowStatus } from '../../services/followService';
 import { useAuth } from '../../hooks/useAuth';
+import { authUrl, herePath } from '../../utils/authRedirect';
 
 export default function FollowButton({ 
   userId, 
@@ -37,7 +38,7 @@ export default function FollowButton({
 
   const handleFollow = async () => {
     if (!currentUser) {
-      navigate('/login');
+      navigate(authUrl(herePath()));
       return;
     }
 

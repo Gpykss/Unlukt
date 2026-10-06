@@ -13,6 +13,7 @@ import {
   doc, updateDoc, serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { withContact } from '../../utils/adminContact';
 
 class TabErrorBoundary extends Component {
   constructor(props) {
@@ -156,7 +157,7 @@ export default function Admin() {
           kycList.push({ id: d.id, ...d.data() });
         });
       }
-      setPendingKYCList(kycList);
+      setPendingKYCList(await withContact(kycList));
 
       // 3. Gross Revenue (Crypto + NGN)
       let cryptoRevenue = 0;

@@ -1,5 +1,6 @@
 // src/services/followService.js
 
+import { getPostMillis, healPostDates } from '../utils/postTime';
 import { 
   collection,
   doc, 
@@ -237,11 +238,8 @@ export const getFollowingPosts = async (userId, limitCount = 20) => {
     const postsSnapshot = await getDocs(postsQuery);
     const posts = postsSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    posts.sort((a, b) => {
-      const dateA = a.createdAt?.toDate?.() || new Date(0);
-      const dateB = b.createdAt?.toDate?.() || new Date(0);
-      return dateB - dateA;
-    });
+    posts.sort((a, b) => getPostMillis(b) - getPostMillis(a));
+    healPostDates(posts);
 
     return posts.slice(0, limitCount);
   } catch (error) {

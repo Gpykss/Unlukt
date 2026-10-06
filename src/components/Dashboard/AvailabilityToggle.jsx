@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Video, Mic, DollarSign, ToggleLeft, ToggleRight, Loader2, Sliders, ChevronDown, ChevronUp } from 'lucide-react';
-import { getCreatorAvailability, updateCreatorAvailability } from '../../services/videoCallService';
+import { getCreatorAvailability, updateCreatorAvailability, MINIMUM_VIDEO_PRICE, MINIMUM_VOICE_PRICE } from '../../services/videoCallService';
 import { useAuth } from '../../hooks/useAuth';
 import logger from '../../utils/logger';
 
@@ -57,9 +57,54 @@ export default function AvailabilityToggle({ compact = false }) {
     }
   };
 
+  // Draft text while typing — the box is free to edit (clear it, type 25, etc.).
+  // The price is only validated + saved when you leave the field or press Enter.
+  const [drafts, setDrafts] = useState({});
+  const [priceNote, setPriceNote] = useState('');
+  const FIELD = { video: 'videoCallPrice', voice: 'voiceCallPrice', livestream: 'livestreamPrice' };
+  const MIN = { video: MINIMUM_VIDEO_PRICE, voice: MINIMUM_VOICE_PRICE, livestream: 1 };
+  const DEFAULT = { video: MINIMUM_VIDEO_PRICE, voice: MINIMUM_VOICE_PRICE, livestream: 10 };
+
+  const priceInputProps = (type) => ({
+    type: 'number',
+    inputMode: 'decimal',
+    min: MIN[type],
+    step: type === 'livestream' ? 1 : 0.5,
+    value: drafts[type] ?? String(availability[FIELD[type]] ?? DEFAULT[type]),
+    onChange: (e) => setDrafts((d) => ({ ...d, [type]: e.target.value })),
+    onBlur: () => commitPrice(type),
+    onKeyDown: (e) => { if (e.key === 'Enter') e.currentTarget.blur(); },
+  });
+
+  const commitPrice = async (type) => {
+    const raw = drafts[type];
+    if (raw === undefined) return;
+    let price = parseFloat(raw);
+    if (isNaN(price) || price < MIN[type]) {
+      price = MIN[type];
+      setPriceNote(`Minimum is ${type === 'livestream' ? `${MIN[type]} 🌹` : `$${MIN[type]}`} — set to the minimum.`);
+    } else {
+      setPriceNote('');
+    }
+    setDrafts((d) => { const n = { ...d }; delete n[type]; return n; });
+    if (price === availability[FIELD[type]]) return;
+    await updatePrice(type, price);
+  };
+
+  const setLivestreamFree = async (free) => {
+    if ((availability.livestreamFree !== false) === free) return;
+    setAvailability((a) => ({ ...a, livestreamFree: free })); // instant UI
+    try {
+      const updated = await updateCreatorAvailability(currentUser.uid, { ...availability, livestreamFree: free });
+      setAvailability(updated);
+    } catch (error) {
+      logger.error('Error updating livestream access:', error);
+    }
+  };
+
   const updatePrice = async (type, value) => {
     const price = parseFloat(value);
-    const minVal = type === 'video' ? 5 : (type === 'voice' ? 3 : 1);
+    const minVal = MIN[type];
     if (isNaN(price) || price < minVal) {
       return;
     }
@@ -165,12 +210,9 @@ export default function AvailabilityToggle({ compact = false }) {
                   <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                     <span className="text-xs text-gray-400 font-bold">$</span>
                     <input
-                      type="number"
-                      min="5"
-                      value={availability.videoCallPrice || 5}
-                      onChange={(e) => updatePrice('video', e.target.value)}
-                      className="w-full text-sm font-bold text-gray-900 focus:outline-none"
-                    />
+              {...priceInputProps('video')}
+              className="w-full text-sm font-bold text-gray-900 focus:outline-none"
+            />
                   </div>
                 </div>
 
@@ -184,15 +226,13 @@ export default function AvailabilityToggle({ compact = false }) {
                   <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                     <span className="text-xs text-gray-400 font-bold">$</span>
                     <input
-                      type="number"
-                      min="3"
-                      value={availability.voiceCallPrice || 3}
-                      onChange={(e) => updatePrice('voice', e.target.value)}
-                      className="w-full text-sm font-bold text-gray-900 focus:outline-none"
-                    />
+              {...priceInputProps('voice')}
+              className="w-full text-sm font-bold text-gray-900 focus:outline-none"
+            />
                   </div>
                 </div>
               </div>
+              {priceNote && <p className="text-[11px] text-amber-600 font-semibold mt-2">{priceNote}</p>}
             </motion.div>
           )}
         </AnimatePresence>
@@ -204,11 +244,11 @@ export default function AvailabilityToggle({ compact = false }) {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white rounded-2xl border border-gray-200 p-6"
+      className="bg-white rounded-2xl border border-gray-200 p-4 sm:p-6"
     >
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h3 className="text-xl font-bold text-gray-900">Call Availability</h3>
+      <div className="flex items-start justify-between gap-3 mb-4 sm:mb-6">
+        <div className="min-w-0">
+          <h3 className="text-lg sm:text-xl font-bold text-gray-900">Call Availability</h3>
           <p className="text-sm text-gray-600 mt-1">
             Let fans book video/voice calls with you
           </p>
@@ -217,28 +257,29 @@ export default function AvailabilityToggle({ compact = false }) {
         <button
           onClick={toggleAvailability}
           disabled={saving}
-          className={`relative inline-flex items-center h-12 w-24 rounded-full transition-colors ${
+          aria-label={isAvailable ? 'Turn calls off' : 'Turn calls on'}
+          className={`relative flex-shrink-0 inline-flex items-center h-9 w-16 sm:h-12 sm:w-24 rounded-full transition-colors ${
             isAvailable ? 'bg-green-500' : 'bg-gray-300'
           } ${saving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
         >
           <span
-            className={`inline-block h-10 w-10 transform rounded-full bg-white shadow-lg transition-transform ${
-              isAvailable ? 'translate-x-12' : 'translate-x-1'
+            className={`inline-flex items-center justify-center h-7 w-7 sm:h-10 sm:w-10 transform rounded-full bg-white shadow-lg transition-transform ${
+              isAvailable ? 'translate-x-8 sm:translate-x-12' : 'translate-x-1'
             }`}
           >
             {saving ? (
-              <Loader2 className="w-6 h-6 m-2 text-gray-400 animate-spin" />
+              <Loader2 className="w-4 h-4 sm:w-6 sm:h-6 text-gray-400 animate-spin" />
             ) : isAvailable ? (
-              <ToggleRight className="w-6 h-6 m-2 text-green-500" />
+              <ToggleRight className="w-4 h-4 sm:w-6 sm:h-6 text-green-500" />
             ) : (
-              <ToggleLeft className="w-6 h-6 m-2 text-gray-400" />
+              <ToggleLeft className="w-4 h-4 sm:w-6 sm:h-6 text-gray-400" />
             )}
           </span>
         </button>
       </div>
 
       {/* Status Badge */}
-      <div className="mb-6">
+      <div className="mb-4 sm:mb-6">
         <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${
           isAvailable 
             ? 'bg-green-100 text-green-700' 
@@ -253,8 +294,10 @@ export default function AvailabilityToggle({ compact = false }) {
 
       {/* Pricing Controls */}
       <div className="space-y-4">
+        {priceNote && <p className="text-xs text-amber-600 font-semibold">{priceNote}</p>}
+
         {/* Video Call Price */}
-        <div className="bg-gray-50 rounded-xl p-4">
+        <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center space-x-2">
               <Video className="w-5 h-5 text-rose-500" />
@@ -266,27 +309,17 @@ export default function AvailabilityToggle({ compact = false }) {
           <div className="relative">
             <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
-              type="number"
-              min="5"
-              step="1"
-              value={availability.videoCallPrice}
-              onChange={(e) => updatePrice('video', e.target.value)}
-              onBlur={(e) => {
-                if (parseFloat(e.target.value) < 5) {
-                  e.target.value = 5;
-                  updatePrice('video', 5);
-                }
-              }}
-              className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:border-rose-500 focus:outline-none font-semibold text-lg"
+              {...priceInputProps('video')}
+              className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:border-rose-500 focus:outline-none font-semibold text-base sm:text-lg"
             />
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Minimum: $5 • Set any price you want
+            Minimum: ${MINIMUM_VIDEO_PRICE} • Set any price above it
           </p>
         </div>
 
         {/* Voice Call Price */}
-        <div className="bg-gray-50 rounded-xl p-4">
+        <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center space-x-2">
               <Mic className="w-5 h-5 text-blue-500" />
@@ -298,55 +331,56 @@ export default function AvailabilityToggle({ compact = false }) {
           <div className="relative">
             <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
-              type="number"
-              min="3"
-              step="1"
-              value={availability.voiceCallPrice}
-              onChange={(e) => updatePrice('voice', e.target.value)}
-              onBlur={(e) => {
-                if (parseFloat(e.target.value) < 3) {
-                  e.target.value = 3;
-                  updatePrice('voice', 3);
-                }
-              }}
-              className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none font-semibold text-lg"
+              {...priceInputProps('voice')}
+              className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none font-semibold text-base sm:text-lg"
             />
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Minimum: $3 • Set any price you want
+            Minimum: ${MINIMUM_VOICE_PRICE} • Set any price above it
           </p>
         </div>
 
         {/* Livestream Pass Price */}
-        <div className="bg-gray-50 rounded-xl p-4">
+        <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center space-x-2">
               <span className="text-lg">🌹</span>
-              <span className="font-semibold text-gray-900">Livestream Entry ticket</span>
+              <span className="font-semibold text-gray-900">Livestream Access</span>
             </div>
             <span className="text-xs text-gray-500">Roses</span>
           </div>
           
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 font-bold">🌹</span>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={availability.livestreamPrice || 10}
-              onChange={(e) => updatePrice('livestream', e.target.value)}
-              onBlur={(e) => {
-                if (parseFloat(e.target.value) < 1) {
-                  e.target.value = 1;
-                  updatePrice('livestream', 1);
-                }
-              }}
-              className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:border-rose-500 focus:outline-none font-semibold text-lg"
-            />
+          {/* Free or paid live */}
+          <div className="grid grid-cols-2 gap-2 mb-3 p-1 bg-white border border-gray-200 rounded-xl">
+            {[{ free: true, label: 'Free' }, { free: false, label: 'Paid ticket' }].map((o) => {
+              const active = (availability.livestreamFree !== false) === o.free;
+              return (
+                <button key={o.label} type="button" onClick={() => setLivestreamFree(o.free)}
+                  className={`min-h-[44px] rounded-lg text-sm font-bold transition ${active ? 'bg-rose-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}>
+                  {o.label}
+                </button>
+              );
+            })}
           </div>
-          <p className="text-xs text-gray-500 mt-2">
-            Minimum: 1 Rose 🌹 • Fans buy this 1-hour ticket block to watch your live stream.
-          </p>
+
+          {availability.livestreamFree !== false ? (
+            <p className="text-xs text-gray-500">
+              Anyone can join your lives for free. Fans can still tip and request the stage.
+            </p>
+          ) : (
+            <>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 font-bold">🌹</span>
+                <input
+                  {...priceInputProps('livestream')}
+                  className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:border-rose-500 focus:outline-none font-semibold text-base sm:text-lg"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Minimum: 1 Rose 🌹 • Fans buy this 1-hour ticket block to watch your live stream.
+              </p>
+            </>
+          )}
         </div>
       </div>
 

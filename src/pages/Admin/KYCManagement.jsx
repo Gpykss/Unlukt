@@ -17,8 +17,9 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { withContact } from '../../utils/adminContact';
 
 export default function KYCManagement() {
   const navigate = useNavigate();
@@ -40,12 +41,13 @@ export default function KYCManagement() {
       const q = query(usersRef, where('kycStatus', '==', 'pending'));
       const snapshot = await getDocs(q);
       
-      const apps = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
+      // Private KYC details live in kyc/{uid} (admin-only); older applications may still have them inline
+      const apps = await Promise.all(snapshot.docs.map(async (d) => {
+        const priv = await getDoc(doc(db, 'kyc', d.id)).catch(() => null);
+        return { id: d.id, ...d.data(), kycData: priv?.exists() ? priv.data() : (d.data().kycData || {}) };
       }));
-      
-      setApplications(apps);
+
+      setApplications(await withContact(apps));
     } catch (error) {
       console.error('Error loading applications:', error);
     } finally {

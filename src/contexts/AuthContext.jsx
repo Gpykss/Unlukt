@@ -153,11 +153,12 @@ export function AuthProvider({ children }) {
       return { isNew: true, profileCompleted: false };
     } else {
       // Existing user — update email if newly available
-      if (email && !existingProfile.email) {
-        const { doc, updateDoc } = await import('firebase/firestore');
+      if (email && existingProfile.needsEmail !== false) {
+        const { doc, updateDoc, setDoc } = await import('firebase/firestore');
         const { db } = await import('../config/firebase');
+        // email itself is private (user_private); the public profile only gets the flags
+        await setDoc(doc(db, 'user_private', uid), { email }, { merge: true }).catch(() => {});
         await updateDoc(doc(db, 'users', uid), {
-          email,
           emailVerified: true,
           needsEmail: false,
         });

@@ -238,6 +238,25 @@ export const getCallDiscount = (tier) => {
 };
 
 /**
+ * Tier used for call discounts — read exactly the way the server prices calls:
+ * the fan's subscription doc for this creator, active (or cancelled but still paid) and not expired.
+ */
+export const getCallTier = async (userId, creatorId) => {
+  if (!userId || !creatorId) return null;
+  try {
+    const snap = await getDoc(doc(db, 'subscriptions', `${userId}_${creatorId}`));
+    if (!snap.exists()) return null;
+    const s = snap.data();
+    if (!['active', 'cancelled'].includes(s.status)) return null;
+    const exp = s.expiresAt?.toMillis?.() ?? (s.expiresAt ? new Date(s.expiresAt).getTime() : null);
+    if (exp && exp < Date.now()) return null;
+    return s.tier || 'supporter';
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Get display badge details for a tier
  */
 export const getTierBadge = (tier) => {

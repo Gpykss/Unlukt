@@ -13,16 +13,16 @@ import { useAuth } from '../../hooks/useAuth';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import {
   getCommunity, getCommunityMembers, getCommunityPosts,
-  joinCommunity, leaveCommunity, isCommunityMember, createCommunityPost,
+  leaveCommunity, isCommunityMember, createCommunityPost,
   likeCommunityPost, addCommunityPostComment, getCommunityPostComments
 } from '../../services/communityService';
 import { uploadToBunny } from '../../services/bunnyUpload.service';
 import { getUserProfile } from '../../services/firestoreService';
-import { getWalletBalance, deductFromWallet } from '../../services/walletService';
-import { doc, updateDoc, setDoc, serverTimestamp, collection, increment } from 'firebase/firestore';
-import { db } from '../../config/firebase';
+import { getWalletBalance } from '../../services/walletService';
+import { pay } from '../../services/payService';
 import WatermarkedImage from '../../components/Media/WatermarkedImage';
 import WatermarkedVideo from '../../components/Media/WatermarkedVideo';
+import { authUrl, herePath } from '../../utils/authRedirect';
 
 export default function CommunityDetail() {
   const navigate = useNavigate();
@@ -93,7 +93,7 @@ export default function CommunityDetail() {
   };
 
   const handleJoin = async () => {
-    if (!currentUser) { navigate('/login'); return; }
+    if (!currentUser) { navigate(authUrl(herePath())); return; }
     setJoinError('');
     const price = getJoinPrice();
     if (walletBalance < price) {
@@ -102,20 +102,9 @@ export default function CommunityDetail() {
     }
     try {
       setJoining(true);
-      await deductFromWallet(currentUser.uid, price, `Community join: ${community.name}`, {
-        contentType: 'community_join', communityId, joinType, creatorId: community.creatorId,
-      });
-      const subscriptionEnd = joinType === 'monthly' ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null;
-      await joinCommunity(currentUser.uid, communityId, { subscriptionEnd });
-
-      const earning = price * 0.85;
-      const creatorBalRef = doc(db, 'creator_balances', community.creatorId);
-      const month = new Date().toLocaleString('default', { month: 'short' });
-      try {
-        await updateDoc(creatorBalRef, { availableBalance: increment(earning), totalEarnings: increment(earning), [`monthlyEarnings.${month}`]: increment(earning), updatedAt: serverTimestamp() });
-      } catch {
-        await setDoc(creatorBalRef, { creatorId: community.creatorId, availableBalance: earning, totalEarnings: earning, monthlyEarnings: { [month]: earning }, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-      }
+      // Server charges the wallet (creator's standard split) and adds the membership in one step
+      const res = await pay('community', { communityId, joinType, expectedPrice: price });
+      if (res?.balanceAfter != null) setWalletBalance(res.balanceAfter);
 
       setIsMember(true);
       setShowJoinModal(false);
@@ -226,7 +215,7 @@ export default function CommunityDetail() {
                 : isFree
                   ? <button onClick={async () => {
                       try {
-                        await joinCommunity(currentUser.uid, communityId, {});
+                        await pay('community', { communityId });
                         setIsMember(true);
                         const [p, m] = await Promise.all([getCommunityPosts(communityId), getCommunityMembers(communityId)]);
                         setPosts(p); setMembers(m);
@@ -274,7 +263,7 @@ export default function CommunityDetail() {
             <h3 className="text-lg font-bold text-gray-900 mb-1">Public Community</h3>
             <p className="text-gray-500 text-sm mb-4">This is a free community. Join to participate.</p>
             <button onClick={async () => {
-              await joinCommunity(currentUser.uid, communityId, {});
+              await pay('community', { communityId });
               setIsMember(true);
               const [p, m] = await Promise.all([getCommunityPosts(communityId), getCommunityMembers(communityId)]);
               setPosts(p); setMembers(m);

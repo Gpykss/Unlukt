@@ -1,5 +1,6 @@
 // src/services/postService.js - FULL: posts + ratings + unlock + subscription access
 
+import { getPostMillis, healPostDates } from '../utils/postTime';
 import {
   collection,
   doc,
@@ -19,7 +20,8 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 
-import { db } from '../config/firebase';
+import { db, functions } from '../config/firebase';
+import { httpsCallable } from 'firebase/functions';
 import { createLikeNotification, createCommentNotification } from './notificationService';
 import { hasActiveSubscription } from './messageService';
 
@@ -35,7 +37,10 @@ const deepClean = (obj) => {
   if (Array.isArray(obj)) {
     return obj.map((item) => deepClean(item)).filter((item) => item !== undefined);
   }
-  if (obj && typeof obj === 'object') {
+  // ✅ Only recurse into PLAIN objects. serverTimestamp(), Timestamp, Date, etc. are class
+  // instances and must be passed through untouched — recursing into them turned createdAt
+  // into an empty map, which is why every post showed "Just now" and the feed order was off.
+  if (obj && typeof obj === 'object' && Object.getPrototypeOf(obj) === Object.prototype) {
     const cleaned = {};
     Object.keys(obj).forEach((key) => {
       const value = deepClean(obj[key]);
@@ -154,6 +159,21 @@ export const createPost = async (userId, postData) => {
       updatedAt: serverTimestamp()
     };
 
+    // Locked (subscribers / paid) posts with media are created by the server, so the real file
+    // URLs are stored privately from the start and only blurred previews are public.
+    if (cleanPostData.type !== 'free' && cleanImages.length > 0) {
+      const res = await httpsCallable(functions, 'publishPost', { timeout: 60000 })({
+        post: { ...cleanPostData, createdAt: null, updatedAt: null },
+      });
+      return {
+        ...cleanPostData,
+        id: res.data.id,
+        images: res.data.images,
+        createdAt: { seconds: Math.floor(Date.now() / 1000) },
+        updatedAt: { seconds: Math.floor(Date.now() / 1000) },
+      };
+    }
+
     const finalData = deepClean(cleanPostData);
 
     console.log('📝 Saving post data:', finalData);
@@ -196,6 +216,7 @@ export const getAllPosts = async (limitCount = 20, options = {}) => {
       posts.push(normalized);
     });
 
+    healPostDates(posts); // fix old posts saved with a broken createdAt
     return posts;
   } catch (error) {
     console.error('❌ Error getting posts:', error);
@@ -223,14 +244,8 @@ export const getUserPosts = async (userId) => {
       });
     });
 
-    const getTimestamp = (p) => {
-      if (!p.createdAt) return 0;
-      if (p.createdAt.toDate) return p.createdAt.toDate().getTime();
-      if (p.createdAt.seconds) return p.createdAt.seconds * 1000;
-      if (p.createdAt instanceof Date) return p.createdAt.getTime();
-      if (typeof p.createdAt === 'number') return p.createdAt;
-      return 0;
-    };
+    const getTimestamp = (p) => getPostMillis(p);
+
 
     posts.sort((a, b) => {
       if (a.pinned && !b.pinned) return -1;
@@ -238,6 +253,7 @@ export const getUserPosts = async (userId) => {
       return getTimestamp(b) - getTimestamp(a);
     });
 
+    healPostDates(posts);
     return posts;
   } catch (error) {
     console.error('❌ Error getting user posts:', error);

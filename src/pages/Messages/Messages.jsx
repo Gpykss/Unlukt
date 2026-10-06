@@ -45,6 +45,7 @@ import { getUserTier } from '../../services/tierService';
 export default function Messages() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [convosLoaded, setConvosLoaded] = useState(false);
   const { currentUser } = useAuth();
   const { profile } = useUserProfile();
   const [selectedChat, setSelectedChat] = useState(null);
@@ -119,6 +120,7 @@ export default function Messages() {
     }
     const unsubscribe = subscribeToConversations(currentUser.uid, (convos) => {
       setConversations(convos);
+      setConvosLoaded(true);
       setLoading(false);
     });
     return () => unsubscribe();
@@ -127,17 +129,31 @@ export default function Messages() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const startChatWith = params.get('with');
-    if (startChatWith && currentUser && conversations.length > 0) {
+    if (startChatWith && currentUser && convosLoaded) {
       setLoading(false);
       const existingConvo = conversations.find(c => c.participants && c.participants.includes(startChatWith));
       if (existingConvo) {
-        handleSelectChat(existingConvo);
+        handleSelectChat(existingConvo, { replace: true });
       } else {
         handleStartNewConversation(startChatWith);
       }
-      navigate('/messages', { replace: true });
     }
-  }, [location.search, currentUser, conversations.length]);
+  }, [location.search, currentUser, convosLoaded]);
+
+  // ✅ The open chat lives in the URL (/messages?c=<id>) so Back from Book Call, a profile, etc.
+  // returns to the same chat — and the phone's back button closes the chat like a normal app.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const chatId = params.get('c');
+    if (chatId) {
+      if (selectedChat?.id === chatId) return;
+      const convo = conversations.find((c) => c.id === chatId);
+      if (convo) handleSelectChat(convo, { fromUrl: true });
+    } else if (!params.get('with') && selectedChat) {
+      setSelectedChat(null);
+      setShowMobileChat(false);
+    }
+  }, [location.search, conversations]);
 
   useEffect(() => {
     if (!selectedChat || !selectedChat.id) {
@@ -244,8 +260,9 @@ export default function Messages() {
         unreadCount: 0,
         muted: false
       };
-      handleSelectChat(formattedConvo);
+      handleSelectChat(formattedConvo, { replace: true });
     } catch (error) {
+      navigate('/messages', { replace: true });
       console.error('Error starting conversation:', error);
       alert(error.message || 'Failed to start conversation');
     }
@@ -288,7 +305,11 @@ export default function Messages() {
     }
   };
 
-  const handleSelectChat = (conversation) => {
+  const handleSelectChat = (conversation, { fromUrl = false, replace = false } = {}) => {
+    if (!fromUrl && conversation?.id) {
+      const alreadyInChat = new URLSearchParams(location.search).get('c');
+      navigate(`/messages?c=${conversation.id}`, { replace: replace || !!alreadyInChat });
+    }
     setSelectedChat(conversation);
     setShowMobileChat(true);
     setShowConversationMenu(null);
@@ -298,6 +319,14 @@ export default function Messages() {
   const handleBackToList = () => {
     setShowMobileChat(false);
     setSelectedChat(null);
+    navigate('/messages', { replace: true });
+  };
+
+  // Tap the name/avatar at the top of a chat → their profile
+  const openChatProfile = () => {
+    const u = selectedChat?.otherUser;
+    if (!u) return;
+    navigate(`/creator/${(u.username || '').replace('@', '') || u.id}`);
   };
 
   // ✅ FIXED: pass currentUser.uid so Firestore rules pass
@@ -701,7 +730,7 @@ export default function Messages() {
                     <button onClick={handleBackToList} className="p-2 hover:bg-gray-100 rounded-lg transition md:hidden">
                       <ArrowLeft className="w-5 h-5 text-gray-600" />
                     </button>
-                    <div className="relative">
+                    <button type="button" onClick={openChatProfile} aria-label="View profile" className="relative flex-shrink-0">
                       <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-xl sm:text-2xl overflow-hidden">
                         {selectedChat.otherUser.avatar?.startsWith('http') ? (
                           <img src={selectedChat.otherUser.avatar} alt="" className="w-full h-full object-cover" />
@@ -714,10 +743,10 @@ export default function Messages() {
                       ) : (
                         <div className="absolute bottom-0 right-0 w-3 h-3 sm:w-3.5 sm:h-3.5 bg-gray-300 border-2 border-white rounded-full"></div>
                       )}
-                    </div>
-                    <div>
+                    </button>
+                    <div className="min-w-0 cursor-pointer" onClick={openChatProfile}>
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="font-semibold text-sm sm:text-base text-gray-900">{selectedChat.otherUser.name}</p>
+                        <p className="font-semibold text-sm sm:text-base text-gray-900 hover:underline">{selectedChat.otherUser.name}</p>
                         {chatTier === 'superfan' && (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
                             👑 Superfan

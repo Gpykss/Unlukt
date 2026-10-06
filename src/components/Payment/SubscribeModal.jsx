@@ -14,9 +14,11 @@ import {
   subscribeToCreator,
   getPriceForDuration,
   getCreatorDiscount,
+  getSubscription,
   DURATIONS,
 } from '../../services/subscriptionService';
 import { getCreatorTiers, DEFAULT_TIERS, getTierBadge } from '../../services/tierService';
+import { authUrl, herePath } from '../../utils/authRedirect';
 
 const DURATION_ICONS = {
   daily:   <Zap className="w-5 h-5" />,
@@ -96,11 +98,15 @@ export default function SubscribeModal({ isOpen, onClose, creator, initialTier =
       getWalletBalance(currentUser.uid).then(setBalance);
     }
     if (creator?.uid) {
-      getCreatorDiscount(creator.uid).then(data => {
+      Promise.all([
+        getCreatorDiscount(creator.uid),
+        currentUser ? getSubscription(currentUser.uid, creator.uid) : Promise.resolve(null),
+      ]).then(([data, prevSub]) => {
         if (!data) return;
+        // "First month" deals are for new subscribers only (same rule the server charges by)
         const active =
           (data.limited_time?.active && data.limited_time) ||
-          (data.first_month?.active  && data.first_month)  ||
+          (!prevSub && data.first_month?.active && data.first_month) ||
           (data.bundle?.active       && data.bundle)        ||
           null;
         setDiscount(active);
@@ -135,7 +141,7 @@ export default function SubscribeModal({ isOpen, onClose, creator, initialTier =
   };
 
   const handleSubscribe = async () => {
-    if (!currentUser) { navigate('/login'); return; }
+    if (!currentUser) { navigate(authUrl(herePath())); return; }
     if (!hasEnoughBalance) {
       navigate('/wallet', { state: { returnTo: window.location.pathname } });
       onClose();

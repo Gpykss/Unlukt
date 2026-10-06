@@ -16,6 +16,7 @@ const ACCOUNT_NAME = 'Coming-Soon';     // ← change to your account name
 const ACCOUNT_NO   = 'Coming-Soon';     // ← change to your account number
 const NGN_BUFFER   = 25;              // ← default buffer (overridden by Firestore)
 const NGN_FALLBACK = 1550;            // ← fallback base rate if Firestore not set
+const NGN_EXTRA    = 15;              // ← fixed ₦15 added on top of the current rate
 
 // Generate a unique reference like UNLUKT-uid6char-random4
 function generateReference(userId) {
@@ -40,8 +41,8 @@ export default function NGNPaymentModal({ isOpen, onClose, amountUSD = 0, onSucc
   const user      = auth.currentUser;
   const reference = useState(() => generateReference(user?.uid))[0];
 
-  // Effective rate = admin-set base + admin-set buffer
-  const effectiveRate = (ngnRate || NGN_FALLBACK) + adminBuffer;
+  // Effective rate = admin-set base + admin-set buffer + fixed ₦15
+  const effectiveRate = (ngnRate || NGN_FALLBACK) + (Number(adminBuffer) || 0) + NGN_EXTRA;
   const amountNGN     = Math.ceil(amountUSD * effectiveRate);
 
   // Fetch rate from Firestore (set by admin in Platform Settings)
@@ -103,6 +104,7 @@ export default function NGNPaymentModal({ isOpen, onClose, amountUSD = 0, onSucc
         userEmail:   user.email || '',
         amountUSD,
         amountNGN,
+        rate:        effectiveRate,
         reference,
         proofUrl,
         status:      'pending',   // admin changes to 'approved' / 'rejected'
@@ -132,7 +134,7 @@ export default function NGNPaymentModal({ isOpen, onClose, amountUSD = 0, onSucc
   return (
     <AnimatePresence>
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+        className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-3 sm:p-4"
         onClick={handleClose}
       >
         <motion.div
@@ -141,8 +143,8 @@ export default function NGNPaymentModal({ isOpen, onClose, amountUSD = 0, onSucc
           exit={{ opacity: 0, scale: 0.95 }}
           transition={{ duration: 0.18 }}
           onClick={e => e.stopPropagation()}
-          className="bg-white rounded-2xl w-full max-w-sm flex flex-col shadow-2xl"
-          style={{ maxHeight: '88vh' }}
+          className="bg-white rounded-2xl w-full max-w-sm flex flex-col shadow-2xl overflow-hidden"
+          style={{ maxHeight: 'min(88dvh, 88vh)' }}
         >
           {/* Header */}
           <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-gray-100">
@@ -164,7 +166,7 @@ export default function NGNPaymentModal({ isOpen, onClose, amountUSD = 0, onSucc
           </div>
 
           {/* Scrollable content */}
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-3">
 
             {/* ── STEP 1: Bank Details ─────────────────────────────────────── */}
             {step === 1 && (

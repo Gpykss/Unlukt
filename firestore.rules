@@ -22,28 +22,88 @@ service cloud.firestore {
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
     }
 
+    function changed() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // Fields a user must never grant themselves (admin, ambassador, verification, KYC approval).
+    // Without this anyone could set isAdmin:true on their own doc and pass every isAdmin() check.
+    function safeOwnUserUpdate() {
+      return !changed().hasAny(['isAdmin', 'isAmbassador', 'referralCode', 'isVerified', 'kycReviewedAt', 'kycRejectionReason', 'createdAt'])
+        // kycData may only be removed (it moved to the private kyc/{uid} doc)
+        && (!changed().hasAny(['kycData']) || !('kycData' in request.resource.data))
+        && (!changed().hasAny(['role']) || request.resource.data.role in ['creator', 'fan', 'user'])
+        && (!changed().hasAny(['kycStatus']) || request.resource.data.kycStatus == 'pending')
+        && !changed().hasAny(['ambassadorBalance', 'totalCommissionEarned',
+                              'subscribersCount', 'subscriberCount', 'subscribers', 'postCount'])
+        && countersStep()
+        && (!changed().hasAny(['referredBy']) || validReferral());
+    }
+
+    // Follow counters move by one per follow/unfollow — nobody can set themselves 1,000,000 followers
+    function stepOk(k) {
+      return !changed().hasAny([k])
+        || math.abs(request.resource.data.get(k, 0) - resource.data.get(k, 0)) <= 1;
+    }
+    function countersStep() {
+      return stepOk('followers') && stepOk('following') && stepOk('followerCount') && stepOk('followingCount');
+    }
+
+    // referredBy can be set once, only to a real ambassador, and never to yourself
+    function validReferral() {
+      return resource.data.get('referredBy', null) == null && isAmbassadorUid(request.resource.data.referredBy);
+    }
+
+    function safeNewUser() {
+      return request.resource.data.get('isAdmin', false) != true
+        && request.resource.data.get('isAmbassador', false) != true
+        && request.resource.data.get('isVerified', false) != true
+        && !(request.resource.data.get('role', 'user') in ['admin', 'ambassador'])
+        && !(request.resource.data.get('kycStatus', 'none') in ['approved'])
+        && request.resource.data.get('ambassadorBalance', 0) == 0
+        && request.resource.data.get('referralCode', null) == null
+        && (request.resource.data.get('referredBy', null) == null || isAmbassadorUid(request.resource.data.referredBy));
+    }
+
+    function isAmbassadorUid(uid) {
+      return uid is string && uid != request.auth.uid
+        && (get(/databases/$(database)/documents/users/$(uid)).data.get('role', '') == 'ambassador'
+            || get(/databases/$(database)/documents/users/$(uid)).data.get('isAmbassador', false) == true);
+    }
+
     // ── Users ─────────────────────────────────────────────────────────────────
     match /users/{userId} {
       allow read: if true;
-      allow create: if isOwner(userId);
+      allow create: if isOwner(userId) && safeNewUser();
       allow delete: if isAdmin();
 
       // Owner or admin can update anything on their own profile
       // Any authenticated user can update ONLY follower/following counts (for follow/unfollow)
       // New users can write referredBy to their own doc (referral attribution on signup)
-      allow update: if isOwner(userId)
+      allow update: if (isOwner(userId) && safeOwnUserUpdate())
         || isAdmin()
         || (
           isAuthenticated() &&
-          // Only allow updating these specific counter fields — nothing else
-         request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['followers', 'following', 'followerCount', 'followingCount', 'subscribersCount', 'subscribers', 'subscriberCount', 'updatedAt'])
+          // Others may only bump follow counters, by one (subscriber counts are kept by the server)
+          changed().hasOnly(['followers', 'following', 'followerCount', 'followingCount', 'updatedAt'])
+          && countersStep()
         )
-        || (
-          // Allow new users to set referredBy on their own doc (signup referral)
-          isOwner(userId) &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['referredBy'])
-        );
+        ;
+    }
+
+    // ── Private contact details (email, phone) — profiles are public, these aren't ──
+    match /user_private/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isOwner(userId)
+        && request.resource.data.keys().hasOnly(['email', 'phoneNumber', 'updatedAt']);
+      allow delete: if isAdmin();
+    }
+
+    // ── Private KYC (ID number, DOB, address, ID photos) — owner + admin only ──
+    match /kyc/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isOwner(userId) && request.resource.data.userId == userId;
+      allow delete: if isAdmin();
     }
 
     // ── Creator tiers & fans ───────────────────────────────────────────────────
@@ -54,16 +114,16 @@ service cloud.firestore {
 
     match /creators/{creatorId}/fans/{fanId} {
       allow read: if isAuthenticated() && (request.auth.uid == creatorId || request.auth.uid == fanId || isAdmin());
-      allow write: if isAuthenticated() && (request.auth.uid == fanId || request.auth.uid == creatorId || isAdmin());
+      allow write: if isAuthenticated() && (request.auth.uid == creatorId || isAdmin()); // spend totals: server
     }
 
     // ── Subscriptions ─────────────────────────────────────────────────────────
     match /subscriptions/{subscriptionId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid || resource.data.creatorId == request.auth.uid || isAdmin()
-      );
+      allow create: if false; // paid on the server (spend → subscription)
+      // The fan may only cancel; extending/activating is done by the server after payment
+      allow update: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid
+        && changed().hasOnly(['status', 'cancelledAt', 'updatedAt']) && request.resource.data.status == 'cancelled');
       allow delete: if isAdmin();
     }
 
@@ -71,8 +131,16 @@ service cloud.firestore {
     match /posts/{postId} {
       allow read: if true;
       allow list: if true;
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated();
+      // Locked posts with media are created by the server (publishPost) so originals are never public
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid
+        && (request.resource.data.get('type', 'free') == 'free' || request.resource.data.get('images', []).size() == 0);
+      allow update: if (isOwner(resource.data.userId)
+          && !(changed().hasAny(['images', 'mediaProtected']) && request.resource.data.get('type', 'free') != 'free'))
+        || isAdmin() || (
+        isAuthenticated() &&
+        changed().hasOnly(['likes', 'likedBy', 'shares', 'comments', 'commentsCount', 'commentCount', 'views', 'viewCount', 'updatedAt', 'createdAt']) &&
+        (!changed().hasAny(['createdAt']) || !(resource.data.get('createdAt', null) is timestamp))
+      );
       allow delete: if isOwner(resource.data.userId) || isAdmin();
 
       match /comments/{commentId} {
@@ -137,19 +205,8 @@ service cloud.firestore {
         resource.data.creatorId == request.auth.uid ||
         isAdmin()
       );
-      allow list: if isAuthenticated();
+      allow list: if isAuthenticated() && (resource.data.creatorId == request.auth.uid || resource.data.ownerUid == request.auth.uid || isAdmin());
       allow write: if false; // requestPayout callable only
-    }
-
-    match /payout_requests/{requestId} {
-      allow get: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid ||
-        resource.data.creatorId == request.auth.uid ||
-        isAdmin()
-      );
-      allow list: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update, delete: if isAdmin();
     }
 
     match /unlocks/{unlockId} {
@@ -166,16 +223,15 @@ service cloud.firestore {
     }
 
     // ── Wallets, User balances & Creator balances ───────────────────────────
+    // Money: owners read their own balance; only the server (and admins) change it
     match /wallets/{userId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isAdmin();
     }
 
     match /user_balances/{userId} {
-      allow read, write: if isAuthenticated();
-    }
-
-    match /creator_balances/{creatorId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isAdmin();
     }
 
     // ── Transactions ──────────────────────────────────────────────────────────
@@ -190,7 +246,7 @@ service cloud.firestore {
         request.auth.uid == resource.data.creatorId ||
         isAdmin()
       );
-      allow create: if isAuthenticated();
+      allow create: if isAdmin(); // written by the server with every payment
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
@@ -201,8 +257,8 @@ service cloud.firestore {
         resource.data.creatorId == request.auth.uid ||
         isAdmin()
       );
-      allow list: if isAuthenticated();
-      allow create: if isAuthenticated();
+      allow list: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.creatorId == request.auth.uid || isAdmin());
+      allow create: if isAdmin();
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
@@ -213,19 +269,8 @@ service cloud.firestore {
         resource.data.creatorId == request.auth.uid ||
         isAdmin()
       );
-      allow create: if isAuthenticated();
+      allow create: if false; // server
       allow update, delete: if isAdmin();
-    }
-
-    match /subscriptions/{subId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid ||
-        resource.data.creatorId == request.auth.uid ||
-        isAdmin()
-      );
-      allow delete: if isAdmin();
     }
 
     // ── Earnings ──────────────────────────────────────────────────────────────
@@ -238,8 +283,9 @@ service cloud.firestore {
 
     // ── Unlocked content ──────────────────────────────────────────────────────
     match /unlocked_content/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.creatorId == request.auth.uid || isAdmin());
+      allow create: if false; // server (`unlock`)
+      allow update, delete: if isAdmin();
     }
 
     // ── Creator availability ──────────────────────────────────────────────────
@@ -271,13 +317,29 @@ service cloud.firestore {
         resource.data.creatorId == request.auth.uid ||
         isAdmin()
       );
-      allow list: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && (
+      // Only the two people on the call (the "is this creator busy?" check runs on the server)
+      allow list: if isAuthenticated() && (
         resource.data.userId == request.auth.uid ||
         resource.data.creatorId == request.auth.uid ||
         isAdmin()
       );
+      allow create: if false; // booked + paid on the server (spend → call)
+      // Either party can run the call (start, end, rejoin, video request), but money fields and
+      // refund states belong to the server
+      allow update: if isAdmin() || (isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid
+      ) && !changed().hasAny(['userId', 'creatorId', 'price', 'creatorEarning', 'duration', 'type',
+                              'creatorPaid', 'ledgerTxId', 'platformFee', 'ambassadorCommission', 'ambassadorId',
+                              'scheduledAt', 'refundedAt', 'legacyVerified'])
+        // Calls start at most 10 min early, and only a started call can be completed
+        && (!changed().hasAny(['status'])
+            || (request.resource.data.status == 'in_progress' && request.time >= resource.data.scheduledAt - duration.value(10, 'm'))
+            || (request.resource.data.status == 'completed' && resource.data.status == 'in_progress'))
+        // Each side only records its own presence; the shared start time is set once
+        && (!changed().hasAny(['userEnteredCallAt', 'userEnded', 'userEndedAt']) || request.auth.uid == resource.data.userId)
+        && (!changed().hasAny(['creatorEnteredCallAt', 'creatorEnded', 'creatorEndedAt']) || request.auth.uid == resource.data.creatorId)
+        && (!changed().hasAny(['callStartedAt']) || resource.data.get('callStartedAt', null) == null));
       allow delete: if isAdmin();
     }
 
@@ -288,10 +350,12 @@ service cloud.firestore {
 
     // ── Conversations & messages ──────────────────────────────────────────────
     match /conversations/{conversationId} {
-      allow get: if isAuthenticated();
+      allow get: if isAuthenticated() && (resource == null || request.auth.uid in resource.data.participants);
       allow list: if isAuthenticated() && request.auth.uid in resource.data.participants;
       allow create: if isAuthenticated() && request.auth.uid in request.resource.data.participants;
-      allow update: if isAuthenticated() && request.auth.uid in resource.data.participants;
+      // Participants update chat metadata only — never who's in it or who gets paid (creatorId)
+      allow update: if isAuthenticated() && request.auth.uid in resource.data.participants
+        && !changed().hasAny(['participants', 'creatorId', 'fanId']);
       allow delete: if isAuthenticated() && request.auth.uid in resource.data.participants;
 
       match /messages/{messageId} {
@@ -299,15 +363,22 @@ service cloud.firestore {
           return request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
         }
         allow read: if isAuthenticated() && isParticipant();
-        allow create: if isAuthenticated() && isParticipant() && request.resource.data.senderId == request.auth.uid;
-        allow update: if isAuthenticated() && isParticipant();
+        // Paid (PPV) messages are sent through the server (sendPPV) so the media is never public
+        allow create: if isAuthenticated() && isParticipant() && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.get('isPPV', false) != true;
+        allow update: if isAuthenticated() && isParticipant() && (
+          resource.data.senderId == request.auth.uid
+            ? !changed().hasAny(['senderId', 'unlockedBy', 'unlockPrice', 'price', 'priceMinor', 'isPPV', 'mediaProtected', 'hasMedia', 'mediaUrl'])
+            : changed().hasOnly(['read', 'readAt', 'readBy', 'status', 'reactions', 'updatedAt'])
+        );
         allow delete: if isAuthenticated() && isParticipant();
       }
     }
 
     // ── PPV unlocks ───────────────────────────────────────────────────────────
     match /ppv_unlocks/{unlockId} {
-      allow read, create: if isAuthenticated();
+      allow read: if isAuthenticated() && (resource.data.get('userId', resource.data.get('fanId', '')) == request.auth.uid || resource.data.get('creatorId', '') == request.auth.uid || isAdmin());
+      allow create: if false; // server (`unlock`)
       allow update, delete: if isAdmin();
     }
 
@@ -321,8 +392,8 @@ service cloud.firestore {
       allow list: if isAuthenticated() && (
         request.auth.uid == resource.data.userId || isAdmin()
       );
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if false;     // createPayment function only (a forged doc could hijack an invoice)
+      allow update: if isAdmin(); // only the signed NowPayments webhook (admin SDK) changes payments
       allow delete: if isAdmin();
     }
 
@@ -334,7 +405,8 @@ service cloud.firestore {
       allow list: if isAuthenticated() && (
         request.auth.uid == resource.data.userId || isAdmin()
       );
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid
+        && request.resource.data.get('status', 'pending') == 'pending';
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
@@ -351,6 +423,7 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isCreator();
       allow update: if isAuthenticated() && (
         resource.data.creatorId == request.auth.uid || isAdmin()
+        || changed().hasOnly(['memberCount']) // leaving updates the member count
       );
       allow delete: if isAuthenticated() && (
         resource.data.creatorId == request.auth.uid || isAdmin()
@@ -359,9 +432,9 @@ service cloud.firestore {
 
     match /community_members/{memberId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow create: if false; // joins (free or paid) go through the server
       allow update: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid ||
+        (resource.data.userId == request.auth.uid && changed().hasOnly(['lastActive', 'notifications', 'muted'])) ||
         get(/databases/$(database)/documents/communities/$(resource.data.communityId)).data.creatorId == request.auth.uid ||
         isAdmin()
       );
@@ -391,8 +464,9 @@ service cloud.firestore {
       allow update: if isAuthenticated() && (
         resource.data.authorId == request.auth.uid ||
         isCommunityOwner(resource.data.communityId) ||
-        isCommunityMember(resource.data.communityId) ||
-        isAdmin()
+        isAdmin() ||
+        (isCommunityMember(resource.data.communityId) &&
+          changed().hasOnly(['likes', 'likeCount', 'likedBy', 'comments', 'commentsCount', 'commentCount', 'updatedAt']))
       );
       allow delete: if isAuthenticated() && (
         resource.data.authorId == request.auth.uid ||
@@ -413,23 +487,28 @@ service cloud.firestore {
     // ── Notifications ─────────────────────────────────────────────────────────
     match /notifications/{notificationId} {
       allow get: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow list: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isOwner(resource.data.userId);
+      allow list: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      // Social pings only, signed as yourself. Money/booking notices ("payment received", "tip",
+      // "refund"…) are written by the server so they can't be faked.
+      allow create: if isAuthenticated()
+        && request.resource.data.get('actorId', '') == request.auth.uid
+        && request.resource.data.type in ['like', 'follow', 'comment', 'message', 'mention', 'reply']
+        && request.resource.data.userId is string;
+      allow update: if isOwner(resource.data.userId) && changed().hasOnly(['read', 'readAt']);
       allow delete: if isOwner(resource.data.userId) || isAdmin();
     }
 
     // ── Creator balances & payouts ────────────────────────────────────────────
     match /creator_balances/{creatorId} {
       allow read: if isOwner(creatorId) || isAdmin();
-      allow write: if false; // Cloud Functions double-entry only
+      allow write: if isAdmin(); // sales & payouts: Cloud Functions; admins for manual corrections
     }
 
     match /pending_releases/{docId} {
       allow read: if isAuthenticated() && (
         resource.data.creatorId == request.auth.uid || isAdmin()
       );
-      allow create: if isAuthenticated();
+      allow create: if isAdmin();
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
@@ -438,8 +517,8 @@ service cloud.firestore {
       allow get: if isAuthenticated() && (
         resource.data.creatorId == request.auth.uid || isAdmin()
       );
-      allow list: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.creatorId == request.auth.uid;
+      allow list: if isAuthenticated() && (resource.data.creatorId == request.auth.uid || isAdmin());
+      allow create: if false; // withdrawals go through requestPayout (checks the real balance)
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
@@ -451,15 +530,15 @@ service cloud.firestore {
         resource.data.toCreatorId == request.auth.uid ||
         isAdmin()
       );
-      // Allow users to list their own tips
-      allow list: if isAuthenticated();
-      allow create: if isAuthenticated();
+      // Users list only their own tips (sent or received)
+      allow list: if isAuthenticated() && (resource.data.fromUserId == request.auth.uid || resource.data.toCreatorId == request.auth.uid || isAdmin());
+      allow create: if false; // paid on the server (spend → tip)
       allow update, delete: if isAdmin();
     }
 
     // ── Blocks ────────────────────────────────────────────────────────────────
     match /blocks/{blockId} {
-      allow list: if isAuthenticated();
+      allow list: if isAuthenticated() && (resource.data.blockerId == request.auth.uid || resource.data.blockedId == request.auth.uid);
       allow get: if isAuthenticated() && (
         resource.data.blockerId == request.auth.uid ||
         resource.data.blockedId == request.auth.uid
@@ -477,7 +556,7 @@ service cloud.firestore {
     // ── Scheduled notifications ───────────────────────────────────────────────
     match /scheduled_notifications/{docId} {
       allow read: if isAuthenticated() && request.auth.uid in resource.data.userIds;
-      allow create: if isAuthenticated();
+      allow create: if isAdmin(); // call reminders are created by the server with the booking
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
@@ -492,8 +571,7 @@ service cloud.firestore {
       // ✅ Fixed: ambassadors can list their OWN commissions (filtered by ambassadorId)
       // Admins can list all
       allow list: if isAuthenticated() && (
-        isAdmin() ||
-        request.auth.uid != null  // ambassador queries filtered by their uid client-side
+        isAdmin() || resource.data.ambassadorId == request.auth.uid
       );
       // Cloud Function writes via admin SDK (bypasses rules)
       allow create: if isAdmin();
@@ -508,7 +586,12 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated();
+        // Chat/join/presence from anyone (as themselves, no money fields); tips, requests, questions
+        // and guest requests are created by the server after payment
+        allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid
+          && !('amount' in request.resource.data) && !('creatorEarning' in request.resource.data)
+          && (request.resource.data.type in ['chat', 'join', 'presence', 'stage_leave']
+              || (request.resource.data.type == 'system' && request.auth.uid == creatorId));
         allow update, delete: if isOwner(creatorId) || isAdmin();
       }
 

@@ -98,8 +98,9 @@ export const leaveCommunity = async (userId, communityId) => {
   try {
     // Direct delete using deterministic ID
     await deleteDoc(doc(db, 'community_members', `${userId}_${communityId}`));
-    await updateDoc(doc(db, 'communities', communityId), { memberCount: increment(-1) });
-    await updateDoc(doc(db, 'users', userId), { communitiesJoined: increment(-1) });
+    // Counters are cosmetic — never fail the leave because of them
+    await updateDoc(doc(db, 'communities', communityId), { memberCount: increment(-1) }).catch(() => {});
+    await updateDoc(doc(db, 'users', userId), { communitiesJoined: increment(-1) }).catch(() => {});
     return true;
   } catch (error) {
     console.error('Error leaving community:', error);

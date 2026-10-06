@@ -4,11 +4,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Gift, Wallet, Loader2, CheckCircle, AlertCircle, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { getWalletBalance, deductFromWallet } from '../../services/walletService';
-import { doc, updateDoc, setDoc, serverTimestamp, increment, getDoc } from 'firebase/firestore';
+import { getWalletBalance } from '../../services/walletService';
+import { pay } from '../../services/payService';
+import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import { getCreatorSplit, creditAmbassadorCommission } from '../../services/commissionService';
-import { createTipNotification } from '../../services/notificationService';
+import { authUrl, herePath } from '../../utils/authRedirect';
 
 const QUICK_AMOUNTS = [1, 2, 5, 10, 20, 50];
 
@@ -44,7 +44,7 @@ export default function TipModal({ isOpen, onClose, creator }) {
         getDoc(doc(db, 'users', creator.uid))
           .then(snap => {
             if (!snap.exists()) return;
-            setCreatorRate(snap.data().role === 'ambassador' ? 0.9 : 0.8);
+            setCreatorRate((snap.data().role === 'ambassador' || snap.data().isAmbassador === true) ? 0.9 : 0.8);
           })
           .catch(() => {});
       }
@@ -62,6 +62,8 @@ export default function TipModal({ isOpen, onClose, creator }) {
   }, [isOpen, currentUser, creator?.uid]);
 
   const getTipAmount = () => {
+    // A typed amount always wins — the box is visible on both tabs
+    if (customAmount) return parseFloat(customAmount) || 0;
     if (tab === 'gifts' && selectedGift) return selectedGift.price;
     if (tab === 'custom' && selectedAmount) return selectedAmount;
     if (tab === 'custom' && customAmount) return parseFloat(customAmount);
@@ -73,52 +75,23 @@ export default function TipModal({ isOpen, onClose, creator }) {
   const creatorRatePct = Math.round(creatorRate * 100);
 
   const handleSend = async () => {
-    if (!currentUser) { navigate('/login'); return; }
+    if (!currentUser) { navigate(authUrl(herePath())); return; }
     if (!tipAmount || tipAmount <= 0) { setError('Please select a tip amount'); return; }
     if (tipAmount < 1) { setError('Minimum tip is $1.00'); return; }
     setError('');
     try {
       setSending(true);
-      await deductFromWallet(
-        currentUser.uid,
-        tipAmount,
-        `Tip to ${creator?.name || 'creator'}${selectedGift ? ` (${selectedGift.emoji} ${selectedGift.name})` : ''}`,
-        { contentType: 'tip', creatorId: creator?.uid, giftId: selectedGift?.id || null, tipMessage: message || null }
-      );
-
-      // ✅ Dynamic split via commission service
-      const { creatorEarning, platformFee, ambassadorCommission, ambassadorId } =
-        await getCreatorSplit(creator.uid, tipAmount);
-
-      const creatorBalRef = doc(db, 'creator_balances', creator.uid);
-      const month = new Date().toLocaleString('default', { month: 'short' });
-      try {
-        await updateDoc(creatorBalRef, { availableBalance: increment(creatorEarning), totalEarnings: increment(creatorEarning), [`monthlyEarnings.${month}`]: increment(creatorEarning), updatedAt: serverTimestamp() });
-      } catch {
-        await setDoc(creatorBalRef, { creatorId: creator.uid, availableBalance: creatorEarning, totalEarnings: creatorEarning, monthlyEarnings: { [month]: creatorEarning }, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-      }
-
-      // ✅ Credit ambassador commission if referred
-      await creditAmbassadorCommission(ambassadorId, ambassadorCommission, creator.uid, 'tip');
-
-      await setDoc(doc(db, 'tips', `${currentUser.uid}_${creator.uid}_${Date.now()}`), {
-        fromUserId: currentUser.uid, toCreatorId: creator.uid, amount: tipAmount,
-        creatorEarning, platformFee,
-        ambassadorCommission: ambassadorCommission || 0,
-        ambassadorId: ambassadorId || null,
-        giftId: selectedGift?.id || null, giftEmoji: selectedGift?.emoji || null,
-        giftName: selectedGift?.name || null, message: message || null, createdAt: serverTimestamp(),
+      // Server sets the split (80/90/5), debits the wallet and notifies the creator — in one go
+      const res = await pay('tip', {
+        creatorId: creator.uid,
+        amount: tipAmount,
+        giftId: selectedGift?.id || null,
+        giftEmoji: selectedGift?.emoji || null,
+        giftName: selectedGift?.name || null,
+        message: message || null,
       });
-
-      // Notify creator about tip
-      try {
-        await createTipNotification(currentUser.uid, creator.uid, userProfile, tipAmount);
-      } catch (notifErr) {
-        console.warn('⚠️ Tip notification error:', notifErr);
-      }
-
       setSuccess(true);
-      setBalance(prev => prev - tipAmount);
+      setBalance(res?.balanceAfter ?? ((prev) => prev - tipAmount));
     } catch (e) {
       setError(e.message || 'Failed to send tip');
     } finally {
@@ -226,7 +199,7 @@ export default function TipModal({ isOpen, onClose, creator }) {
                 {tab === 'gifts' && (
                   <div className="grid grid-cols-3 gap-3 mb-4">
                     {GIFTS.map(gift => (
-                      <button key={gift.id} onClick={() => setSelectedGift(gift)}
+                      <button key={gift.id} onClick={() => { setSelectedGift(gift); setCustomAmount(''); }}
                         className={`flex flex-col items-center py-3 px-2 rounded-xl border-2 transition ${
                           selectedGift?.id === gift.id ? 'border-rose-500 bg-rose-50' : 'border-gray-200 hover:border-gray-300 bg-white'
                         }`}>
@@ -235,6 +208,17 @@ export default function TipModal({ isOpen, onClose, creator }) {
                         <span className="text-xs font-bold text-rose-600 mt-0.5">${gift.price}</span>
                       </button>
                     ))}
+                  </div>
+                )}
+
+                {/* Type-your-own amount, right under the gifts */}
+                {tab === 'gifts' && (
+                  <div className="relative mb-4">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+                    <input type="number" inputMode="decimal" value={customAmount}
+                      onChange={e => { setCustomAmount(e.target.value); setSelectedGift(null); }}
+                      placeholder="Or type any amount" min="1" step="0.01"
+                      className="w-full pl-8 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-rose-400 text-sm font-semibold" />
                   </div>
                 )}
 
@@ -283,7 +267,7 @@ export default function TipModal({ isOpen, onClose, creator }) {
                   {sending
                     ? <Loader2 className="w-5 h-5 animate-spin" />
                     : tipAmount >= 1
-                      ? <><Zap className="w-5 h-5" /><span>Send {selectedGift ? `${selectedGift.emoji} ` : ''}${tipAmount.toFixed(2)}</span></>
+                      ? <><Zap className="w-5 h-5" /><span>Send {selectedGift && !customAmount ? `${selectedGift.emoji} ` : ''}${tipAmount.toFixed(2)}</span></>
                       : <span>Select an amount</span>}
                 </button>
                 {tipAmount >= 1 && (

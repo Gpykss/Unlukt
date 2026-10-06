@@ -1,0 +1,9 @@
+# Never upload secrets or server-only files with the website
+service-account*.json
+*.serviceaccount.json
+.env*
+!.env.example
+functions/
+scripts/
+tests/
+audit_report.json

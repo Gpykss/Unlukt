@@ -1,12 +1,13 @@
 // src/components/Messages/PPVMessageCard.jsx - Locked Message (wallet-based instant unlock)
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Lock, Image, Video, Loader2 } from 'lucide-react';
 import { unlockPPVMessage, getMessagePreview } from '../../services/ppvMessageService';
 import { useAuth } from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import logger from '../../utils/logger';
+import { getMessageMedia, clearMediaCache } from '../../services/mediaService';
 
 export default function PPVMessageCard({ message, conversationId }) {
   const { currentUser } = useAuth();
@@ -31,6 +32,7 @@ export default function PPVMessageCard({ message, conversationId }) {
       if (res?.mediaUrl) {
         setUnlockedMediaUrl(res.mediaUrl);
       }
+      clearMediaCache(message.id);
       setIsUnlocked(true);
     } catch (error) {
       logger.error('Error unlocking message:', error);
@@ -50,17 +52,17 @@ export default function PPVMessageCard({ message, conversationId }) {
 
   // Sender sees their own message
   if (message.senderId === currentUser?.uid) {
-    return <NormalMessage message={message} isSender />;
+    return <NormalMessage message={message} isSender conversationId={conversationId} />;
   }
 
   // Already unlocked
   if (isUnlocked) {
-    return <NormalMessage message={message} customMediaUrl={unlockedMediaUrl} />;
+    return <NormalMessage message={message} customMediaUrl={unlockedMediaUrl} conversationId={conversationId} />;
   }
 
   // Locked preview
   const preview = getMessagePreview(message);
-  const hasMedia = message.mediaUrl && message.mediaType && message.mediaType !== 'text';
+  const hasMedia = (message.mediaUrl || message.hasMedia) && message.mediaType && message.mediaType !== 'text';
 
   return (
     <motion.div
@@ -111,8 +113,18 @@ export default function PPVMessageCard({ message, conversationId }) {
   );
 }
 
-function NormalMessage({ message, isSender, customMediaUrl }) {
-  const displayUrl = customMediaUrl || message.mediaUrl;
+function NormalMessage({ message, isSender, customMediaUrl, conversationId }) {
+  // Protected PPV: the real media + full text come from the server (sender or buyer only)
+  const [real, setReal] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    if (message.mediaProtected && conversationId) {
+      getMessageMedia(conversationId, message.id).then((r) => { if (alive) setReal(r); }).catch(() => {});
+    }
+    return () => { alive = false; };
+  }, [message.id, message.mediaProtected, conversationId]);
+  const displayUrl = customMediaUrl || real?.url || message.mediaUrl;
+  message = real?.content ? { ...message, content: real.content } : message;
   return (
     <div className={`rounded-2xl p-3 mb-3 max-w-xs ${isSender ? 'bg-rose-500 text-white ml-auto' : 'bg-white shadow-sm'}`}>
       {displayUrl && message.mediaType && message.mediaType !== 'text' && (

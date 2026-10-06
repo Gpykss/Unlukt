@@ -10,10 +10,10 @@ import {
 import { useNavigate } from 'react-router-dom';
 import {
   collection, query, where, orderBy, getDocs,
-  getCountFromServer, doc, updateDoc, serverTimestamp
+  getCountFromServer
 } from 'firebase/firestore';
-import { db, auth } from '../../config/firebase';
-import { addToWallet } from '../../services/walletService';
+import { db, functions } from '../../config/firebase';
+import { httpsCallable } from 'firebase/functions';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const STATUS_STYLES = {
@@ -91,16 +91,11 @@ export default function NGNPayments() {
     if (!window.confirm(`Approve ₦${payment.amountNGN?.toLocaleString()} (≈ $${payment.amountUSD?.toFixed(2)}) for ${payment.userEmail}?`)) return;
     setActing(payment.id);
     try {
-      // 1. Credit user wallet
-      await addToWallet(payment.userId, payment.amountUSD, payment.id);
-
-      // 2. Mark payment approved
-      await updateDoc(doc(db, 'ngn_payments', payment.id), {
-        status:     'approved',
-        reviewedBy: auth.currentUser?.uid,
-        reviewedAt: serverTimestamp(),
-      });
-
+      // Server: re-checks status, recomputes dollars from the naira amount, credits once
+      const res = await httpsCallable(functions, 'adminTopup')({ kind: 'ngn', paymentId: payment.id });
+      if (res.data?.credited != null && Math.abs(res.data.credited - (payment.amountUSD || 0)) > 0.01) {
+        alert(`Credited $${res.data.credited.toFixed(2)} (re-calculated from ₦${payment.amountNGN?.toLocaleString()} at today's rate).`);
+      }
       await loadAll();
       setProofModal(null);
     } catch (e) {
@@ -115,11 +110,8 @@ export default function NGNPayments() {
   const handleReject = async (payment) => {
     setActing(payment.id);
     try {
-      await updateDoc(doc(db, 'ngn_payments', payment.id), {
-        status:     'rejected',
-        adminNote:  rejectNote.trim() || 'Payment could not be verified.',
-        reviewedBy: auth.currentUser?.uid,
-        reviewedAt: serverTimestamp(),
+      await httpsCallable(functions, 'adminTopup')({
+        kind: 'ngn', paymentId: payment.id, approve: false, note: rejectNote.trim() || 'Payment could not be verified.',
       });
       setShowRejectBox(null);
       setRejectNote('');

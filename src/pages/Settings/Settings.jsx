@@ -274,7 +274,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20 lg:pb-8">
+    <div className="min-h-screen bg-gray-50 pb-28 lg:pb-8 overflow-x-hidden">
       <div className="bg-white border-b border-gray-200 sticky top-0 z-20">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center space-x-4">
           <button onClick={() => navigate('/feed')} className="p-2 hover:bg-gray-100 rounded-lg transition">
@@ -284,25 +284,25 @@ export default function Settings() {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto py-8 px-4 space-y-6">
+      <div className="max-w-4xl mx-auto py-4 sm:py-8 px-3 sm:px-4 space-y-4 sm:space-y-6">
         {/* Profile Card */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center space-x-4">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-bold text-2xl overflow-hidden">
+          className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-6">
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-bold text-2xl overflow-hidden">
               {profile?.avatar
                 ? <img src={profile.avatar} alt={displayName} className="w-full h-full object-cover" />
                 : displayName?.charAt(0)?.toUpperCase()}
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div className="flex items-center space-x-2">
-                <h3 className="text-xl font-bold text-gray-900">{displayName}</h3>
+                <h3 className="text-lg sm:text-xl font-bold text-gray-900 truncate">{displayName}</h3>
                 {isVerified && <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center"><span className="text-white text-xs">✓</span></div>}
               </div>
-              {username && <p className="text-gray-500">@{username}</p>}
+              {username && <p className="text-gray-500 text-sm truncate">@{username}</p>}
               {isCreator && <span className="text-xs bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-semibold">Creator</span>}
             </div>
-            <button onClick={() => navigate('/edit-profile')} className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition">
+            <button onClick={() => navigate('/edit-profile')} className="w-full sm:w-auto min-h-[44px] px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-semibold transition">
               Edit Profile
             </button>
           </div>
@@ -352,14 +352,14 @@ export default function Settings() {
             onToggle={() => toggleSection('creator')}
           >
             {/* 3-Tier Membership Management */}
-            <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-rose-50/40 via-pink-50/20 to-transparent">
+            <div className="p-4 sm:p-6 border-b border-gray-200 bg-gradient-to-r from-rose-50/40 via-pink-50/20 to-transparent">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="p-1.5 rounded-lg bg-rose-100 text-rose-600">
                       <Crown className="w-4 h-4" />
                     </span>
-                    <h3 className="text-base font-bold text-gray-900">3-Tier Memberships (Supporter, VIP, Superfan)</h3>
+                    <h3 className="text-sm sm:text-base font-bold text-gray-900">3-Tier Memberships (Supporter, VIP, Superfan)</h3>
                   </div>
                   <p className="text-xs text-gray-500 mt-1 max-w-lg">
                     Customize prices, perks, and call discounts for multi-level fans. Fans select their tier upon subscribing.
@@ -368,7 +368,7 @@ export default function Settings() {
                 <button
                   type="button"
                   onClick={() => setShowTierModal(true)}
-                  className="px-4 py-2.5 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-xl text-xs font-bold shadow-xs transition flex items-center justify-center gap-1.5 whitespace-nowrap"
+                  className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-xl text-sm sm:text-xs font-bold shadow-xs transition flex items-center justify-center gap-1.5 whitespace-nowrap"
                 >
                   <Crown className="w-3.5 h-3.5" />
                   <span>Configure Tiers</span>
@@ -377,13 +377,13 @@ export default function Settings() {
             </div>
 
             {/* Subscription Pricing */}
-            <div className="p-6 border-b border-gray-200">
+            <div className="p-4 sm:p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900 mb-1">💰 Base Subscription Pricing</h3>
               <p className="text-sm text-gray-500 mb-5">
                 Set your default prices for each duration. Fans choose which plan to subscribe to.
               </p>
 
-              <div className="space-y-4 max-w-md">
+              <div className="space-y-4 w-full sm:max-w-md">
                 {/* Monthly */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5 flex items-center gap-2">
@@ -475,10 +475,10 @@ export default function Settings() {
                 {/* 3-Tier Membership Configuration (PRD 16.1 & 16.2) */}
                 <div className="p-4 bg-gradient-to-r from-amber-50 to-rose-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 my-2">
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Crown className="w-5 h-5 text-amber-500" />
                       <span className="font-bold text-gray-900 text-sm">3-Tier Membership & Badges</span>
-                      <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-200/60 text-amber-900">
+                      <span className="hidden sm:inline text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-200/60 text-amber-900">
                         Supporter • VIP • Superfan
                       </span>
                     </div>
@@ -489,7 +489,7 @@ export default function Settings() {
                   <button
                     type="button"
                     onClick={() => setShowTierModal(true)}
-                    className="px-4 py-2.5 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white rounded-xl font-bold text-xs sm:text-sm shadow-sm transition flex items-center justify-center gap-1.5 whitespace-nowrap"
+                    className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center justify-center gap-1.5 whitespace-nowrap"
                   >
                     <Sparkles className="w-4 h-4" />
                     <span>Manage Tiers</span>
@@ -498,7 +498,7 @@ export default function Settings() {
                 <button
                   onClick={handleSaveSubscriptionPrice}
                   disabled={savingPrice}
-                  className="w-full mt-2 px-4 py-3 bg-rose-500 hover:bg-rose-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-semibold transition flex items-center justify-center gap-2"
+                  className="w-full mt-2 min-h-[44px] px-4 py-3 bg-rose-500 hover:bg-rose-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-semibold transition flex items-center justify-center gap-2"
                 >
                   {savingPrice ? <Loader2 className="w-5 h-5 animate-spin" /> : '💾 Save Prices'}
                 </button>
@@ -507,12 +507,12 @@ export default function Settings() {
 
 
             {/* Availability Toggle */}
-            <div className="p-6 border-b border-gray-200">
+            <div className="p-2 sm:p-6 border-b border-gray-200">
               <AvailabilityToggle />
             </div>
 
             {/* Discount Manager */}
-            <div className="p-6 border-b border-gray-200">
+            <div className="p-3 sm:p-6 border-b border-gray-200">
               <CreatorDiscountManager
                 baseMonthly={parseFloat(priceMonthly) || 0}
                 baseWeekly={priceWeekly !== '' ? parseFloat(priceWeekly) : null}
@@ -521,29 +521,29 @@ export default function Settings() {
             </div>
 
             {/* ========== AUTOMATED WELCOME MESSAGES ========== */}
-            <div className="p-6 border-b border-gray-200 bg-white">
+            <div className="p-4 sm:p-6 border-b border-gray-200 bg-white">
               <div className="flex items-center gap-2 mb-1">
                 <span className="p-1.5 rounded-lg bg-sky-100 text-sky-600">
                   <MessageSquare className="w-4 h-4" />
                 </span>
-                <h3 className="text-base font-bold text-gray-900">💬 Automated Welcome Messages</h3>
+                <h3 className="text-sm sm:text-base font-bold text-gray-900">💬 Automated Welcome Messages</h3>
               </div>
               <p className="text-xs text-gray-500 mb-5">
                 Automatically send a personalized direct message to fans the moment they subscribe or follow you. Use <code className="bg-gray-100 px-1 py-0.5 rounded text-rose-600 font-bold">{'{name}'}</code> to personalize with the fan's name.
               </p>
 
-              <div className="space-y-6 max-w-xl">
+              <div className="space-y-4 sm:space-y-6 w-full sm:max-w-xl">
                 {/* 1. New Subscriber Auto-Message */}
                 <div className="p-4 bg-gray-50/70 border border-gray-200 rounded-xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
                       <h4 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
                         <Crown className="w-4 h-4 text-amber-500" />
                         <span>New Subscriber Greeting</span>
                       </h4>
                       <p className="text-xs text-gray-500">Sent immediately when a fan joins any paid membership tier.</p>
                     </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
+                    <label className="relative inline-flex items-center cursor-pointer flex-shrink-0 mt-0.5">
                       <input
                         type="checkbox"
                         checked={autoMessages.subscriberEnabled}
@@ -567,15 +567,15 @@ export default function Settings() {
 
                 {/* 2. New Follower Auto-Message */}
                 <div className="p-4 bg-gray-50/70 border border-gray-200 rounded-xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
                       <h4 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
                         <User className="w-4 h-4 text-emerald-500" />
                         <span>New Follower Greeting</span>
                       </h4>
                       <p className="text-xs text-gray-500">Sent immediately when someone follows your public profile.</p>
                     </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
+                    <label className="relative inline-flex items-center cursor-pointer flex-shrink-0 mt-0.5">
                       <input
                         type="checkbox"
                         checked={autoMessages.followerEnabled}
@@ -601,7 +601,7 @@ export default function Settings() {
                   type="button"
                   onClick={handleSaveAutoMessages}
                   disabled={savingAutoMessages}
-                  className="px-5 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center justify-center gap-2"
+                  className="w-full sm:w-auto min-h-[44px] px-5 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center justify-center gap-2"
                 >
                   {savingAutoMessages ? <Loader2 className="w-4 h-4 animate-spin" /> : '💾 Save Automated Messages'}
                 </button>
@@ -609,14 +609,14 @@ export default function Settings() {
             </div>
 
             {/* ========== GEO-BLOCKING / COUNTRY RESTRICTIONS ========== */}
-            <div className="p-6 bg-white">
-              <div className="flex items-center justify-between gap-4 mb-2">
-                <div>
+            <div className="p-4 sm:p-6 bg-white">
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="p-1.5 rounded-lg bg-rose-100 text-rose-600">
                       <Globe className="w-4 h-4" />
                     </span>
-                    <h3 className="text-base font-bold text-gray-900">🌍 Geo-Blocking / Regional Privacy</h3>
+                    <h3 className="text-sm sm:text-base font-bold text-gray-900">🌍 Geo-Blocking / Regional Privacy</h3>
                   </div>
                   <p className="text-xs text-gray-500 mt-1 max-w-lg">
                     Restrict users in selected countries from viewing your profile, exclusive posts, or subscribing.
@@ -635,7 +635,7 @@ export default function Settings() {
               </div>
 
               {geoBlockingEnabled && (
-                <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-4 max-w-xl">
+                <div className="mt-4 p-3 sm:p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-4 w-full sm:max-w-xl">
                   {/* Selected countries chips */}
                   <div>
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
@@ -678,7 +678,7 @@ export default function Settings() {
                       value={countrySearch}
                       onChange={(e) => setCountrySearch(e.target.value)}
                       placeholder="Type country name (e.g. Nigeria, United States, Ghana)..."
-                      className="w-full p-2.5 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-rose-500 bg-white"
+                      className="w-full p-3 border border-gray-200 rounded-xl text-base sm:text-xs focus:outline-none focus:border-rose-500 bg-white"
                     />
 
                     {/* Filtered suggestions list */}
@@ -692,7 +692,7 @@ export default function Settings() {
                               key={c.code}
                               type="button"
                               onClick={() => handleToggleCountryBlock(c.code)}
-                              className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between transition ${
+                              className={`w-full px-3 py-3 sm:py-2 text-left text-sm sm:text-xs flex items-center justify-between gap-2 transition ${
                                 isBlocked ? 'bg-rose-50/80 font-bold text-rose-700' : 'hover:bg-gray-50 text-gray-700'
                               }`}
                             >
@@ -715,7 +715,7 @@ export default function Settings() {
                     type="button"
                     onClick={handleSaveGeoBlocking}
                     disabled={savingGeo}
-                    className="px-5 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center justify-center gap-2"
+                    className="w-full sm:w-auto min-h-[44px] px-5 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center justify-center gap-2"
                   >
                     {savingGeo ? <Loader2 className="w-4 h-4 animate-spin" /> : '💾 Save Geo-Blocking Preferences'}
                   </button>
@@ -786,12 +786,12 @@ export default function Settings() {
         {/* ========== DANGER ZONE ========== */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           className="bg-white rounded-2xl shadow-sm border border-red-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-red-200 bg-red-50">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-red-200 bg-red-50">
             <h2 className="text-lg font-semibold text-red-900">Danger Zone</h2>
           </div>
-          <div className="p-6 space-y-4">
+          <div className="p-4 sm:p-6 space-y-3 sm:space-y-4">
             <button onClick={handleLogout}
-              className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition">
+              className="w-full min-h-[48px] flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition">
               <div className="flex items-center space-x-3">
                 <LogOut className="w-5 h-5 text-gray-600" />
                 <span className="font-medium text-gray-900">Sign Out</span>
@@ -799,7 +799,7 @@ export default function Settings() {
               <ChevronRight className="w-5 h-5 text-gray-400" />
             </button>
             <button onClick={() => setShowDeleteConfirm(true)}
-              className="w-full flex items-center justify-between px-4 py-3 bg-red-50 hover:bg-red-100 rounded-lg transition">
+              className="w-full min-h-[48px] flex items-center justify-between px-4 py-3 bg-red-50 hover:bg-red-100 rounded-lg transition">
               <div className="flex items-center space-x-3">
                 <User className="w-5 h-5 text-red-600" />
                 <span className="font-medium text-red-900">Delete Account</span>
@@ -813,9 +813,9 @@ export default function Settings() {
       {/* Modals */}
       <AnimatePresence>
         {showEditLocation && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setShowEditLocation(false)}>
+          <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50" onClick={() => setShowEditLocation(false)}>
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+              className="bg-white rounded-t-3xl sm:rounded-2xl shadow-xl max-w-md w-full p-5 sm:p-6 pb-8 sm:pb-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
               <h3 className="text-xl font-bold text-gray-900 mb-4">Update Location</h3>
               <input type="text" value={location} onChange={e => setLocation(e.target.value)} placeholder="City, Country"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500 mb-4" />
@@ -844,9 +844,9 @@ export default function Settings() {
 
       <AnimatePresence>
         {showDeleteConfirm && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50" onClick={() => setShowDeleteConfirm(false)}>
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+              className="bg-white rounded-t-3xl sm:rounded-2xl shadow-xl max-w-md w-full p-5 sm:p-6 pb-8 sm:pb-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
               <div className="flex items-center space-x-3 mb-4">
                 <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
                   <AlertTriangle className="w-6 h-6 text-red-600" />
@@ -878,8 +878,8 @@ export default function Settings() {
 
       <AnimatePresence>
         {toast.show && (
-          <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 50 }} className="fixed bottom-4 right-4 z-50">
-            <div className={`px-6 py-4 rounded-lg shadow-lg flex items-center space-x-3 ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'} text-white`}>
+          <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 50 }} className="fixed bottom-24 lg:bottom-4 left-4 right-4 sm:left-auto z-50">
+            <div className={`px-4 sm:px-6 py-3 sm:py-4 rounded-xl shadow-lg flex items-center space-x-3 ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'} text-white`}>
               {toast.type === 'success' ? <Check className="w-5 h-5" /> : <X className="w-5 h-5" />}
               <p className="font-medium">{toast.message}</p>
             </div>
@@ -901,13 +901,13 @@ function CollapsibleSection({ title, icon: Icon, isExpanded, onToggle, children 
     >
       <button
         onClick={onToggle}
-        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition"
+        className="w-full px-4 sm:px-6 py-3 sm:py-4 min-h-[56px] flex items-center justify-between hover:bg-gray-50 transition"
       >
         <div className="flex items-center space-x-3">
           <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
             <Icon className="w-5 h-5 text-gray-600" />
           </div>
-          <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900">{title}</h2>
         </div>
         <ChevronDown
           className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
@@ -937,7 +937,7 @@ function SettingItem({ icon: Icon, label, description, badge, badgeColor, onClic
   return (
     <div
       onClick={onClick}
-      className={`px-6 py-4 flex items-center space-x-4 transition ${
+      className={`px-4 sm:px-6 py-3 sm:py-4 min-h-[56px] flex items-center space-x-3 sm:space-x-4 transition ${
         onClick ? 'hover:bg-gray-50 cursor-pointer' : ''
       }`}
     >
@@ -945,12 +945,12 @@ function SettingItem({ icon: Icon, label, description, badge, badgeColor, onClic
         <Icon className="w-5 h-5 text-gray-600" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="font-medium text-gray-900">{label}</p>
+        <p className="font-medium text-gray-900 text-sm sm:text-base">{label}</p>
         <p className="text-sm text-gray-500 truncate">{description}</p>
       </div>
       {badge && (
         <span
-          className={`px-3 py-1 rounded-full text-xs font-medium ${
+          className={`flex-shrink-0 px-2 sm:px-3 py-1 rounded-full text-xs font-medium ${
             badgeColor === 'green'
               ? 'bg-green-100 text-green-700'
               : badgeColor === 'yellow'
@@ -999,9 +999,9 @@ function ChangePasswordModal({ onClose, currentUser, showToast }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50" onClick={onClose}>
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+        className="bg-white rounded-t-3xl sm:rounded-2xl shadow-xl max-w-md w-full p-5 sm:p-6 pb-8 sm:pb-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h3 className="text-xl font-bold text-gray-900 mb-6">Change Password</h3>
         <form onSubmit={handleSubmit} className="space-y-4">
           {[
@@ -1012,7 +1012,7 @@ function ChangePasswordModal({ onClose, currentUser, showToast }) {
               <label className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
               <div className="relative">
                 <input type={show ? 'text' : 'password'} value={value} onChange={e => onChange(e.target.value)} required
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                  className="w-full px-4 py-3 text-base border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500" />
                 <button type="button" onClick={toggle} className="absolute right-3 top-1/2 -translate-y-1/2">
                   {show ? <EyeOff className="w-5 h-5 text-gray-400" /> : <Eye className="w-5 h-5 text-gray-400" />}
                 </button>
@@ -1022,11 +1022,11 @@ function ChangePasswordModal({ onClose, currentUser, showToast }) {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Confirm New Password</label>
             <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500" />
+              className="w-full px-4 py-3 text-base border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500" />
           </div>
           <div className="flex space-x-3 mt-6">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition">Cancel</button>
-            <button type="submit" disabled={loading} className="flex-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition disabled:opacity-50 flex items-center justify-center">
+            <button type="button" onClick={onClose} className="flex-1 min-h-[44px] px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition">Cancel</button>
+            <button type="submit" disabled={loading} className="flex-1 min-h-[44px] px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition disabled:opacity-50 flex items-center justify-center">
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Change Password'}
             </button>
           </div>
@@ -1038,26 +1038,26 @@ function ChangePasswordModal({ onClose, currentUser, showToast }) {
 
 function BlockedUsersModal({ onClose, blockedUsers, onUnblock }) {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50" onClick={onClose}>
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        className="bg-white rounded-t-3xl sm:rounded-2xl shadow-xl max-w-md w-full p-5 sm:p-6 pb-8 sm:pb-6 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h3 className="text-xl font-bold text-gray-900 mb-6">Blocked Users</h3>
         {blockedUsers.length === 0 ? (
           <div className="text-center py-8"><Ban className="w-12 h-12 text-gray-400 mx-auto mb-3" /><p className="text-gray-500">No blocked users</p></div>
         ) : (
           <div className="space-y-3">
             {blockedUsers.map(user => (
-              <div key={user.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div className="flex items-center space-x-3">
+              <div key={user.id} className="flex items-center justify-between gap-3 p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-3 min-w-0">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-100 to-pink-100 flex items-center justify-center text-lg">{user.avatar}</div>
                   <div><p className="font-medium text-gray-900">{user.name}</p>{user.username && <p className="text-sm text-gray-500">@{user.username}</p>}</div>
                 </div>
-                <button onClick={() => onUnblock(user.id)} className="px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-sm rounded-lg font-medium transition">Unblock</button>
+                <button onClick={() => onUnblock(user.id)} className="flex-shrink-0 min-h-[40px] px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-sm rounded-lg font-medium transition">Unblock</button>
               </div>
             ))}
           </div>
         )}
-        <button onClick={onClose} className="w-full mt-6 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition">Close</button>
+        <button onClick={onClose} className="w-full mt-6 min-h-[44px] px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition">Close</button>
       </motion.div>
     </div>
   );
@@ -1065,9 +1065,9 @@ function BlockedUsersModal({ onClose, blockedUsers, onUnblock }) {
 
 function ActiveSessionsModal({ onClose, sessions }) {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50" onClick={onClose}>
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+        className="bg-white rounded-t-3xl sm:rounded-2xl shadow-xl max-w-md w-full p-5 sm:p-6 pb-8 sm:pb-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h3 className="text-xl font-bold text-gray-900 mb-6">Active Sessions</h3>
         <div className="space-y-3">
           {sessions.map(session => (
@@ -1086,7 +1086,7 @@ function ActiveSessionsModal({ onClose, sessions }) {
             </div>
           ))}
         </div>
-        <button onClick={onClose} className="w-full mt-6 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition">Close</button>
+        <button onClick={onClose} className="w-full mt-6 min-h-[44px] px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition">Close</button>
       </motion.div>
     </div>
   );

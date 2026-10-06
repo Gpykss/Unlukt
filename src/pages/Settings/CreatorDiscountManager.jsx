@@ -145,7 +145,7 @@ export default function CreatorDiscountManager({ baseMonthly = 0, baseWeekly = n
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+      <div className="px-4 sm:px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Subscription Discounts</h2>
           <p className="text-xs text-gray-500 mt-0.5">Set special prices — shown to fans in the Subscribe modal</p>
@@ -160,7 +160,7 @@ export default function CreatorDiscountManager({ baseMonthly = 0, baseWeekly = n
         </div>
       )}
 
-      <div className="p-6 space-y-5">
+      <div className="p-3 sm:p-6 space-y-4 sm:space-y-5">
         {DISCOUNT_TYPES.map(({ id, label, icon: Icon, description, color }) => {
           const d = discounts[id];
           const c = COLOR_MAP[color];
@@ -170,7 +170,7 @@ export default function CreatorDiscountManager({ baseMonthly = 0, baseWeekly = n
           return (
             <div key={id} className={`rounded-2xl border-2 overflow-hidden transition ${d.active ? `${c.border} ${c.bg}` : 'border-gray-200 bg-white'}`}>
               {/* Header */}
-              <div className="flex items-center justify-between px-5 py-4">
+              <div className="flex items-center justify-between gap-3 px-3 sm:px-5 py-3 sm:py-4">
                 <div className="flex items-center space-x-3">
                   <div className={`p-2 rounded-xl ${d.active ? c.bg : 'bg-gray-100'}`}>
                     <Icon className={`w-5 h-5 ${d.active ? c.icon : 'text-gray-400'}`} />

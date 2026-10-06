@@ -10,6 +10,7 @@ import { db, auth } from '../../config/firebase';
 import PaymentModal from '../../components/Payment/PaymentModal';
 import SubscribeModal from '../../components/Payment/SubscribeModal';
 import NGNPaymentModal from '../../components/Payment/NGNPaymentModal';
+import TopUpHistory from '../../components/wallet/TopUpHistory';
 import { COUNTRIES, getCountryByCode, formatMoney } from '../../utils/currencySupport';
 
 const MIN_TOPUP = 12;
@@ -239,6 +240,9 @@ export default function Wallet() {
             </p>
           </motion.div>
         </div>
+
+        {/* Top-up history with shareable receipts */}
+        <TopUpHistory userId={user?.uid} />
 
         {/* Services pricing guide */}
         <div className="bg-white border border-gray-200 rounded-2xl p-5">

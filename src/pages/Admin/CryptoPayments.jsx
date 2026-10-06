@@ -17,11 +17,9 @@ import {
   Search
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  collection, getDocs, updateDoc, doc, 
-  serverTimestamp, increment 
-} from 'firebase/firestore';
-import { db, auth } from '../../config/firebase';
+import { collection, getDocs } from 'firebase/firestore';
+import { db, functions } from '../../config/firebase';
+import { httpsCallable } from 'firebase/functions';
 
 export default function CryptoPayments() {
   const navigate = useNavigate();
@@ -125,40 +123,8 @@ export default function CryptoPayments() {
 
     setVerifying(true);
     try {
-      const paymentRef = doc(db, 'crypto_payments', payment.id);
-      const newStatus = approved ? 'completed' : 'rejected';
-      const newVerifStatus = approved ? 'verified' : 'rejected';
-
-      await updateDoc(paymentRef, {
-        status: newStatus,
-        verificationStatus: newVerifStatus,
-        verifiedAt: serverTimestamp(),
-        verifiedBy: auth.currentUser?.uid || 'admin',
-        adminNotes: notes,
-        updatedAt: serverTimestamp()
-      });
-
-      // If approved, credit user balance
-      if (approved && payment.userId) {
-        try {
-          const userBalRef = doc(db, 'user_balances', payment.userId);
-          await updateDoc(userBalRef, {
-            balance: increment(payment.amountDisplay),
-            updatedAt: serverTimestamp()
-          });
-        } catch (_) {
-          // Fallback to wallets doc
-          try {
-            const walletRef = doc(db, 'wallets', payment.userId);
-            await updateDoc(walletRef, {
-              balanceMinor: increment(Math.round(payment.amountDisplay * 100)),
-              updatedAt: serverTimestamp()
-            });
-          } catch (wErr) {
-            console.warn('Could not increment balance directly:', wErr);
-          }
-        }
-      }
+      // Server: status check + credit in one step (a double click can't credit twice)
+      await httpsCallable(functions, 'adminTopup')({ kind: 'crypto', paymentId: payment.id, approve: approved, note: notes });
 
       alert(`Payment ${approved ? 'approved' : 'rejected'} successfully!`);
       setSelectedPayment(null);

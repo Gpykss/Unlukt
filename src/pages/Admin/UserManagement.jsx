@@ -12,6 +12,7 @@ import {
   limit, where, doc, updateDoc, getDoc
 } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { withContact } from '../../utils/adminContact';
 
 // ── Helper: generate a referral code from display name ────────────────────────
 function generateReferralCode(displayName) {
@@ -457,7 +458,7 @@ export default function UserManagement() {
         userData = userData.map(u => (u.isCreator && enrichedMap[u.id]) ? enrichedMap[u.id] : u);
       }
 
-      setUsers(userData);
+      setUsers(await withContact(userData));
     } catch (error) {
       console.error('Error loading users:', error);
       // Log the full error so we can see if it's a missing index

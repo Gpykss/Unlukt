@@ -1,11 +1,12 @@
 // src/pages/Auth/Login.jsx - FIXED IMPORTS
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff, Loader2, Mail, Lock, LockKeyhole, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { auth } from '../../config/firebase';
+import { consumeNext, rememberNext, captureRef } from '../../utils/authRedirect';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -31,6 +32,13 @@ export default function Login() {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [resetError, setResetError] = useState('');
+
+  // Keep "where to go after login" (?next=) and any referral code from the link
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    rememberNext(p.get('next'));
+    captureRef();
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -70,7 +78,7 @@ export default function Login() {
       if (!userProfileData?.profileCompleted) {
         navigate('/complete-profile');
       } else {
-        navigate('/feed');
+        navigate(consumeNext('/feed'));
       }
       
     } catch (err) {
@@ -164,7 +172,7 @@ export default function Login() {
       if (!result.profileCompleted) {
         navigate('/complete-profile');
       } else {
-        navigate('/feed');
+        navigate(consumeNext('/feed'));
       }
     } catch (err) {
       console.error('Google login error:', err);
@@ -186,7 +194,7 @@ export default function Login() {
       if (!result.profileCompleted) {
         navigate('/complete-profile');
       } else {
-        navigate('/feed');
+        navigate(consumeNext('/feed'));
       }
     } catch (err) {
       console.error('Twitter login error:', err);
@@ -208,7 +216,7 @@ export default function Login() {
       if (!result.profileCompleted) {
         navigate('/complete-profile');
       } else {
-        navigate('/feed');
+        navigate(consumeNext('/feed'));
       }
     } catch (err) {
       console.error('Facebook login error:', err);
@@ -390,7 +398,7 @@ export default function Login() {
             <p className="text-gray-600 text-sm">
               Don't have an account?{' '}
               <button
-                onClick={() => navigate('/register')}
+                onClick={() => navigate('/register' + window.location.search)}
                 className="font-semibold text-red-500 hover:text-red-600 transition"
                 disabled={isLoading}
               >

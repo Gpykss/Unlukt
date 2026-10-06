@@ -1,0 +1,14 @@
+{
+  "name": "unlukt-rules-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "firebase emulators:exec --only firestore --project demo-unlukt \"vitest run rules.test.mjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.0.0",
+    "firebase-tools": "^14.0.0",
+    "vitest": "^5.0.3"
+  }
+}

@@ -402,6 +402,7 @@ export default function NewPost() {
       <input
         ref={fileInputRef}
         type="file"
+        accept="image/*,video/*"
         onChange={handleFileSelect}
         className="hidden"
       />

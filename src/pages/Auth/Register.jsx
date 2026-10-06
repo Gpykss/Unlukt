@@ -10,9 +10,10 @@ import { collection, query, where, getDocs, getDoc, doc, updateDoc } from 'fireb
 import { db } from '../../config/firebase';
 
 // Import real creator images
-import feroniaImg from '../../assets/images/creators/Feronia Morris/sugarlab-26255.png';
-import lisaraImg from '../../assets/images/creators/Lisara Cook/sugarlab-61119.png';
-import claireImg from '../../assets/images/creators/claire/sugarlab-90617.png';
+import feroniaImg from '../../assets/images/creators/Feronia Morris/sugarlab-26255.webp';
+import lisaraImg from '../../assets/images/creators/Lisara Cook/sugarlab-61119.webp';
+import claireImg from '../../assets/images/creators/claire/sugarlab-90617.webp';
+import { consumeNext, rememberNext } from '../../utils/authRedirect';
 
 // Animated Floating Creator Card Component
 function AnimatedCreatorCard() {
@@ -153,11 +154,24 @@ export default function Register() {
       window.history.replaceState({}, '', '/register');
     }
     // ✅ Capture referral code from URL and persist in localStorage (uppercase for consistent matching)
+    rememberNext(params.get('next'));
     const ref = params.get('ref');
     if (ref) {
       const upperRef = ref.trim().toUpperCase();
       localStorage.setItem('unlukt_ref', upperRef);
       console.log('🔗 Referral code saved to localStorage:', upperRef);
+      // A bare referral link (/register?ref=CODE) shows the ambassador's profile first —
+      // the visitor signs up from there. The code stays saved for attribution.
+      if (!params.get('next') && !auth.currentUser) {
+        getDocs(query(collection(db, 'users'), where('referralCode', '==', upperRef)))
+          .then((snap) => {
+            if (snap.empty) return;
+            const d = snap.docs[0];
+            const handle = d.data().username || d.id;
+            navigate(`/creator/${handle}?ref=${upperRef}`, { replace: true });
+          })
+          .catch(() => {});
+      }
     }
   }, []);
 
@@ -333,7 +347,7 @@ export default function Register() {
       if (!result.profileCompleted) {
         navigate('/complete-profile');
       } else {
-        navigate('/feed');
+        navigate(consumeNext('/feed'));
       }
     } catch (err) {
       console.error('Twitter signup error:', err);
@@ -359,7 +373,7 @@ export default function Register() {
       if (!result.profileCompleted) {
         navigate('/complete-profile');
       } else {
-        navigate('/feed');
+        navigate(consumeNext('/feed'));
       }
     } catch (err) {
       console.error('Google signup error:', err);
@@ -650,7 +664,7 @@ export default function Register() {
               <p className="text-gray-600 text-sm">
                 Already have an account?{' '}
                 <button
-                  onClick={() => navigate('/login')}
+                  onClick={() => navigate('/login' + window.location.search)}
                   className="font-semibold text-red-500 hover:text-red-600 transition"
                   disabled={isLoading}
                 >

@@ -10,7 +10,8 @@ import {
   query,
   where,
   orderBy,
-  serverTimestamp 
+  serverTimestamp,
+  deleteField
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
@@ -66,7 +67,6 @@ export const createUserProfile = async (userId, profileData) => {
       uid: cleanUserId,
       username: username, // ✅ Ensure username is always set
       displayName: profileData.displayName || '',
-      email: profileData.email || '',
       avatar: profileData.avatar || '👤',
       bio: profileData.bio || '',
       location: profileData.location || '',
@@ -91,10 +91,17 @@ export const createUserProfile = async (userId, profileData) => {
 
       // ✅ Pass-through optional fields that callers may provide
       ...(profileData.referredBy   ? { referredBy: profileData.referredBy }     : {}),
-      ...(profileData.phoneNumber  ? { phoneNumber: profileData.phoneNumber }    : {}),
     };
 
     await setDoc(userRef, userData);
+    // Email / phone are private: profiles are public, so contact details live in user_private
+    // (readable only by the user and admins)
+    if (profileData.email || profileData.phoneNumber) {
+      await setDoc(doc(db, 'user_private', cleanUserId), {
+        ...(profileData.email ? { email: profileData.email } : {}),
+        ...(profileData.phoneNumber ? { phoneNumber: profileData.phoneNumber } : {}),
+      }, { merge: true }).catch((e) => console.warn('private contact save failed', e));
+    }
     console.log('✅ Profile created:', cleanUserId, 'with username:', username);
   } catch (error) {
     console.error('❌ Error creating profile:', error);
@@ -349,7 +356,7 @@ export const getKYCDetails = async (userId) => {
         username: userData.username || '',
         email: userData.email || '',
         kycStatus: userData.kycStatus || 'not_submitted',
-        kycData: userData.kycData || {},
+        kycData: (await getDoc(doc(db, 'kyc', userId)).then((k) => (k.exists() ? k.data() : null)).catch(() => null)) || userData.kycData || {},
         kycSubmittedAt: userData.kycSubmittedAt || null,
         kycReviewedAt: userData.kycReviewedAt || null,
         kycRejectionReason: userData.kycRejectionReason || '',
@@ -425,13 +432,19 @@ export const submitKYC = async (userId, kycData) => {
     }
 
     const userRef = doc(db, 'users', userId);
-    
+
+    // ID number, DOB, address and ID photos are PRIVATE: kyc/{uid} is readable only by the
+    // owner and admins. The public users doc only carries the status.
+    await setDoc(doc(db, 'kyc', userId), {
+      ...kycData,
+      userId,
+      submittedAt: serverTimestamp(),
+    });
+
+    // (old applications stored kycData here — the migrate_kyc_private script removes it)
     await updateDoc(userRef, {
       kycStatus: 'pending',
-      kycData: kycData,
       kycSubmittedAt: serverTimestamp(),
-      kycReviewedAt: null,
-      kycRejectionReason: '',
       updatedAt: serverTimestamp()
     });
 
@@ -453,13 +466,19 @@ export const submitKYCApplication = async (userId, kycData) => {
     }
 
     const userRef = doc(db, 'users', userId);
-    
+
+    // ID number, DOB, address and ID photos are PRIVATE: kyc/{uid} is readable only by the
+    // owner and admins. The public users doc only carries the status.
+    await setDoc(doc(db, 'kyc', userId), {
+      ...kycData,
+      userId,
+      submittedAt: serverTimestamp(),
+    });
+
+    // (old applications stored kycData here — the migrate_kyc_private script removes it)
     await updateDoc(userRef, {
       kycStatus: 'pending',
-      kycData: kycData,
       kycSubmittedAt: serverTimestamp(),
-      kycReviewedAt: null,
-      kycRejectionReason: '',
       updatedAt: serverTimestamp()
     });
 

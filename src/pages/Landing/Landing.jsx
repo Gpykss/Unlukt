@@ -13,13 +13,13 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 
 // Import real creator images
-import feroniaImg1 from '../../assets/images/creators/Feronia Morris/sugarlab-26255.png';
-import feroniaImg2 from '../../assets/images/creators/Feronia Morris/sugarlab-43716.png';
-import lisaraImg from '../../assets/images/creators/Lisara Cook/sugarlab-61119.png';
-import claireImg1 from '../../assets/images/creators/claire/sugarlab-27463.png';
-import claireImg2 from '../../assets/images/creators/claire/sugarlab-90617.png';
-import jojoImg from '../../assets/images/creators/jojo/sugarlab-75371.png';
-import ogechiImg from '../../assets/images/creators/ogechi/sugarlab-33971.png';
+import feroniaImg1 from '../../assets/images/creators/Feronia Morris/sugarlab-26255.webp';
+import feroniaImg2 from '../../assets/images/creators/Feronia Morris/sugarlab-43716.webp';
+import lisaraImg from '../../assets/images/creators/Lisara Cook/sugarlab-61119.webp';
+import claireImg1 from '../../assets/images/creators/claire/sugarlab-27463.webp';
+import claireImg2 from '../../assets/images/creators/claire/sugarlab-90617.webp';
+import jojoImg from '../../assets/images/creators/jojo/sugarlab-75371.webp';
+import ogechiImg from '../../assets/images/creators/ogechi/sugarlab-33971.webp';
 
 export default function Landing() {
   const navigate = useNavigate();

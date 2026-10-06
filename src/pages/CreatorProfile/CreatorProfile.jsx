@@ -1,5 +1,8 @@
 // src/pages/CreatorProfile/CreatorProfile.jsx - FIXED
 
+import { getScheduledLive, formatLiveTime } from '../../utils/share';
+import { getPostMillis } from '../../utils/postTime';
+import { authUrl } from '../../utils/authRedirect';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import {
@@ -114,12 +117,7 @@ export default function CreatorProfile() {
     if (nsfwPosts.length === 0) return null;
 
     const sortedNsfw = [...nsfwPosts].sort((a, b) => {
-      const getTime = p => {
-        if (!p.createdAt) return 0;
-        if (p.createdAt.toDate) return p.createdAt.toDate().getTime();
-        if (p.createdAt.seconds) return p.createdAt.seconds * 1000;
-        return 0;
-      };
+      const getTime = p => getPostMillis(p);
       return getTime(b) - getTime(a);
     });
     return sortedNsfw[0];
@@ -237,6 +235,8 @@ export default function CreatorProfile() {
           postsCount: 5,
           is_live: foundCreator.is_live || false,
           livestreamPrice: foundCreator.livestreamPrice || 10,
+          livestreamFree: foundCreator.livestreamFree !== false,
+          scheduledLive: foundCreator.scheduledLive || null,
         };
         setCreator(creatorObj);
         setLoading(false);
@@ -295,6 +295,8 @@ export default function CreatorProfile() {
         isCreator: foundCreator.isCreator || false,
         is_live: foundCreator.is_live || false,
         livestreamPrice: foundCreator.livestreamPrice || 10,
+        livestreamFree: foundCreator.livestreamFree !== false,
+        scheduledLive: foundCreator.scheduledLive || null,
       };
 
       // Load creator 3-tier membership settings (PRD 16.1)
@@ -336,12 +338,7 @@ export default function CreatorProfile() {
       const sortPosts = (arr) => [...arr].sort((a, b) => {
         if (a.pinned && !b.pinned) return -1;
         if (!a.pinned && b.pinned) return 1;
-        const getTime = p => {
-          if (!p.createdAt) return 0;
-          if (p.createdAt.toDate) return p.createdAt.toDate().getTime();
-          if (p.createdAt.seconds) return p.createdAt.seconds * 1000;
-          return 0;
-        };
+        const getTime = p => getPostMillis(p);
         return getTime(b) - getTime(a);
       });
 
@@ -462,12 +459,17 @@ export default function CreatorProfile() {
     };
   }, [creator?.uid]);
 
+  // Logged-out visitors can look around; any action sends them to sign up and back here (or to the target)
+  const profilePath = () => `/creator/${(creator?.username || creator?.uid || username || '').replace('@', '')}`;
+  const goSignup = (target) => navigate(authUrl(target || profilePath()));
+
   const handleJoinLivestream = async () => {
     if (!currentUser) {
-      navigate('/login');
+      goSignup(`/livestream/${creator.uid}`);
       return;
     }
-    if (currentUser.uid === creator.uid) {
+    if (currentUser.uid === creator.uid || creator.livestreamFree) {
+      // Own live, or a free live → straight in (no ticket)
       navigate(`/livestream/${creator.uid}`);
       return;
     }
@@ -532,7 +534,7 @@ export default function CreatorProfile() {
   };
 
   const handleMessage = async () => {
-    if (!currentUser) { navigate('/login'); return; }
+    if (!currentUser) { goSignup(); return; }
     try {
       setSendingMessage(true);
       await getOrCreateConversation(currentUser.uid, creator.uid);
@@ -552,7 +554,7 @@ export default function CreatorProfile() {
   };
 
   const handleSubscribe = (tierKey = 'supporter') => {
-    if (!currentUser) { navigate('/login'); return; }
+    if (!currentUser) { goSignup(); return; }
     setSelectedTierForModal(typeof tierKey === 'string' ? tierKey : 'supporter');
     setShowSubscribeModal(true);
   };
@@ -652,7 +654,7 @@ export default function CreatorProfile() {
         return updated.sort((a, b) => {
           if (a.pinned && !b.pinned) return -1;
           if (!a.pinned && b.pinned) return 1;
-          const getTime = p => p.createdAt?.toDate?.()?.getTime?.() || p.createdAt?.seconds * 1000 || 0;
+          const getTime = p => getPostMillis(p);
           return getTime(b) - getTime(a);
         });
       });
@@ -1000,7 +1002,14 @@ export default function CreatorProfile() {
                     className="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white rounded-full text-xs font-black shadow-md shadow-red-500/20 animate-pulse transition hover:scale-[1.02] cursor-pointer disabled:opacity-50"
                   >
                     <span className="w-2 h-2 bg-white rounded-full animate-ping" />
-                    <span>{checkingTicket ? 'Checking ticket...' : `Join Livestream (🌹${creator.livestreamPrice || 10})`}</span>
+                    <span>{checkingTicket ? 'Checking ticket...' : creator.livestreamFree ? 'Join Live (Free)' : `Join Live (🌹${creator.livestreamPrice || 10})`}</span>
+                  </button>
+                )}
+
+                {creator && !creator.is_live && getScheduledLive(creator) && (
+                  <button onClick={() => navigate(`/livestream/${creator.uid}`)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-50 border border-rose-200 text-rose-700 rounded-full text-xs font-bold">
+                    🗓 Live {formatLiveTime(getScheduledLive(creator).date)}
                   </button>
                 )}
 
@@ -1016,7 +1025,7 @@ export default function CreatorProfile() {
                 </button>
 
                 {creator.videoCallPrice && (
-                  <button onClick={() => currentUser ? navigate(`/book-video-call/${creator.uid}`) : navigate('/login')}
+                  <button onClick={() => currentUser ? navigate(`/book-video-call/${creator.uid}`) : goSignup(`/book-video-call/${creator.uid}`)}
                     className="flex items-center space-x-1 px-3 py-1.5 rounded-full border-2 border-rose-200 hover:bg-rose-50 transition text-xs font-semibold text-rose-600">
                     <Video className="w-3.5 h-3.5" />
                     <span>${creator.videoCallPrice}</span>
@@ -1024,7 +1033,7 @@ export default function CreatorProfile() {
                 )}
 
                 {creator.voiceCallPrice && (
-                  <button onClick={() => currentUser ? navigate(`/book-voice-call/${creator.uid}`) : navigate('/login')}
+                  <button onClick={() => currentUser ? navigate(`/book-voice-call/${creator.uid}`) : goSignup(`/book-voice-call/${creator.uid}`)}
                     className="flex items-center space-x-1 px-3 py-1.5 rounded-full border-2 border-purple-200 hover:bg-purple-50 transition text-xs font-semibold text-purple-600">
                     <Phone className="w-3.5 h-3.5" />
                     <span>${creator.voiceCallPrice}</span>
@@ -1032,7 +1041,7 @@ export default function CreatorProfile() {
                 )}
 
                 <button
-                  onClick={() => { if (!currentUser) { navigate('/login'); return; } setShowTipModal(true); }}
+                  onClick={() => { if (!currentUser) { goSignup(); return; } setShowTipModal(true); }}
                   className="flex items-center space-x-1 px-3 py-1.5 rounded-full border-2 border-yellow-300 bg-yellow-50 hover:bg-yellow-100 transition text-xs font-semibold text-yellow-700"
                 >
                   <Gift className="w-3.5 h-3.5" /><span>Gift</span>

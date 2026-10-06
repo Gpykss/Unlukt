@@ -14,8 +14,10 @@ export const logger = {
   },
   
   error: (...args) => {
-    // Always log errors (even in production)
-    console.error('[ERROR]', ...args);
+    // Dev only — production builds strip all console output anyway
+    if (isDevelopment) {
+      console.error('[ERROR]', ...args);
+    }
   },
   
   warn: (...args) => {

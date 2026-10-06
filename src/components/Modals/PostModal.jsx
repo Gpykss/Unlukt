@@ -1,6 +1,7 @@
 // src/components/Modals/PostModal.jsx
 // Styled exactly like CommunityPostCard — centered overlay card, inline comments
 
+import { timeAgo as timeAgoUtil } from '../../utils/postTime';
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -17,6 +18,7 @@ import {
 } from '../../services/postService';
 import { getUserProfile } from '../../services/firestoreService';
 import { getPostImage } from '../../utils/imageHelpers';
+import { getPostMedia, hasLockedMedia } from '../../services/mediaService';
 import TipModal from './TipModal';
 import WatermarkedImage from '../Media/WatermarkedImage';
 import WatermarkedVideo from '../Media/WatermarkedVideo';
@@ -60,11 +62,14 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
   const [canView, setCanView] = useState(true);
   const [showTipModal, setShowTipModal] = useState(false);
 
-  const imageUrl = getPostImage(post);
+  // Locked media → real files from the server once the viewer has access
+  const [privateMedia, setPrivateMedia] = useState(null);
+  const imageUrl = getPostImage(privateMedia ? { ...post, images: privateMedia } : post);
   const rating = (post?.contentRating || 'sfw').toLowerCase();
   const isNSFW = rating === 'nsfw';
   const nsfwHidden = isNSFW && !showNSFW;
-  const isPaid = (post?.type || 'free') !== 'free' && Number(post?.price || 0) > 0;
+  // Subscriber-only posts have price 0 but are still locked for non-subscribers
+  const isPaid = (post?.type || 'free') !== 'free';
   const isOwnPost = currentUser?.uid === post?.userId;
   const isLocked = isPaid && !isOwnPost && !canView;
 
@@ -73,7 +78,20 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
     : null;
   const showWatermark = !isLocked && !nsfwHidden && !!imageUrl && !!viewerUsername && !isOwnPost;
 
-  const isVideo = /\.(mp4|mov|avi|webm|mkv)$/i.test(imageUrl || '') || post?.images?.[0]?.type === 'video';
+  const firstItem = (privateMedia || post?.images || [])[0];
+  const isVideo = !firstItem?.locked && (/\.(mp4|mov|avi|webm|mkv)$/i.test(imageUrl || '') || firstItem?.type === 'video');
+
+  // Only re-fetch when the locked media itself changes (not on every like/comment update)
+  const lockedKey = (post?.images || []).map((i) => (i?.locked ? `L${i.i}` : 'u')).join(',');
+  useEffect(() => {
+    let alive = true;
+    setPrivateMedia(null);
+    const hasAccess = canView && (!isPaid || isOwnPost || canView);
+    if (hasAccess && hasLockedMedia(post)) {
+      getPostMedia(post.id).then((items) => { if (alive) setPrivateMedia(items); }).catch(() => {});
+    }
+    return () => { alive = false; };
+  }, [canView, post?.id, lockedKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!post) return;
@@ -86,7 +104,7 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
   useEffect(() => {
     if (post?.userId) {
       setPostCreator(null);
-      getUserProfile(post.userId).then(setPostCreator).catch(console.error);
+      getUserProfile(post.userId).then(setPostCreator).catch(() => {});
     }
   }, [post?.userId]);
 
@@ -274,7 +292,7 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                       isNSFW ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-gray-50 border-gray-200 text-gray-500'
                     }`}>{isNSFW ? 'NSFW' : 'SFW'}</span>
                   </div>
-                  <p className="text-xs text-gray-400">@{postCreator?.username || 'creator'} · {timeAgo(post.createdAt)}</p>
+                  <p className="text-xs text-gray-400">@{postCreator?.username || 'creator'} · {timeAgoUtil(post)}</p>
                 </div>
               </div>
 
@@ -371,13 +389,22 @@ export default function PostModal({ isOpen, onClose, post, onPostUpdate }) {
                   ) : isLocked ? (
                     <div className="rounded-xl bg-gray-900 h-40 flex flex-col items-center justify-center text-white space-y-2">
                       <Lock className="w-8 h-8 opacity-50" />
-                      <p className="text-sm font-medium">Locked Post</p>
-                      <button
-                        onClick={() => navigate('/wallet', { state: { action: 'unlock', postId: post.id, creatorId: post.userId, price: Number(post.price || 0) } })}
-                        className="px-3 py-1.5 bg-white text-gray-900 rounded-lg text-xs font-semibold"
-                      >
-                        Unlock • ${Number(post.price || 0).toFixed(2)}
-                      </button>
+                      <p className="text-sm font-medium">{post.type === 'subscribers' ? 'Subscribers only' : 'Locked Post'}</p>
+                      {post.type === 'subscribers' ? (
+                        <button
+                          onClick={() => navigate(`/creator/${postCreator?.username || post.userId}`)}
+                          className="px-3 py-1.5 bg-white text-gray-900 rounded-lg text-xs font-semibold"
+                        >
+                          Subscribe to view
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => navigate('/wallet', { state: { action: 'unlock', postId: post.id, creatorId: post.userId, price: Number(post.price || 0) } })}
+                          className="px-3 py-1.5 bg-white text-gray-900 rounded-lg text-xs font-semibold"
+                        >
+                          Unlock • ${Number(post.price || 0).toFixed(2)}
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <div className="rounded-xl overflow-hidden bg-black relative">

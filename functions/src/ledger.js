@@ -5,6 +5,8 @@ const {
   STANDARD_FEE_BPS,
   AMBASSADOR_FEE_BPS,
   splitFee,
+  splitWithReferral,
+  REFERRAL_WINDOW_MS,
   assertBalanced,
   unlockTxId,
   unlockPostTxId,
@@ -13,6 +15,61 @@ const {
 } = require("./ledger-math");
 
 const EARNINGS_SHARDS = 10; // sharded counters to avoid hot-spotting a single document
+
+/**
+ * Read everything needed to split a sale for this creator (call inside a transaction, before writes).
+ * Model: normal 80/20, ambassador 90/10, referred normal creator 80 / 5 ambassador / 15 platform (1 year).
+ */
+async function resolveSplit(tx, db, creatorId, grossMinor) {
+  const [settingsSnap, creatorSnap] = await tx.getAll(
+    db.doc(`creators/${creatorId}/private/settings`),
+    db.doc(`users/${creatorId}`)
+  );
+  const creator = creatorSnap.exists ? creatorSnap.data() : {};
+  const isAmbassador = creator.isAmbassador === true || creator.role === "ambassador";
+
+  // Custom per-creator deal set by admin overrides the standard model (no referral cut)
+  const overrideBps = settingsSnap.exists ? settingsSnap.get("feeBps") : null;
+  if (Number.isInteger(overrideBps)) {
+    const { platformFee, creatorNet } = splitFee(grossMinor, overrideBps);
+    return { feeBps: overrideBps, creatorNet, platformFee, referralFee: 0, referrerId: null };
+  }
+
+  let referrerId = null;
+  if (!isAmbassador && creator.referredBy && creator.referredBy !== creatorId) {
+    const created = creator.createdAt?.toDate ? creator.createdAt.toDate() : new Date(creator.createdAt || 0);
+    if (Date.now() - created.getTime() < REFERRAL_WINDOW_MS) {
+      // Only real ambassadors earn referral cuts (stops creators paying 5% to their own alt account)
+      const refSnap = await db.doc(`users/${creator.referredBy}`).get();
+      const ref = refSnap.exists ? refSnap.data() : {};
+      if (ref.role === "ambassador" || ref.isAmbassador === true) referrerId = creator.referredBy;
+    }
+  }
+  return splitWithReferral(grossMinor, { isAmbassador, referrerId });
+}
+
+/** Ledger lines + writes for the referring ambassador's 5% (no-op when there is none). */
+function writeReferral(tx, db, split, { creatorId, source, ledgerTxId, now }) {
+  if (!split.referrerId || split.referralFee <= 0) return;
+  tx.set(
+    db.doc(`users/${split.referrerId}`),
+    {
+      ambassadorBalance: admin.firestore.FieldValue.increment(split.referralFee / 100),
+      totalCommissionEarned: admin.firestore.FieldValue.increment(split.referralFee / 100),
+    },
+    { merge: true }
+  );
+  tx.set(db.doc(`referralCommissions/${ledgerTxId}`), {
+    ambassadorId: split.referrerId,
+    referredCreatorId: creatorId,
+    amount: split.referralFee / 100,
+    amountMinor: split.referralFee,
+    source,
+    ledgerTxId,
+    status: "pending",
+    createdAt: now,
+  });
+}
 
 /**
  * Fan unlocks a paid message. One atomic transaction:
@@ -71,8 +128,19 @@ async function unlockMessage(input) {
       };
     }
 
-    // Determine price in minor units (cents)
-    let priceMinor = msgSnap.get("priceMinor");
+    if (msgSnap.get("isPPV") !== true) {
+      throw new HttpsError("failed-precondition", "Message is not for sale");
+    }
+    // The money always goes to the person who SENT the paid message (never to a creatorId
+    // stored on the conversation — whoever creates a conversation could set that to themselves)
+    const sellerId = msgSnap.get("senderId");
+    if (!sellerId) throw new HttpsError("failed-precondition", "Sender not found");
+    if (sellerId === fanUid) {
+      return { alreadyUnlocked: true, bunnyPath, txId: null };
+    }
+
+    // Price fixed when the message was sent (snapshot in mediaPrivate), else the message fields
+    let priceMinor = privSnap.exists && Number.isInteger(privSnap.get("priceMinor")) ? privSnap.get("priceMinor") : msgSnap.get("priceMinor");
     if (!Number.isInteger(priceMinor)) {
       // Backward compatibility check for price in dollars (float)
       const legacyPrice = msgSnap.get("price") ?? msgSnap.get("unlockPrice");
@@ -85,40 +153,22 @@ async function unlockMessage(input) {
       throw new HttpsError("failed-precondition", "Message is not for sale");
     }
 
-    const creatorId = convData.creatorId || msgSnap.get("senderId");
-    if (!creatorId) {
-      throw new HttpsError("failed-precondition", "Creator not found for conversation");
-    }
+    const creatorId = sellerId;
 
-    // Check creator fee settings
-    const settingsSnap = await tx.get(
-      db.doc(`creators/${creatorId}/private/settings`)
-    );
-    let feeBps = settingsSnap.exists ? settingsSnap.get("feeBps") : null;
-    if (!Number.isInteger(feeBps)) {
-      // Check if creator is ambassador
-      const creatorUserSnap = await tx.get(db.doc(`users/${creatorId}`));
-      const isAmbassador = creatorUserSnap.exists && (creatorUserSnap.get("isAmbassador") || creatorUserSnap.get("role") === "ambassador");
-      feeBps = isAmbassador ? AMBASSADOR_FEE_BPS : STANDARD_FEE_BPS;
-    }
+    const split = await resolveSplit(tx, db, creatorId, priceMinor);
+    const feeBps = split.feeBps;
 
-    // Check fan balance
-    let balanceMinor = walletSnap.exists ? walletSnap.get("balanceMinor") : null;
-    if (!Number.isInteger(balanceMinor)) {
-      // Backward compatibility check with legacy user_balances
-      const legacySnap = await tx.get(db.doc(`user_balances/${fanUid}`));
-      if (legacySnap.exists) {
-        balanceMinor = Math.round((legacySnap.get("balance") || 0) * 100);
-      } else {
-        balanceMinor = 0;
-      }
-    }
+    // Fan balance: user_balances is the single source of truth (wallets only mirrors it).
+    // (Reading wallets first could overwrite a newer NGN top-up that only landed in user_balances.)
+    void walletSnap;
+    const fanBalSnap = await tx.get(db.doc(`user_balances/${fanUid}`));
+    const balanceMinor = fanBalSnap.exists ? Math.round(Number(fanBalSnap.get("balance") || 0) * 100) : 0;
 
     if (balanceMinor < priceMinor) {
       throw new HttpsError("failed-precondition", "Insufficient credits");
     }
 
-    const { platformFee, creatorNet } = splitFee(priceMinor, feeBps);
+    const { platformFee, creatorNet, referralFee } = split;
     const txId = unlockTxId(messageId, fanUid);
 
     const lines = [
@@ -126,6 +176,7 @@ async function unlockMessage(input) {
       { account: `creator:${creatorId}:available`, deltaMinor: creatorNet },
       { account: "platform:revenue", deltaMinor: platformFee },
     ];
+    if (referralFee > 0) lines.push({ account: `ambassador:${split.referrerId}`, deltaMinor: referralFee });
     assertBalanced(lines);
 
     const now = admin.firestore.FieldValue.serverTimestamp();
@@ -134,10 +185,13 @@ async function unlockMessage(input) {
     // 2. All writes
     tx.set(db.doc(`ledger/${txId}`), {
       type: "unlock",
+      fanId: fanUid,
+      creatorId,
       lines,
       idempotencyKey: txId,
       createdAt: now,
     });
+    writeReferral(tx, db, split, { creatorId, source: "ppv", ledgerTxId: txId, now });
 
     tx.set(
       walletRef,
@@ -176,6 +230,7 @@ async function unlockMessage(input) {
       grossMinor: priceMinor,
       feeBps, // snapshot so future rate changes never touch history
       platformFeeMinor: platformFee,
+      referralFeeMinor: referralFee,
       creatorNetMinor: creatorNet,
       createdAt: now,
     });
@@ -332,30 +387,15 @@ async function requestPayout(input) {
   const payoutRef = db.collection("payouts").doc();
   const payoutId = payoutRef.id;
   const txId = payoutTxId(payoutId);
+  // Fee is set here, never by the client (2% withdrawal fee shown in the app)
+  const feeMinor = Math.round(amountMinor * 0.02);
+  void networkFeeMinor;
 
   return db.runTransaction(async (tx) => {
-    // Sum shards to get available balance
-    let totalAvailableMinor = 0;
-    const shardRefs = [];
-    for (let i = 0; i < EARNINGS_SHARDS; i++) {
-      shardRefs.push(db.doc(`creatorEarnings/${creatorId}/shards/${i}`));
-    }
-    const shardSnaps = await tx.getAll(...shardRefs);
-    let anyShardExists = false;
-    for (const snap of shardSnaps) {
-      if (snap.exists) {
-        anyShardExists = true;
-        totalAvailableMinor += (snap.get("availableMinor") || 0);
-      }
-    }
-
-    // Fallback to legacy creator_balances if shards not yet populated
-    if (!anyShardExists) {
-      const legSnap = await tx.get(db.doc(`creator_balances/${creatorId}`));
-      if (legSnap.exists) {
-        totalAvailableMinor = Math.round((legSnap.get("availableBalance") || 0) * 100);
-      }
-    }
+    // creator_balances.availableBalance is the creator's withdrawable money (all sales credit it)
+    const balRef = db.doc(`creator_balances/${creatorId}`);
+    const balSnap = await tx.get(balRef);
+    const totalAvailableMinor = balSnap.exists ? Math.round(Number(balSnap.get("availableBalance") || 0) * 100) : 0;
 
     if (totalAvailableMinor < amountMinor) {
       throw new HttpsError("failed-precondition", "Insufficient available balance");
@@ -376,19 +416,16 @@ async function requestPayout(input) {
       createdAt: now,
     });
 
-    // Debit one of the shards
-    const primaryShard = db.doc(`creatorEarnings/${creatorId}/shards/0`);
     tx.set(
-      primaryShard,
+      db.doc(`creatorEarnings/${creatorId}/shards/0`),
       { availableMinor: admin.firestore.FieldValue.increment(-amountMinor) },
       { merge: true }
     );
-
-    // Keep legacy creator_balances in sync
     tx.set(
-      db.doc(`creator_balances/${creatorId}`),
+      balRef,
       {
         availableBalance: admin.firestore.FieldValue.increment(-amountMinor / 100),
+        pendingPayoutBalance: admin.firestore.FieldValue.increment(amountMinor / 100),
         updatedAt: now,
       },
       { merge: true }
@@ -398,7 +435,7 @@ async function requestPayout(input) {
       creatorId,
       ownerUid,
       amountMinor,
-      networkFeeMinor,
+      networkFeeMinor: feeMinor,
       payoutAddress,
       status: "requested",
       createdAt: now,
@@ -460,28 +497,14 @@ async function unlockPost(input) {
       throw new HttpsError("failed-precondition", "Post is not for sale");
     }
 
-    // Creator fee calculation
-    const settingsSnap = await tx.get(
-      db.doc(`creators/${creatorId}/private/settings`)
-    );
-    let feeBps = settingsSnap.exists ? settingsSnap.get("feeBps") : null;
-    if (!Number.isInteger(feeBps)) {
-      const creatorUserSnap = await tx.get(db.doc(`users/${creatorId}`));
-      const isAmbassador =
-        creatorUserSnap.exists &&
-        creatorUserSnap.get("isAmbassador") === true;
-      feeBps = isAmbassador ? AMBASSADOR_FEE_BPS : STANDARD_FEE_BPS;
-    }
+    const split = await resolveSplit(tx, db, creatorId, priceMinor);
+    const { feeBps, platformFee, creatorNet, referralFee } = split;
 
-    const { platformFee, creatorNet } = splitFee(priceMinor, feeBps);
-
-    // Fan wallet check
-    let balanceMinor = walletSnap.exists ? walletSnap.get("balanceMinor") : null;
-    if (!Number.isInteger(balanceMinor)) {
-      const legacyBalSnap = await tx.get(db.doc(`user_balances/${fanUid}`));
-      const legacyBal = legacyBalSnap.exists ? Number(legacyBalSnap.get("balance") || 0) : 0;
-      balanceMinor = Math.round(legacyBal * 100);
-    }
+    // Fan balance: user_balances is the single source of truth (wallets only mirrors it).
+    // (Reading wallets first could overwrite a newer NGN top-up that only landed in user_balances.)
+    void walletSnap;
+    const fanBalSnap = await tx.get(db.doc(`user_balances/${fanUid}`));
+    const balanceMinor = fanBalSnap.exists ? Math.round(Number(fanBalSnap.get("balance") || 0) * 100) : 0;
 
     if (balanceMinor < priceMinor) {
       throw new HttpsError("failed-precondition", "INSUFFICIENT_FUNDS");
@@ -492,9 +515,10 @@ async function unlockPost(input) {
     const now = admin.firestore.FieldValue.serverTimestamp();
     const ledgerLines = [
       { account: `fan:${fanUid}`, deltaMinor: -priceMinor },
-      { account: `creator:${creatorId}`, deltaMinor: creatorNet },
-      { account: "platform:fees", deltaMinor: platformFee },
+      { account: `creator:${creatorId}:available`, deltaMinor: creatorNet },
+      { account: "platform:revenue", deltaMinor: platformFee },
     ];
+    if (referralFee > 0) ledgerLines.push({ account: `ambassador:${split.referrerId}`, deltaMinor: referralFee });
     assertBalanced(ledgerLines);
 
     tx.set(db.doc(`ledger/${txId}`), {
@@ -505,9 +529,11 @@ async function unlockPost(input) {
       grossMinor: priceMinor,
       creatorNetMinor: creatorNet,
       platformFeeMinor: platformFee,
+      referralFeeMinor: referralFee,
       lines: ledgerLines,
       createdAt: now,
     });
+    writeReferral(tx, db, split, { creatorId, source: "post_unlock", ledgerTxId: txId, now });
 
     const shard = Math.floor(Math.random() * EARNINGS_SHARDS);
     tx.set(
@@ -548,6 +574,7 @@ async function unlockPost(input) {
       grossMinor: priceMinor,
       feeBps,
       platformFeeMinor: platformFee,
+      referralFeeMinor: referralFee,
       creatorNetMinor: creatorNet,
       createdAt: now,
     });
@@ -581,7 +608,50 @@ async function unlockPost(input) {
   });
 }
 
+/**
+ * Credit a creator for a sale that was paid directly with crypto (webhook path).
+ * Same split model as wallet purchases. Idempotent per payment id.
+ */
+async function creditDirectSale({ paymentId, creatorId, fanUid, grossMinor, source }) {
+  const db = admin.firestore();
+  if (!creatorId || !Number.isInteger(grossMinor) || grossMinor <= 0) return { credited: false };
+  const txId = `sale_${paymentId}`;
+  const ledgerRef = db.doc(`ledger/${txId}`);
+
+  return db.runTransaction(async (tx) => {
+    const existing = await tx.get(ledgerRef);
+    if (existing.exists) return { credited: false };
+    const split = await resolveSplit(tx, db, creatorId, grossMinor);
+    const { platformFee, creatorNet, referralFee } = split;
+    const lines = [
+      { account: "external:crypto", deltaMinor: -grossMinor },
+      { account: `creator:${creatorId}:available`, deltaMinor: creatorNet },
+      { account: "platform:revenue", deltaMinor: platformFee },
+    ];
+    if (referralFee > 0) lines.push({ account: `ambassador:${split.referrerId}`, deltaMinor: referralFee });
+    assertBalanced(lines);
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const shard = Math.floor(Math.random() * EARNINGS_SHARDS);
+    tx.set(ledgerRef, { type: `direct_${source}`, fanId: fanUid, creatorId, lines, idempotencyKey: txId, createdAt: now });
+    tx.set(db.doc(`creatorEarnings/${creatorId}/shards/${shard}`),
+      { availableMinor: admin.firestore.FieldValue.increment(creatorNet) }, { merge: true });
+    // Earnings are instant (crypto) — straight to available, never pending
+    tx.set(db.doc(`creator_balances/${creatorId}`), {
+      creatorId,
+      availableBalance: admin.firestore.FieldValue.increment(creatorNet / 100),
+      totalEarnings: admin.firestore.FieldValue.increment(creatorNet / 100),
+      updatedAt: now,
+    }, { merge: true });
+    writeReferral(tx, db, split, { creatorId, source, ledgerTxId: txId, now });
+    return { credited: true, creatorNet, platformFee, referralFee };
+  });
+}
+
 module.exports = {
+  resolveSplit,
+  writeReferral,
+  creditDirectSale,
   unlockMessage,
   unlockPost,
   creditTopup,

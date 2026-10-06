@@ -1,5 +1,6 @@
 // src/components/feed/PostCard.jsx
 
+import { formatPostTime as formatPostTimeUtil, getPostDate } from '../../utils/postTime';
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -15,13 +16,15 @@ import { useContentSettings } from '../../hooks/useContentSettings';
 
 import { getUserProfile } from '../../services/firestoreService';
 import { likePost, unlikePost, deletePost, updatePost, canViewPost, subscribeToPost } from '../../services/postService';
-import { getWalletBalance, deductFromWallet } from '../../services/walletService';
+import { getWalletBalance } from '../../services/walletService';
 import { db } from '../../config/firebase';
-import { getPostImage } from '../../utils/imageHelpers';
+import { getPostImage, feedImage } from '../../utils/imageHelpers';
 import TipModal from '../Modals/TipModal';
 import WatermarkedImage from '../Media/WatermarkedImage';
 import WatermarkedVideo from '../Media/WatermarkedVideo';
 import PostUnlockSheet from './PostUnlockSheet';
+import { getPostMedia, hasLockedMedia, clearMediaCache } from '../../services/mediaService';
+import { authUrl, herePath } from '../../utils/authRedirect';
 
 // DiagonalWatermark is now imported from ../Media/WatermarkedImage and WatermarkedVideo
 
@@ -52,7 +55,11 @@ export default function PostCard({
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
 
-  const imageUrl = useMemo(() => getPostImage(post), [post]);
+  // Locked media: the public post only has a blurred preview. Once the viewer has access we fetch
+  // the real files from the server.
+  const [privateMedia, setPrivateMedia] = useState(null);
+  const mediaPost = useMemo(() => (privateMedia ? { ...post, images: privateMedia } : post), [post, privateMedia]);
+  const imageUrl = useMemo(() => getPostImage(mediaPost), [mediaPost]);
   const isOwnPost = currentUser?.uid && post?.userId && currentUser.uid === post.userId;
 
   const contentRating = (post?.contentRating || 'sfw').toLowerCase();
@@ -147,6 +154,17 @@ export default function PostCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [post?.id, post?.type, post?.price, post?.userId, currentUser?.uid, isOwnPost]);
 
+  // Only re-fetch when the locked media itself changes (not on every like/comment update)
+  const lockedKey = (post?.images || []).map((i) => (i?.locked ? `L${i.i}` : 'u')).join(',');
+  useEffect(() => {
+    let alive = true;
+    setPrivateMedia(null);
+    if (canView && hasLockedMedia(post)) {
+      getPostMedia(post.id).then((items) => { if (alive) setPrivateMedia(items); }).catch(() => {});
+    }
+    return () => { alive = false; };
+  }, [canView, post?.id, lockedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ✅ PRD 16.3: Live 60s ticker to update relative times in real time without refetching
   const [, setTimeTick] = useState(Date.now());
   useEffect(() => {
@@ -229,7 +247,7 @@ export default function PostCard({
   };
 
   const handleCardClick = () => {
-    if (!currentUser) { navigate('/login'); return; }
+    if (!currentUser) { navigate(authUrl(herePath())); return; }
     if (isBlockedByNSFW) {
       alert('NSFW is hidden. Turn on "Show NSFW" to view this content.');
       return;
@@ -243,7 +261,7 @@ export default function PostCard({
 
   const handleLike = async (e) => {
     e?.stopPropagation();
-    if (!currentUser) { navigate('/login'); return; }
+    if (!currentUser) { navigate(authUrl(herePath())); return; }
     if (isBlockedByNSFW) { alert('NSFW is hidden.'); return; }
     if (isLocked) { setShowUnlockModal(true); return; }
     try {
@@ -261,7 +279,7 @@ export default function PostCard({
 
   const handleTipClick = (e) => {
     e?.stopPropagation();
-    if (!currentUser) { navigate('/login'); return; }
+    if (!currentUser) { navigate(authUrl(herePath())); return; }
     if (isBlockedByNSFW) { alert('Enable NSFW to interact.'); return; }
     setShowTipModal(true);
   };
@@ -393,8 +411,8 @@ export default function PostCard({
 
               <p className="text-sm text-gray-500">
                 @{creator?.username || post?.username || 'user'} •{' '}
-                <span title={getFullDateTime(post?.createdAt)} className="cursor-help hover:text-gray-700 transition">
-                  {formatPostTime(post?.createdAt)}
+                <span title={getPostDate(post)?.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' }) || ''} className="cursor-help hover:text-gray-700 transition">
+                  {formatPostTimeUtil(post)}
                 </span>
               </p>
             </div>
@@ -450,17 +468,18 @@ export default function PostCard({
           {imageUrl && (
             <div
               className="absolute inset-0 bg-cover bg-center filter blur-2xl opacity-25 scale-125 pointer-events-none"
-              style={{ backgroundImage: `url(${imageUrl})` }}
+              style={{ backgroundImage: `url(${feedImage(imageUrl, 120)})` }}
             />
           )}
 
           {imageUrl ? (
             (() => {
-              const mediaItem = post?.images?.[0];
-              const isVideo =
+              const mediaItem = mediaPost?.images?.[0];
+              // A locked item's "url" is a blurred still image, never a playable video
+              const isVideo = !mediaItem?.locked && (
                 mediaItem?.type === 'video' ||
                 /\.(mp4|mov|avi|webm|mkv)$/i.test(imageUrl) ||
-                mediaItem?.mimeType?.startsWith('video/');
+                mediaItem?.mimeType?.startsWith('video/'));
 
               return isVideo ? (
                 <WatermarkedVideo
@@ -475,7 +494,7 @@ export default function PostCard({
                 />
               ) : (
                 <WatermarkedImage
-                  src={imageUrl}
+                  src={feedImage(imageUrl)}
                   alt="Post"
                   className={`relative z-1 w-full h-auto max-h-[460px] sm:max-h-[580px] object-cover sm:object-contain mx-auto block ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
                   loading="lazy"
@@ -512,7 +531,7 @@ export default function PostCard({
             <div
               onClick={(e) => {
                 e.stopPropagation();
-                if (!currentUser) { navigate('/login'); return; }
+                if (!currentUser) { navigate(authUrl(herePath())); return; }
                 setShowUnlockModal(true);
               }}
               className="absolute inset-0 flex flex-col items-center justify-center p-6 cursor-pointer bg-black/35 backdrop-blur-md transition-all hover:bg-black/45 group"
@@ -577,7 +596,7 @@ export default function PostCard({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (!currentUser) { navigate('/login'); return; }
+                  if (!currentUser) { navigate(authUrl(herePath())); return; }
                   if (isBlockedByNSFW) { alert('Enable NSFW to view.'); return; }
                   if (isLocked) { setShowUnlockModal(true); return; }
                   if (onPostClick) onPostClick(post);
@@ -611,7 +630,7 @@ export default function PostCard({
         onClose={() => setShowUnlockModal(false)}
         post={post}
         creator={creator}
-        onUnlocked={() => setCanView(true)}
+        onUnlocked={() => { clearMediaCache(post.id); setCanView(true); }}
       />
 
       {tipCreator && (

@@ -27,7 +27,7 @@ export default function Dashboard() {
 
   // Feature flag check (PRD Section 15.5)
   if (isNewDashboard(userProfile) && !forceLegacy) {
-    return <SimplifiedDashboard onSwitchToLegacy={() => setForceLegacy(true)} />;
+    return <SimplifiedDashboard />;
   }
 
   const [balance, setBalance]               = useState(null);
@@ -88,17 +88,9 @@ export default function Dashboard() {
       let total = 0;
       if (snap.exists()) {
         const d = snap.data();
-        available = (d.availableBalance || 0) + (d.pendingBalance || 0);
+        available = Math.max(0, Number(d.availableBalance || 0)); // what can be withdrawn
         total = d.totalEarnings || available;
       }
-      try {
-        const wSnap = await getDoc(doc(db, 'wallets', currentUser.uid));
-        if (wSnap.exists() && wSnap.data().balanceMinor !== undefined) {
-          const wBal = wSnap.data().balanceMinor / 100;
-          available = Math.max(available, wBal);
-          total = Math.max(total, available);
-        }
-      } catch (_) {}
       setBalance({ available, total });
     } catch { setBalance({ available: 0, total: 0 }); }
     finally { setLoadingBalance(false); }
@@ -204,7 +196,7 @@ export default function Dashboard() {
         const data = d.data();
         return {
           id: d.id,
-          preview: data.images?.[0]?.url || data.images?.[0] || null,
+          preview: data.images?.[0]?.url || data.images?.[0]?.previewUrl || (typeof data.images?.[0] === 'string' ? data.images[0] : null),
           views: data.views || 0,
           likes: data.likes || 0,
           earnings: `$${((data.likes || 0) * 0.15).toFixed(2)}`,

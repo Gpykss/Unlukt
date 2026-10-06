@@ -22,6 +22,40 @@ const BUNNY_STORAGE_HOST = "storage.bunnycdn.com";
 const BUNNY_PULL_ZONE = "https://unlukt.b-cdn.net";
 
 // ========== AGORA TOKEN GENERATION ==========
+// ── Security helpers ─────────────────────────────────────────────────────────
+// Escape user-controlled text before putting it in email HTML (names, reasons, addresses).
+const esc = (v) => String(v == null ? "" : v)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+// Simple Firestore-backed rate limit: at most `max` hits per `windowMs` for a key.
+// Returns true when the caller is over the limit.
+async function overLimit(key, max, windowMs) {
+  const db = admin.firestore();
+  const ref = db.collection("_rate_limits").doc(key.replace(/[^\w@.-]/g, "_").slice(0, 200));
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const now = Date.now();
+    const hits = (snap.exists ? snap.data().hits || [] : []).filter((t) => now - t < windowMs);
+    if (hits.length >= max) return true;
+    hits.push(now);
+    tx.set(ref, { hits, updatedAt: now });
+    return false;
+  });
+}
+
+// Users' emails are private (not on the public profile) — look them up from Auth / user_private
+async function emailOf(uid, fallback = "") {
+  try {
+    const u = await admin.auth().getUser(uid);
+    if (u.email) return u.email;
+  } catch { /* not found */ }
+  try {
+    const p = await admin.firestore().doc(`user_private/${uid}`).get();
+    return (p.exists && p.get("email")) || fallback;
+  } catch { return fallback; }
+}
+
 exports.getAgoraToken = onRequest(
   {
     region: "us-central1",
@@ -51,26 +85,31 @@ exports.getAgoraToken = onRequest(
         let role = RtcRole.PUBLISHER; // Default
 
         // 1. If it's a livestream channel
+        if (typeof channelName !== "string" || channelName.length > 128) {
+          return res.status(400).json({ error: "Invalid channel" });
+        }
         if (isLivestream || channelName.startsWith("livestream_")) {
-          const resolvedCreatorId = creatorId || channelName.replace("livestream_", "");
+          if (!channelName.startsWith("livestream_")) return res.status(400).json({ error: "Invalid channel" });
+          // The host is ALWAYS the creator named in the channel — never trust a creatorId sent by the
+          // client (that let anyone get a host token on someone else's live).
+          const resolvedCreatorId = channelName.slice("livestream_".length);
+          void creatorId;
 
           if (uid === resolvedCreatorId) {
             role = RtcRole.PUBLISHER;
           } else {
-            // Fan checks
-            // Check if this fan is currently accepted as a co-host
-            const cohostSnap = await db.collection("cohost_requests")
+            // Guests the creator accepted on stage (livestream_rooms/{creator}.stageGuests) or legacy co-hosts
+            const roomSnap = await db.collection("livestream_rooms").doc(resolvedCreatorId).get();
+            const onStage = (roomSnap.exists ? roomSnap.get("stageGuests") || [] : [])
+              .some((g) => g && g.userId === uid);
+            const cohostSnap = onStage ? null : await db.collection("cohost_requests")
               .where("userId", "==", uid)
               .where("creatorId", "==", resolvedCreatorId)
               .where("status", "==", "accepted")
               .limit(1)
               .get();
 
-            if (!cohostSnap.empty) {
-              role = RtcRole.PUBLISHER; // Upgraded to publisher!
-            } else {
-              role = RtcRole.SUBSCRIBER;
-            }
+            role = (onStage || (cohostSnap && !cohostSnap.empty)) ? RtcRole.PUBLISHER : RtcRole.SUBSCRIBER;
 
             // Check if user has an active, unexpired ticket for this room
             const now = new Date();
@@ -81,96 +120,50 @@ exports.getAgoraToken = onRequest(
               .limit(1)
               .get();
 
+            // Creator chooses free or paid lives (users/{creator}.livestreamFree; unset = free)
+            // Free or paid: what the live room shows (room settings) wins over the profile field
+            let isFreeLive = true;
             if (ticketsSnap.empty) {
-              // No ticket. Try to transactionally purchase a 1-hour ticket block.
-              // Fetch creator's pricing
-              const creatorSnap = await db.collection("users").doc(resolvedCreatorId).get();
-              if (!creatorSnap.exists) {
-                return res.status(404).json({ error: "Creator profile not found" });
+              const roomSettings = roomSnap.exists ? roomSnap.get("settings") : null;
+              if (roomSettings && typeof roomSettings.entryFree === "boolean") {
+                isFreeLive = roomSettings.entryFree;
+              } else {
+                const liveCreatorSnap = await db.collection("users").doc(resolvedCreatorId).get();
+                isFreeLive = liveCreatorSnap.get("livestreamFree") !== false;
               }
-              const creatorData = creatorSnap.data();
-              // Default pricing: 10 Roses / USD
-              const price = Number(creatorData.livestreamPrice || creatorData.ticketPrice || 10);
+            }
 
-              // Perform transaction to deduct balance
-              await db.runTransaction(async (transaction) => {
-                const userBalRef = db.collection("user_balances").doc(uid);
-                const creatorBalRef = db.collection("user_balances").doc(resolvedCreatorId);
-
-                const userBalSnap = await transaction.get(userBalRef);
-                if (!userBalSnap.exists || Number(userBalSnap.data().balance || 0) < price) {
-                  throw new Error("INSUFFICIENT_FUNDS");
-                }
-
-                const currentBalance = Number(userBalSnap.data().balance || 0);
-                const creatorBalSnap = await transaction.get(creatorBalRef);
-                const currentCreatorBalance = creatorBalSnap.exists ? Number(creatorBalSnap.data().balance || 0) : 0;
-
-                // Deduct from fan
-                transaction.update(userBalRef, {
-                  balance: currentBalance - price,
-                  updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                });
-
-                // Credit to creator immediately (non-refundable)
-                if (creatorBalSnap.exists) {
-                  transaction.update(creatorBalRef, {
-                    balance: currentCreatorBalance + price,
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                  });
-                } else {
-                  transaction.set(creatorBalRef, {
-                    userId: resolvedCreatorId,
-                    balance: price,
-                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                  });
-                }
-
-                // Log debit transaction
-                const debitRef = db.collection("transactions").doc();
-                transaction.set(debitRef, {
-                  userId: uid,
-                  amount: -price,
-                  type: "debit",
-                  description: `Livestream 1-Hour Ticket: @${creatorData.username || "creator"}`,
-                  balanceAfter: currentBalance - price,
-                  createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                });
-
-                // Log credit transaction
-                const creditRef = db.collection("transactions").doc();
-                transaction.set(creditRef, {
-                  userId: resolvedCreatorId,
-                  amount: price,
-                  type: "credit",
-                  description: `Livestream 1-Hour Ticket Sale from fan`,
-                  balanceAfter: currentCreatorBalance + price,
-                  createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                });
-
-                // Create ticket document
-                const ticketRef = db.collection("livestream_tickets").doc();
-                transaction.set(ticketRef, {
-                  userId: uid,
-                  creatorId: resolvedCreatorId,
-                  createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                  expiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 60 * 60 * 1000)), // 1 hour
-                });
-              });
+            if (ticketsSnap.empty && !isFreeLive) {
+              // No ticket yet → buy a 1-hour ticket (server price, standard 80/90/5 split, idempotent per hour)
+              const { buyLiveTicket } = require("./src/money");
+              try {
+                await buyLiveTicket(db, uid, resolvedCreatorId);
+              } catch (e) {
+                if (/Insufficient/i.test(e.message || "")) throw new Error("INSUFFICIENT_FUNDS");
+                throw e;
+              }
             }
           }
         } else {
-          // 2. Regular 1-on-1 booking validation
-          if (bookingId) {
-            const bookingSnap = await db.collection("call_bookings").doc(bookingId).get();
-            if (!bookingSnap.exists) {
-              return res.status(404).json({ error: "Booking not found" });
-            }
-            const booking = bookingSnap.data();
-            if (booking.userId !== uid && booking.creatorId !== uid) {
-              return res.status(403).json({ error: "Not authorized for this booking" });
-            }
+          // 2. Private 1-on-1 call: channel must be video_<bookingId> / voice_<bookingId> and the
+          //    caller must be the fan or creator on that booking. (Before, leaving out bookingId
+          //    gave a token for ANY channel — anyone could join someone else's private call.)
+          const m = /^(video|voice)_([\w-]{6,})$/.exec(channelName);
+          if (!m) return res.status(400).json({ error: "Invalid call channel" });
+          const realBookingId = m[2];
+          if (bookingId && bookingId !== realBookingId) {
+            return res.status(400).json({ error: "Booking does not match channel" });
+          }
+          const bookingSnap = await db.collection("call_bookings").doc(realBookingId).get();
+          if (!bookingSnap.exists) {
+            return res.status(404).json({ error: "Booking not found" });
+          }
+          const booking = bookingSnap.data();
+          if (booking.userId !== uid && booking.creatorId !== uid) {
+            return res.status(403).json({ error: "Not authorized for this booking" });
+          }
+          if (!["confirmed", "in_progress"].includes(booking.status)) {
+            return res.status(403).json({ error: `This call is ${booking.status}` });
           }
         }
 
@@ -207,61 +200,22 @@ exports.getAgoraToken = onRequest(
         if (err.message === "INSUFFICIENT_FUNDS") {
           return res.status(402).json({ error: "INSUFFICIENT_FUNDS" });
         }
-        return res.status(500).json({ error: err?.message || "Server error" });
+        if (err?.code === "auth/id-token-expired" || err?.code === "auth/argument-error") {
+          return res.status(401).json({ error: "Session expired — please sign in again" });
+        }
+        return res.status(500).json({ error: "Could not connect — please try again" });
       }
     });
   }
 );
 
 // ========== BUNNY.NET UPLOAD ==========
-exports.createBunnyUpload = onRequest(
-  {
-    region: "us-central1",
-    secrets: [BUNNY_STORAGE_PASSWORD],
-  },
-  (req, res) => {
-    corsHandler(req, res, async () => {
-      try {
-        if (req.method !== "POST") {
-          return res.status(405).json({ error: "Method not allowed" });
-        }
-
-        const authHeader = req.headers.authorization || "";
-        const token = authHeader.startsWith("Bearer ")
-          ? authHeader.slice(7)
-          : null;
-
-        if (!token) return res.status(401).json({ error: "Missing auth token" });
-
-        const decoded = await admin.auth().verifyIdToken(token);
-        const uid = decoded.uid;
-
-        const { fileName, contentType } = req.body || {};
-        if (!fileName || !contentType) {
-          return res.status(400).json({ error: "fileName and contentType are required" });
-        }
-
-        const safeName = String(fileName).replace(/[^\w.\-]/g, "_");
-        const path = `uploads/${uid}/${Date.now()}_${safeName}`;
-        const uploadUrl = `https://${BUNNY_STORAGE_HOST}/${BUNNY_STORAGE_ZONE}/${path}`;
-        const cdnUrl = `${BUNNY_PULL_ZONE}/${path}`;
-
-        return res.status(200).json({
-          uploadUrl,
-          headers: {
-            AccessKey: BUNNY_STORAGE_PASSWORD.value(),
-            "Content-Type": contentType,
-          },
-          cdnUrl,
-          path,
-        });
-      } catch (err) {
-        console.error("createBunnyUpload error:", err);
-        return res.status(500).json({ error: err?.message || "Server error" });
-      }
-    });
-  }
-);
+// createBunnyUpload REMOVED: it returned the Bunny storage password (AccessKey) to any signed-in
+// user, which allows deleting/overwriting every file in the storage zone. Uploads go through
+// uploadToBunny (server-side PUT). If this was ever deployed: ROTATE the Bunny storage password.
+exports.createBunnyUpload = onRequest({ region: "us-central1" }, (req, res) => {
+  res.status(410).json({ error: "Gone — use uploadToBunny" });
+});
 
 // ========== NOWPAYMENTS WEBHOOK ==========
 exports.nowpaymentsWebhook = onRequest(
@@ -285,13 +239,15 @@ exports.nowpaymentsWebhook = onRequest(
         .update(sortedBody)
         .digest('hex');
 
-      if (signature !== expectedSignature) {
+      const sigBuf = Buffer.from(String(signature || ""), "utf8");
+      const expBuf = Buffer.from(expectedSignature, "utf8");
+      if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
         console.error('❌ Invalid webhook signature');
         return res.status(401).send('Invalid signature');
       }
 
-      console.log('✅ Webhook signature verified');
-      console.log('📩 NowPayments IPN body:', JSON.stringify(req.body, null, 2));
+      // Log only what's needed to trace a payment (no payer email / addresses in logs)
+      console.log('✅ IPN verified', { payment_id: req.body?.payment_id, order_id: req.body?.order_id, status: req.body?.payment_status });
 
       const db = admin.firestore();
       const ipnData = req.body;
@@ -353,7 +309,7 @@ exports.nowpaymentsWebhook = onRequest(
           console.log(`⚠️  Payment ${paymentDoc.id} already processed — skipping`);
           return res.status(200).send('OK');
         }
-        await processPayment(db, paymentData, paymentDoc.id);
+        await processPayment(db, paymentData, paymentDoc.id, price_amount);
         console.log(`🎉 Payment ${paymentDoc.id} fully processed`);
         updateData.status = 'completed';
       } else {
@@ -379,11 +335,16 @@ function sortObject(obj) {
 }
 
 // ========== PROCESS SUCCESSFUL PAYMENT ==========
-async function processPayment(db, paymentData, paymentId) {
+async function processPayment(db, paymentData, paymentId, signedPriceUsd) {
   const { contentType, contentId, creatorId, userId, baseAmount, amount } = paymentData;
 
   try {
-    const finalAmount = baseAmount || amount;
+    // ✅ Use the amount from the signed NowPayments IPN (invoice incl. 1.5% VAT), never the
+    // client-editable payment doc. Fall back to the doc only if the IPN has no price.
+    const signed = Number(signedPriceUsd);
+    const finalAmount = signed > 0
+      ? Math.round((signed / 1.015) * 100) / 100
+      : (baseAmount || amount);
     console.log(`🔄 Processing ${contentType} payment for user ${userId}`);
 
     switch (contentType) {
@@ -447,25 +408,17 @@ async function processPayment(db, paymentData, paymentId) {
         break;
     }
 
-    if (creatorId) {
-      const creatorBalanceRef = db.collection("creator_balances").doc(creatorId);
-      const creatorBalanceDoc = await creatorBalanceRef.get();
-      const creatorEarning = finalAmount * 0.85;
-
-      if (creatorBalanceDoc.exists) {
-        await creatorBalanceRef.update({
-          pendingBalance: (creatorBalanceDoc.data().pendingBalance || 0) + creatorEarning,
-          totalEarnings: (creatorBalanceDoc.data().totalEarnings || 0) + creatorEarning,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      } else {
-        await creatorBalanceRef.set({
-          creatorId, availableBalance: 0,
-          pendingBalance: creatorEarning, totalEarnings: creatorEarning,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
+    // ✅ Same split as everywhere else: 80/20 normal, 90/10 ambassador, 80/5/15 referred (1 yr).
+    // Earnings are instant (crypto) → credited to available, not pending. Idempotent per payment.
+    if (creatorId && contentType !== "topup") {
+      const { creditDirectSale } = require("./src/ledger");
+      await creditDirectSale({
+        paymentId,
+        creatorId,
+        fanUid: userId,
+        grossMinor: Math.round(finalAmount * 100),
+        source: contentType,
+      });
     }
 
     await db.collection("notifications").add({
@@ -508,12 +461,25 @@ exports.createPayment = onRequest(
       const decoded = await admin.auth().verifyIdToken(token);
       const uid = decoded.uid;
 
-      const { amount, contentId, contentType, creatorId, userEmail, userName, userCountry } = req.body;
-      if (!amount || !contentType) return res.status(400).json({ error: "Missing required fields" });
+      const { amount, userName, userCountry } = req.body || {};
+      // Crypto is only used for WALLET TOP-UPS. Unlocks/subs/tips are paid from the wallet.
+      // (Before, the client chose contentType/contentId/creatorId/amount, so a $1 invoice could
+      // unlock any post or subscription.)
+      const contentType = "topup";
+      const contentId = null;
+      const creatorId = null;
+      const userEmail = decoded.email || null;
+      const amt = Number(amount);
+      if (!Number.isFinite(amt) || amt < 1 || amt > 5000) {
+        return res.status(400).json({ error: "Top-up amount must be between $1 and $5,000" });
+      }
+      if (await overLimit(`pay_${uid}`, 10, 60 * 60 * 1000)) {
+        return res.status(429).json({ error: "Too many payment attempts — try again later" });
+      }
 
       const reference = `CRYPTO_${Date.now()}_${uid.substring(0, 8)}`;
 
-      const baseAmount = parseFloat(amount);
+      const baseAmount = Math.round(amt * 100) / 100;
       const vatPercentage = 1.5;
       const totalAmount = parseFloat((baseAmount * 1.015).toFixed(2));
       const vatAmount = parseFloat((totalAmount - baseAmount).toFixed(2));
@@ -559,7 +525,7 @@ exports.createPayment = onRequest(
       });
     } catch (error) {
       console.error("❌ Create payment error:", error);
-      return res.status(500).json({ error: error.message || "Server error" });
+      return res.status(500).json({ error: "Could not start the payment — please try again" });
     }
   }
 );
@@ -609,13 +575,30 @@ exports.uploadToBunny = onRequest(
           readable.pipe(busboy);
         });
 
-        const safeName = fileBuffer.originalName.replace(/[^\w.\-]/g, "_");
-        const path = `uploads/${uid}/${Date.now()}_${safeName}`;
+        // Only images and videos; never HTML/SVG/JS (those would be served from our CDN domain)
+        const EXT = {
+          "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
+          "image/heic": "heic", "image/heif": "heif", "image/avif": "avif", "image/bmp": "bmp",
+          "video/mp4": "mp4", "video/quicktime": "mov", "video/webm": "webm", "video/x-m4v": "m4v", "video/3gpp": "3gp",
+        };
+        const mt = String(fileBuffer.mimeType || "").toLowerCase();
+        const okType = !!EXT[mt];
+        if (!okType) return res.status(415).json({ error: "Only photos and videos can be uploaded" });
+        const maxBytes = fileBuffer.mimeType.startsWith("video/") ? 500 * 1024 * 1024 : 25 * 1024 * 1024;
+        if (fileBuffer.buffer.length > maxBytes) return res.status(413).json({ error: "File is too large" });
+        if (await overLimit(`upload_${uid}`, 120, 60 * 60 * 1000)) {
+          return res.status(429).json({ error: "Upload limit reached — try again later" });
+        }
+
+        // Extension always comes from the checked type, never the client's file name
+        // (x.html sent as image/png would otherwise be served as a web page from our CDN)
+        const base = String(fileBuffer.originalName || "file").replace(/\.[^.]*$/, "").replace(/[^\w\-]/g, "_").slice(-60) || "file";
+        const path = `uploads/${uid}/${Date.now()}_${base}.${EXT[mt]}`;
         const uploadUrl = `https://${BUNNY_STORAGE_HOST}/${BUNNY_STORAGE_ZONE}/${path}`;
 
         const bunnyRes = await fetch(uploadUrl, {
           method: "PUT",
-          headers: { AccessKey: BUNNY_STORAGE_PASSWORD.value(), "Content-Type": fileBuffer.mimeType },
+          headers: { AccessKey: BUNNY_STORAGE_PASSWORD.value(), "Content-Type": mt === "image/jpg" ? "image/jpeg" : mt },
           body: fileBuffer.buffer,
         });
 
@@ -634,7 +617,7 @@ exports.uploadToBunny = onRequest(
 
       } catch (err) {
         console.error("uploadToBunny error:", err);
-        return res.status(500).json({ error: err.message || "Server error" });
+        return res.status(500).json({ error: "Upload failed — please try again" });
       }
     });
   }
@@ -660,6 +643,9 @@ exports.sendCustomVerification = onRequest(
 
         const decoded = await admin.auth().verifyIdToken(token);
         const email = decoded.email;
+        if (await overLimit(`verify_${decoded.uid}`, 5, 60 * 60 * 1000)) {
+          return res.status(429).json({ error: "Too many requests — check your inbox or try again later" });
+        }
 
         const actionLink = await admin.auth().generateEmailVerificationLink(email);
         const resend = new Resend(RESEND_API_KEY.value());
@@ -683,7 +669,7 @@ exports.sendCustomVerification = onRequest(
         return res.status(200).json({ success: true });
       } catch (err) {
         console.error("sendCustomVerification error:", err);
-        return res.status(500).json({ error: err?.message || "Server error" });
+        return res.status(500).json({ error: "Could not send the email — try again shortly" });
       }
     });
   }
@@ -705,12 +691,16 @@ exports.sendSocialWelcomeEmail = onRequest(
         const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
         if (!token) return res.status(401).json({ error: "Missing auth token" });
 
-        await admin.auth().verifyIdToken(token);
+        const decoded = await admin.auth().verifyIdToken(token);
 
-        const { email, displayName } = req.body;
-        if (!email) return res.status(400).json({ error: "Missing email" });
+        // Only ever email the signed-in user's own address (was: any address from the request body)
+        const email = decoded.email;
+        if (!email) return res.status(400).json({ error: "No email on this account" });
+        if (await overLimit(`welcome_${decoded.uid}`, 2, 24 * 60 * 60 * 1000)) {
+          return res.status(200).json({ success: true });
+        }
 
-        const name = displayName || "there";
+        const name = esc(String((req.body && req.body.displayName) || decoded.name || "there").slice(0, 60));
         const resend = new Resend(RESEND_API_KEY.value());
 
         await resend.emails.send({
@@ -739,7 +729,7 @@ exports.sendSocialWelcomeEmail = onRequest(
         return res.status(200).json({ success: true });
       } catch (err) {
         console.error("sendSocialWelcomeEmail error:", err);
-        return res.status(500).json({ error: err?.message || "Server error" });
+        return res.status(500).json({ error: "Could not send the email — try again shortly" });
       }
     });
   }
@@ -756,8 +746,16 @@ exports.sendCustomPasswordReset = onRequest(
       try {
         if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
         
-        const { email } = req.body;
-        if (!email) return res.status(400).json({ error: "Missing email" });
+        const email = String((req.body && req.body.email) || "").trim().toLowerCase();
+        if (!email || email.length > 254 || !/^\S+@\S+\.\S+$/.test(email)) {
+          return res.status(400).json({ error: "Missing email" });
+        }
+        // The LAST x-forwarded-for hop is added by Google's front end; earlier ones are client-supplied
+        const ip = String(req.headers["x-forwarded-for"] || req.ip || "").split(",").pop().trim();
+        // Stop email-bombing: 3 per address per hour, 20 per IP per hour (always answer "ok")
+        if (await overLimit(`reset_${email}`, 3, 60 * 60 * 1000) || await overLimit(`resetip_${ip}`, 20, 60 * 60 * 1000)) {
+          return res.status(200).json({ success: true });
+        }
 
         const actionLink = await admin.auth().generatePasswordResetLink(email);
         const resend = new Resend(RESEND_API_KEY.value());
@@ -832,86 +830,10 @@ exports.onUserCreatedWelcome = onDocumentCreated(
   }
 );
 
-// ========== AMBASSADOR COMMISSION ON PAYOUT ==========
-exports.onPayoutComplete = onDocumentCreated(
-  {
-    document: "transactions/{txId}",
-    region: "us-central1",
-  },
-  async (event) => {
-    try {
-      const snapshot = event.data;
-      if (!snapshot) return;
-
-      const tx = snapshot.data();
-      const db = admin.firestore();
-
-      // Only process completed/approved payouts
-      if (!['completed', 'approved', 'paid'].includes(tx.status)) {
-        console.log(`⏭ Skipping transaction — status: ${tx.status}`);
-        return;
-      }
-
-      if (!tx.creatorId || !tx.amount) {
-        console.log("⏭ Skipping — missing creatorId or amount");
-        return;
-      }
-
-      // Get the creator
-      const creatorSnap = await db.collection("users").doc(tx.creatorId).get();
-      if (!creatorSnap.exists) return;
-      const creator = { id: creatorSnap.id, ...creatorSnap.data() };
-
-      // Check referral
-      if (!creator.referredBy) {
-        console.log(`ℹ️ Creator ${creator.id} has no referredBy — no commission`);
-        return;
-      }
-
-      // Get the ambassador
-      const ambassadorSnap = await db.collection("users").doc(creator.referredBy).get();
-      if (!ambassadorSnap.exists) return;
-      const ambassador = { id: ambassadorSnap.id, ...ambassadorSnap.data() };
-
-      // Check 1-year referral expiry (from creator.createdAt)
-      const creatorCreatedAt = creator.createdAt?.toDate?.() || new Date(creator.createdAt);
-      const expiresAt = new Date(creatorCreatedAt);
-      expiresAt.setFullYear(expiresAt.getFullYear() + 1);
-
-      if (new Date() > expiresAt) {
-        console.log(`⏭ Referral expired for creator ${creator.id}`);
-        return;
-      }
-
-      const commissionRate = ambassador.referralCommissionRate || 0.05;
-      const commission = tx.amount * commissionRate;
-
-      console.log(`💰 Commission: $${commission.toFixed(2)} (${commissionRate * 100}%) for ambassador ${ambassador.id}`);
-
-      // Add to ambassador's balance
-      await db.collection("users").doc(ambassador.id).update({
-        ambassadorBalance: admin.firestore.FieldValue.increment(commission),
-        totalCommissionEarned: admin.firestore.FieldValue.increment(commission),
-      });
-
-      // Create commission record
-      await db.collection("referralCommissions").add({
-        ambassadorId: ambassador.id,
-        referredCreatorId: creator.id,
-        transactionId: event.params.txId,
-        amount: commission,
-        commissionRate,
-        status: "pending",
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        expiresAt,
-      });
-
-      console.log(`✅ Commission recorded for ambassador ${ambassador.id}`);
-    } catch (err) {
-      console.error("onPayoutComplete error:", err);
-    }
-  }
-);
+// ========== AMBASSADOR COMMISSION ==========
+// Removed the old "onPayoutComplete" trigger: it paid the 5% referral a SECOND time on top of the
+// commission already paid at sale time, and any user could trigger it by writing a fake transaction.
+// Referral commission is now paid once, at sale time (ledger.js → writeReferral / commissionService.js).
 
 // ============================================================
 // ✅ EMAIL NOTIFICATIONS (Resend)
@@ -940,15 +862,16 @@ exports.onKYCSubmitted = onDocumentUpdated(
     const after  = event.data.after.data();
     if (before.kycStatus === after.kycStatus) return; // no change
     if (after.kycStatus !== "pending") return;
+    after.email = await emailOf(event.params.userId, after.email || "");
 
     await sendEmail(RESEND_API_KEY.value(), {
       to: ADMIN_EMAIL,
-      subject: `🔔 New KYC Application — ${after.displayName || after.email}`,
+      subject: `🔔 New KYC Application — ${esc(after.displayName || after.email)}`,
       html: `
         <h2>New Creator KYC Submitted</h2>
-        <p><b>Name:</b> ${after.displayName || "N/A"}</p>
-        <p><b>Email:</b> ${after.email || "N/A"}</p>
-        <p><b>Username:</b> @${after.username || "N/A"}</p>
+        <p><b>Name:</b> ${esc(after.displayName || "N/A")}</p>
+        <p><b>Email:</b> ${esc(after.email || "N/A")}</p>
+        <p><b>Username:</b> @${esc(after.username || "N/A")}</p>
         <p><b>Submitted:</b> ${new Date().toLocaleString()}</p>
         <p><a href="https://unlukt.com/admin/kyc" style="background:#e11d48;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">Review Application →</a></p>
       `,
@@ -964,6 +887,7 @@ exports.onKYCDecision = onDocumentUpdated(
     const after  = event.data.after.data();
     if (before.kycStatus === after.kycStatus) return;
     if (!["approved", "rejected"].includes(after.kycStatus)) return;
+    after.email = await emailOf(event.params.userId, after.email || "");
     if (!after.email) return;
 
     const approved = after.kycStatus === "approved";
@@ -974,16 +898,16 @@ exports.onKYCDecision = onDocumentUpdated(
         : "❌ Creator Application Update",
       html: approved ? `
         <h2>Welcome to the Creator Family! 🎉</h2>
-        <p>Hi ${after.displayName || "there"},</p>
+        <p>Hi ${esc(after.displayName || "there")},</p>
         <p>Great news — your identity has been verified and your creator account is now <b>active</b>.</p>
         <p>You can now start publishing content, set subscription prices, and earn money from your fans.</p>
         <p><a href="https://unlukt.com/dashboard" style="background:#e11d48;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">Go to Dashboard →</a></p>
         <p style="color:#888;font-size:12px;">The Unlukt Team</p>
       ` : `
         <h2>Application Status Update</h2>
-        <p>Hi ${after.displayName || "there"},</p>
+        <p>Hi ${esc(after.displayName || "there")},</p>
         <p>Unfortunately, your creator application was <b>not approved</b> at this time.</p>
-        ${after.kycRejectionReason ? `<p><b>Reason:</b> ${after.kycRejectionReason}</p>` : ""}
+        ${after.kycRejectionReason ? `<p><b>Reason:</b> ${esc(after.kycRejectionReason)}</p>` : ""}
         <p>If you believe this is an error or would like to reapply, please contact our support team.</p>
         <p><a href="mailto:support@unlukt.com" style="background:#e11d48;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">Contact Support</a></p>
         <p style="color:#888;font-size:12px;">The Unlukt Team</p>
@@ -1005,22 +929,45 @@ exports.onWithdrawalRequested = onDocumentCreated(
     if (w.userId) {
       const uSnap = await admin.firestore().collection("users").doc(w.userId).get();
       if (uSnap.exists) {
-        userEmail = uSnap.data().email || userEmail;
+        userEmail = (await emailOf(w.userId, uSnap.data().email || userEmail)) || userEmail;
         userName  = uSnap.data().displayName || userName;
       }
     }
 
     await sendEmail(RESEND_API_KEY.value(), {
       to: ADMIN_EMAIL,
-      subject: `💸 Withdrawal Request — ${userName} ($${Number(w.amount || 0).toFixed(2)})`,
+      subject: `💸 Withdrawal Request — ${esc(userName)} ($${Number(w.amount || 0).toFixed(2)})`,
       html: `
         <h2>New Withdrawal Request</h2>
-        <p><b>User:</b> ${userName} (${userEmail})</p>
+        <p><b>User:</b> ${esc(userName)} (${esc(userEmail)})</p>
         <p><b>Amount:</b> $${Number(w.amount || 0).toFixed(2)}</p>
-        <p><b>Method:</b> ${w.method || "N/A"} ${w.currency ? `(${w.currency})` : ""}</p>
-        <p><b>Wallet/Account:</b> ${w.walletAddress || w.accountNumber || "N/A"}</p>
+        <p><b>Method:</b> ${esc(w.method || "N/A")} ${w.currency ? `(${esc(w.currency)})` : ""}</p>
+        <p><b>Wallet/Account:</b> ${esc(w.walletAddress || w.accountNumber || "N/A")}</p>
         <p><b>Submitted:</b> ${new Date().toLocaleString()}</p>
         <p><a href="https://unlukt.com/admin" style="background:#e11d48;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">Review in Admin →</a></p>
+      `,
+    });
+  }
+);
+
+// Creator payout requested through the app (payouts/{id}) → email admin
+exports.onPayoutRequested = onDocumentCreated(
+  { document: "payouts/{pId}", region: "us-central1", secrets: [RESEND_API_KEY] },
+  async (event) => {
+    const p = event.data.data();
+    if (!p) return;
+    const uSnap = await admin.firestore().collection("users").doc(p.creatorId).get();
+    const u = uSnap.exists ? uSnap.data() : {};
+    const amount = (p.amountMinor || 0) / 100;
+    await sendEmail(RESEND_API_KEY.value(), {
+      to: ADMIN_EMAIL,
+      subject: `💸 Payout Request — ${esc(u.displayName || u.username || p.creatorId)} ($${amount.toFixed(2)})`,
+      html: `
+        <h2>New Payout Request</h2>
+        <p><b>Creator:</b> ${esc(u.displayName || "N/A")} (@${esc(u.username || "")}, ${esc(await emailOf(p.creatorId, u.email || ""))})</p>
+        <p><b>Amount:</b> $${amount.toFixed(2)} (fee $${((p.networkFeeMinor || 0) / 100).toFixed(2)})</p>
+        <p><b>USDT address:</b> ${esc(p.payoutAddress || "N/A")}</p>
+        <p><a href="https://unlukt.com/admin/payouts" style="background:#e11d48;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">Review payouts →</a></p>
       `,
     });
   }
@@ -1041,7 +988,7 @@ exports.onWithdrawalDecision = onDocumentUpdated(
     if (after.userId && !toEmail) {
       const uSnap = await admin.firestore().collection("users").doc(after.userId).get();
       if (uSnap.exists) {
-        toEmail = uSnap.data().email || "";
+        toEmail = await emailOf(after.userId, uSnap.data().email || "");
         name    = uSnap.data().displayName || name;
       }
     }
@@ -1055,15 +1002,15 @@ exports.onWithdrawalDecision = onDocumentUpdated(
         : `❌ Withdrawal Request Update`,
       html: approved ? `
         <h2>Your Withdrawal is Approved! ✅</h2>
-        <p>Hi ${name},</p>
+        <p>Hi ${esc(name)},</p>
         <p>Your withdrawal of <b>$${Number(after.amount || 0).toFixed(2)}</b> has been approved and is being processed.</p>
         <p>Please allow 1–3 business days for the funds to arrive depending on your chosen method.</p>
         <p style="color:#888;font-size:12px;">The Unlukt Team</p>
       ` : `
         <h2>Withdrawal Request Update</h2>
-        <p>Hi ${name},</p>
+        <p>Hi ${esc(name)},</p>
         <p>Your withdrawal request of <b>$${Number(after.amount || 0).toFixed(2)}</b> could not be processed at this time.</p>
-        ${after.rejectionReason ? `<p><b>Reason:</b> ${after.rejectionReason}</p>` : ""}
+        ${after.rejectionReason ? `<p><b>Reason:</b> ${esc(after.rejectionReason)}</p>` : ""}
         <p>Your balance has been restored. Please contact support if you have questions.</p>
         <p><a href="mailto:support@unlukt.com" style="background:#e11d48;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;">Contact Support</a></p>
         <p style="color:#888;font-size:12px;">The Unlukt Team</p>
@@ -1128,186 +1075,15 @@ exports.subscriptionExpiryReminder = onSchedule(
 );
 
 // ========== STAGE CO-HOST REQUESTS (STRIPCHAT NON-REFUNDABLE STRATEGY) ==========
-exports.requestCoHostStage = onRequest(
-  {
-    region: "us-central1",
-    secrets: [AGORA_APP_ID, AGORA_APP_CERTIFICATE],
-  },
-  (req, res) => {
-    corsHandler(req, res, async () => {
-      try {
-        if (req.method !== "POST") {
-          return res.status(405).json({ error: "Method not allowed" });
-        }
+// requestCoHostStage removed — live guest requests are paid through the `spend` function (server price).
+exports.requestCoHostStage = onRequest({ region: "us-central1" }, (req, res) => {
+  res.status(410).json({ error: "Gone" });
+});
 
-        const authHeader = req.headers.authorization || "";
-        const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-        if (!token) return res.status(401).json({ error: "Missing auth token" });
-
-        const decoded = await admin.auth().verifyIdToken(token);
-        const uid = decoded.uid;
-
-        const { creatorId, tipAmount } = req.body || {};
-        if (!creatorId) return res.status(400).json({ error: "creatorId is required" });
-        
-        const price = Number(tipAmount || 50);
-
-        const db = admin.firestore();
-        const creatorSnap = await db.collection("users").doc(creatorId).get();
-        if (!creatorSnap.exists) {
-          return res.status(404).json({ error: "Creator profile not found" });
-        }
-        const creatorData = creatorSnap.data();
-
-        const fanSnap = await db.collection("users").doc(uid).get();
-        const fanData = fanSnap.exists ? fanSnap.data() : {};
-        const fanUsername = fanData.username || "fan";
-        const fanDisplayName = fanData.displayName || fanUsername;
-
-        await db.runTransaction(async (transaction) => {
-          const userBalRef = db.collection("user_balances").doc(uid);
-          const creatorBalRef = db.collection("user_balances").doc(creatorId);
-
-          const userBalSnap = await transaction.get(userBalRef);
-          if (!userBalSnap.exists || Number(userBalSnap.data().balance || 0) < price) {
-            throw new Error("INSUFFICIENT_FUNDS");
-          }
-
-          const currentBalance = Number(userBalSnap.data().balance || 0);
-          const creatorBalSnap = await transaction.get(creatorBalRef);
-          const currentCreatorBalance = creatorBalSnap.exists ? Number(creatorBalSnap.data().balance || 0) : 0;
-
-          transaction.update(userBalRef, {
-            balance: currentBalance - price,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-
-          if (creatorBalSnap.exists) {
-            transaction.update(creatorBalRef, {
-              balance: currentCreatorBalance + price,
-              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-          } else {
-            transaction.set(creatorBalRef, {
-              userId: creatorId,
-              balance: price,
-              createdAt: admin.firestore.FieldValue.serverTimestamp(),
-              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-          }
-
-          const debitRef = db.collection("transactions").doc();
-          transaction.set(debitRef, {
-            userId: uid,
-            amount: -price,
-            type: "debit",
-            description: `Stage Request Tip to @${creatorData.username || "creator"} (Non-Refundable)`,
-            balanceAfter: currentBalance - price,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-
-          const creditRef = db.collection("transactions").doc();
-          transaction.set(creditRef, {
-            userId: creatorId,
-            amount: price,
-            type: "credit",
-            description: `Stage Request Tip from @${fanUsername}`,
-            balanceAfter: currentCreatorBalance + price,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-
-          const cohostRef = db.collection("cohost_requests").doc();
-          transaction.set(cohostRef, {
-            userId: uid,
-            username: fanUsername,
-            displayName: fanDisplayName,
-            avatar: fanData.profilePicture || fanData.avatar || "",
-            creatorId,
-            amount: price,
-            status: "pending",
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-        });
-
-        console.log(`✅ Co-host request submitted by user: ${uid} for creator: ${creatorId}`);
-        return res.status(200).json({ success: true });
-
-      } catch (err) {
-        console.error("requestCoHostStage error:", err);
-        if (err.message === "INSUFFICIENT_FUNDS") {
-          return res.status(402).json({ error: "INSUFFICIENT_FUNDS" });
-        }
-        return res.status(500).json({ error: err?.message || "Server error" });
-      }
-    });
-  }
-);
-
-exports.resolveCoHostRequest = onRequest(
-  {
-    region: "us-central1",
-  },
-  (req, res) => {
-    corsHandler(req, res, async () => {
-      try {
-        if (req.method !== "POST") {
-          return res.status(405).json({ error: "Method not allowed" });
-        }
-
-        const authHeader = req.headers.authorization || "";
-        const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-        if (!token) return res.status(401).json({ error: "Missing auth token" });
-
-        const decoded = await admin.auth().verifyIdToken(token);
-        const uid = decoded.uid;
-
-        const { requestId, action } = req.body || {};
-        if (!requestId || !action) {
-          return res.status(400).json({ error: "requestId and action are required" });
-        }
-
-        const db = admin.firestore();
-        const requestRef = db.collection("cohost_requests").doc(requestId);
-        const requestSnap = await requestRef.get();
-
-        if (!requestSnap.exists) {
-          return res.status(404).json({ error: "Stage request not found" });
-        }
-
-        const requestData = requestSnap.data();
-        if (requestData.creatorId !== uid) {
-          return res.status(403).json({ error: "Not authorized to resolve this request" });
-        }
-
-        if (action === "accept") {
-          await requestRef.update({
-            status: "accepted",
-            resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-          console.log(`✅ Co-host request accepted: ${requestId}`);
-        } else if (action === "dismiss") {
-          await requestRef.update({
-            status: "dismissed",
-            resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-          console.log(`✅ Co-host request dismissed: ${requestId}`);
-        } else {
-          return res.status(400).json({ error: "Invalid action. Must be 'accept' or 'dismiss'" });
-        }
-
-        return res.status(200).json({ success: true });
-
-      } catch (err) {
-        console.error("resolveCoHostRequest error:", err);
-        return res.status(500).json({ error: err?.message || "Server error" });
-      }
-    });
-  }
-);
-
-// ============================================================
-// ✅ CREATOR CRM & LEDGER CALLABLE ENDPOINTS
-// ============================================================
+// resolveCoHostRequest removed — live guest requests are paid through the `spend` function (server price).
+exports.resolveCoHostRequest = onRequest({ region: "us-central1" }, (req, res) => {
+  res.status(410).json({ error: "Gone" });
+});
 
 /**
  * Fan taps unlock on a message.
@@ -1354,27 +1130,32 @@ exports.unlock = onCall(
       messageId,
     });
 
-    let url = result.bunnyPath || "";
-    if (url && !url.startsWith("http")) {
+    // Tell the creator (new unlocks only)
+    if (!result.alreadyUnlocked && result.txId) {
       try {
-        let secKey = process.env.BUNNY_SECURITY_KEY || "";
-        if (!secKey) {
-          try {
-            secKey = BUNNY_STORAGE_PASSWORD.value();
-          } catch (_) {}
+        const db = admin.firestore();
+        const [led, fan] = await Promise.all([
+          db.doc(`ledger/${result.txId}`).get(),
+          db.doc(`users/${request.auth.uid}`).get(),
+        ]);
+        const creatorId = led.get("creatorId");
+        const gross = (led.get("lines") || []).find((l) => String(l.account).startsWith("fan:"));
+        if (creatorId) {
+          await db.collection("notifications").add({
+            userId: creatorId, type: "ppv_unlock", actorId: request.auth.uid,
+            actorName: fan.get("displayName") || fan.get("username") || "A fan",
+            actorAvatar: fan.get("profilePicture") || fan.get("avatar") || null,
+            message: `unlocked your message${gross ? ` ($${(Math.abs(gross.deltaMinor) / 100).toFixed(2)})` : ""}`,
+            conversationId, read: false, createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
         }
-
-        url = signBunnyUrl({
-          host: BUNNY_PULL_ZONE,
-          path: result.bunnyPath,
-          securityKey: secKey,
-          ttlSeconds: 3600,
-        });
-      } catch (signErr) {
-        console.warn("Bunny URL signing skipped:", signErr.message);
-        url = result.bunnyPath;
-      }
+      } catch (e) { console.warn("PPV notify failed", e.message); }
     }
+
+    // Real media URL (signed + expiring when BUNNY_TOKEN_KEY is set)
+    let url = result.bunnyPath || "";
+    if (url && !url.startsWith("http")) url = `${BUNNY_PULL_ZONE}/${url.replace(/^\//, "")}`;
+    url = require("./src/media").signedUrl(url);
 
     return {
       url,
@@ -1469,6 +1250,14 @@ exports.approvePayout = onCall(
         createdAt: now,
       });
 
+      // The reserved amount has left the platform — clear it from "pending payout"
+      if (pData.creatorId) {
+        tx.set(db.doc(`creator_balances/${pData.creatorId}`), {
+          pendingPayoutBalance: admin.firestore.FieldValue.increment(-amountMinor / 100),
+          updatedAt: now,
+        }, { merge: true });
+      }
+
       tx.update(payoutRef, {
         status: "sent",
         txHash,
@@ -1549,6 +1338,7 @@ exports.rejectPayout = onCall(
         db.doc(`creator_balances/${creatorId}`),
         {
           availableBalance: admin.firestore.FieldValue.increment(amountMinor / 100),
+          pendingPayoutBalance: admin.firestore.FieldValue.increment(-amountMinor / 100),
           updatedAt: now,
         },
         { merge: true }
@@ -1563,5 +1353,157 @@ exports.rejectPayout = onCall(
 
       return { success: true, payoutId, status: "rejected" };
     });
+  }
+);
+
+// ========== IN-APP PAYMENTS (server-side money) ==========
+// The app says what the fan wants; the server sets the price, moves the money and writes the records.
+const SPEND_KINDS = ["tip", "call", "subscription", "community", "live"];
+
+exports.spend = onCall({ region: "us-central1", cors: true }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+  const uid = request.auth.uid;
+  const data = request.data || {};
+  if (!SPEND_KINDS.includes(data.kind)) throw new HttpsError("invalid-argument", "Unknown payment type");
+  if (await overLimit(`spend_${uid}`, 60, 60 * 1000)) throw new HttpsError("resource-exhausted", "Too many payments — slow down a moment");
+  const db = admin.firestore();
+  const m = require("./src/money");
+  switch (data.kind) {
+    case "tip": return m.tip(db, uid, data);
+    case "call": return m.bookCall(db, uid, data);
+    case "subscription": return m.subscribe(db, uid, data);
+    case "community": return m.joinCommunity(db, uid, data);
+    case "live": return m.livePay(db, uid, data);
+  }
+  return null;
+});
+
+exports.refund = onCall({ region: "us-central1", cors: true }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+  const uid = request.auth.uid;
+  const data = request.data || {};
+  if (await overLimit(`refund_${uid}`, 30, 60 * 1000)) throw new HttpsError("resource-exhausted", "Too many requests");
+  const db = admin.firestore();
+  const m = require("./src/money");
+  if (data.kind === "call") return m.refundCall(db, uid, data);
+  if (data.kind === "live") return m.liveDecline(db, uid, data);
+  throw new HttpsError("invalid-argument", "Unknown refund type");
+});
+
+exports.callStatus = onCall({ region: "us-central1", cors: true }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+  const { creatorId, bookingId, action } = request.data || {};
+  const db = admin.firestore();
+  const m = require("./src/money");
+  if (action === "release") return m.releaseCall(db, request.auth.uid, { bookingId });
+  if (!creatorId) throw new HttpsError("invalid-argument", "creatorId required");
+  return m.creatorCallStatus(db, String(creatorId));
+});
+
+exports.claimAmbassador = onCall({ region: "us-central1", cors: true }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+  return require("./src/money").claimAmbassador(admin.firestore(), request.auth.uid);
+});
+
+exports.adminTopup = onCall({ region: "us-central1", cors: true }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+  const db = admin.firestore();
+  const me = await db.doc(`users/${request.auth.uid}`).get();
+  if (!(me.exists && (me.get("isAdmin") === true || me.get("role") === "admin"))) {
+    throw new HttpsError("permission-denied", "Admin access required");
+  }
+  return require("./src/money").adminTopup(db, request.auth.uid, request.data || {});
+});
+
+// ========== PAID MEDIA PROTECTION ==========
+// Locked posts / PPV messages keep only a blurred preview in public docs; originals live in mediaPrivate.
+const { onDocumentWritten } = require("firebase-functions/v2/firestore");
+
+exports.protectPostMedia = onDocumentWritten(
+  { document: "posts/{postId}", region: "us-central1", memory: "512MiB" },
+  async (event) => {
+    const before = event.data.before.exists ? event.data.before.data() : null;
+    const after = event.data.after.exists ? event.data.after.data() : null;
+    // Keep users/{uid}.postCount current, so Discover never downloads every post just to count them
+    const counted = (p) => !!p && !p.archived;
+    const delta = (counted(after) ? 1 : 0) - (counted(before) ? 1 : 0);
+    const owner = (after || before || {}).userId;
+    if (delta && owner) {
+      await admin.firestore().doc(`users/${owner}`)
+        .set({ postCount: admin.firestore.FieldValue.increment(delta) }, { merge: true }).catch(() => {});
+    }
+    await require("./src/media").protectPost(event.params.postId, after);
+  }
+);
+
+exports.protectMessageMedia = onDocumentCreated(
+  { document: "conversations/{conversationId}/messages/{messageId}", region: "us-central1", memory: "512MiB" },
+  async (event) => {
+    await require("./src/media").protectMessage(event.params.conversationId, event.params.messageId, event.data.data());
+  }
+);
+
+exports.getMedia = onCall({ region: "us-central1", cors: true }, async (request) => {
+  const uid = request.auth ? request.auth.uid : null;
+  if (uid && await overLimit(`media_${uid}`, 300, 60 * 1000)) throw new HttpsError("resource-exhausted", "Slow down");
+  return require("./src/media").getMedia(uid, request.data || {});
+});
+
+exports.publishPost = onCall({ region: "us-central1", cors: true, memory: "512MiB" }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+  if (await overLimit(`post_${request.auth.uid}`, 30, 60 * 60 * 1000)) throw new HttpsError("resource-exhausted", "Posting limit reached — try again later");
+  return require("./src/media").publishPost(request.auth.uid, request.data || {});
+});
+
+exports.sendPPV = onCall({ region: "us-central1", cors: true, memory: "512MiB" }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+  if (await overLimit(`ppv_${request.auth.uid}`, 60, 60 * 60 * 1000)) throw new HttpsError("resource-exhausted", "Too many messages — try again later");
+  return require("./src/media").sendPPV(request.auth.uid, request.data || {});
+});
+
+
+// ========== SUBSCRIBER COUNT (server-owned) ==========
+// subscribe() adds 1 when a sub becomes active; this removes 1 when an active sub is cancelled,
+// expires or is refunded. Clients can no longer write subscribersCount at all.
+exports.onSubscriptionChange = onDocumentUpdated(
+  { document: "subscriptions/{subId}", region: "us-central1" },
+  async (event) => {
+    const before = event.data.before.data() || {};
+    const after = event.data.after.data() || {};
+    if (before.status === "active" && after.status !== "active" && after.creatorId) {
+      await admin.firestore().doc(`users/${after.creatorId}`)
+        .set({ subscribersCount: admin.firestore.FieldValue.increment(-1) }, { merge: true });
+    }
+  }
+);
+
+// ========== NO-SHOW REFUND SWEEP ==========
+// Fans get their money back automatically when a booked call never started — even if nobody
+// opens the waiting room (phone off, no data). Runs every 15 minutes.
+exports.refundNoShowCalls = onSchedule(
+  { schedule: "every 15 minutes", region: "us-central1", timeoutSeconds: 300 },
+  async () => {
+    const db = admin.firestore();
+    const { refundCall } = require("./src/money");
+    const toMs = (t) => (t && t.toMillis ? t.toMillis() : t && t.seconds ? t.seconds * 1000 : t ? new Date(t).getTime() : 0);
+    const snap = await db.collection("call_bookings").where("status", "in", ["confirmed", "in_progress"]).get();
+    const now = Date.now();
+    let refunded = 0;
+    for (const d of snap.docs) {
+      const b = d.data();
+      const endMs = toMs(b.scheduledAt) + ((b.duration || 30) + 10) * 60000; // slot + 10 min grace
+      if (now < endMs) continue;
+      const neverStarted = b.status === "confirmed" && !b.callStartedAt;
+      const someoneNeverJoined = b.status === "in_progress" && (!b.userEnteredCallAt || !b.creatorEnteredCallAt);
+      if (!neverStarted && !someoneNeverJoined) continue;
+      if (!b.ledgerTxId && b.legacyVerified !== true) continue; // legacy: support handles by hand
+      try {
+        await refundCall(db, b.userId, { bookingId: d.id, reason: "Call never started" });
+        refunded += 1;
+      } catch (e) {
+        console.warn(`No-show refund skipped for ${d.id}: ${e.message}`);
+      }
+    }
+    console.log(`No-show sweep: ${refunded} refunded`);
   }
 );

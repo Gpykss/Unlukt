@@ -578,7 +578,7 @@ export default function CreatorAnalytics({ embedded = false }) {
           ) : (
             <div className="space-y-3">
               {topPosts.map(post => {
-                const img = post.images?.[0]?.url || post.images?.[0] || null;
+                const img = post.images?.[0]?.url || post.images?.[0]?.previewUrl || (typeof post.images?.[0] === 'string' ? post.images[0] : null);
                 return (
                   <div key={post.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-gray-50 border border-gray-100">
                     <div className="w-12 h-12 rounded-lg bg-gray-200 overflow-hidden flex-shrink-0 flex items-center justify-center text-lg">

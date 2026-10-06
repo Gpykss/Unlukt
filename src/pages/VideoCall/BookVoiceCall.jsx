@@ -5,11 +5,11 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, Phone, Clock, CheckCircle, Loader2, User, Wallet, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { db } from '../../config/firebase';
-import { doc, getDoc, collection, addDoc, serverTimestamp, increment, setDoc, updateDoc, query, where, getDocs } from 'firebase/firestore';
-import { getWalletBalance, deductFromWallet } from '../../services/walletService';
-import { MINIMUM_VOICE_PRICE, CALL_DURATIONS, MIN_BOOKING_LEAD_MINS, getCreatorAvailability } from '../../services/videoCallService';
-import { getCreatorSplit, creditAmbassadorCommission } from '../../services/commissionService';
-import { getUserTier, getCallDiscount } from '../../services/tierService';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { getWalletBalance } from '../../services/walletService';
+import { pay } from '../../services/payService';
+import { MINIMUM_VOICE_PRICE, CALL_DURATIONS, MIN_BOOKING_LEAD_MINS, getCreatorActiveBooking, getCreatorAvailability } from '../../services/videoCallService';
+import { getCallTier, getCallDiscount } from '../../services/tierService';
 
 export default function BookVoiceCall() {
   const { creatorId } = useParams();
@@ -28,6 +28,12 @@ export default function BookVoiceCall() {
   const [scheduledTime, setScheduledTime] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
+  const [creatorBusy, setCreatorBusy] = useState(null); // open booking that blocks new ones
+
+  useEffect(() => {
+    if (!creatorId) return;
+    getCreatorActiveBooking(creatorId).then(setCreatorBusy).catch(() => setCreatorBusy(null));
+  }, [creatorId]);
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
@@ -56,7 +62,7 @@ export default function BookVoiceCall() {
       }
       if (currentUser) {
         setWalletBalance(await getWalletBalance(currentUser.uid));
-        const tier = await getUserTier(currentUser.uid, creatorId);
+        const tier = await getCallTier(currentUser.uid, creatorId); // same rule the server uses
         setUserTier(tier);
       }
     } catch (err) {
@@ -97,20 +103,10 @@ export default function BookVoiceCall() {
     return null;
   };
 
-  const checkCreatorConflict = async (selectedScheduled) => {
-    const snap = await getDocs(query(
-      collection(db, 'call_bookings'),
-      where('creatorId', '==', creatorId),
-      where('status', 'in', ['confirmed', 'in_progress'])
-    ));
-    for (const d of snap.docs) {
-      const data = d.data();
-      const existing = data.scheduledAt?.toDate?.() || new Date(data.scheduledAt);
-      const existingEnd = new Date(existing.getTime() + (data.duration + 15) * 60 * 1000);
-      const selectedEnd = new Date(selectedScheduled.getTime() + (selectedDuration + 15) * 60 * 1000);
-      if (selectedScheduled < existingEnd && selectedEnd > existing) return existing;
-    }
-    return null;
+  // ✅ One booking at a time — creator is blocked until their open call is completed or cancelled
+  const checkCreatorConflict = async () => {
+    const active = await getCreatorActiveBooking(creatorId);
+    return active ? active.scheduledAtDate : null;
   };
 
   const handleBook = async () => {
@@ -144,88 +140,28 @@ export default function BookVoiceCall() {
         return;
       }
 
-      const conflict = await checkCreatorConflict(scheduled);
+      const conflict = await checkCreatorConflict();
       if (conflict) {
-        setError(`Creator is already booked around ${conflict.toLocaleString()}. Choose a different time.`);
+        setError(`This creator already has a call booked (${conflict.toLocaleString()}). New bookings open once that call is completed or cancelled.`);
         setBooking(false);
         return;
       }
 
-      // ✅ Dynamic split via commission service
-      const { creatorEarning, platformFee, ambassadorCommission, ambassadorId } =
-        await getCreatorSplit(creator.id, price);
-
-      await deductFromWallet(currentUser.uid, price, 'Voice call booking', {
-        contentType: 'voice_call', creatorId: creator.id,
-      });
-
-      const bookingRef = await addDoc(collection(db, 'call_bookings'), {
-        type: 'voice',
+      // The server checks the price, the creator's availability and the wallet, then books
+      // and pays in one step (no half-finished bookings on a dropped connection)
+      const res = await pay('call', {
         creatorId: creator.id,
-        userId: currentUser.uid,
+        callType: 'voice',
         duration: selectedDuration,
-        price, creatorEarning,
-        platformFee,
-        ambassadorCommission: ambassadorCommission || 0,
-        ambassadorId: ambassadorId || null,
-        scheduledAt: scheduled,
-        note, status: 'confirmed',
-        creatorPaid: false,
-        userEnded: false, creatorEnded: false,
-        createdAt: serverTimestamp(),
+        scheduledAt: scheduled.getTime(),
+        note,
+        expectedPrice: price,
       });
-
-      const month = new Date().toLocaleString('default', { month: 'short' });
-      const creatorBalRef = doc(db, 'creator_balances', creator.id);
-      try {
-        await updateDoc(creatorBalRef, {
-          availableBalance: increment(creatorEarning),
-          totalEarnings: increment(creatorEarning),
-          [`monthlyEarnings.${month}`]: increment(creatorEarning),
-          updatedAt: serverTimestamp(),
-        });
-      } catch {
-        await setDoc(creatorBalRef, {
-          creatorId: creator.id, availableBalance: creatorEarning,
-          totalEarnings: creatorEarning,
-          monthlyEarnings: { [month]: creatorEarning },
-          createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
-        });
-      }
-
-      // ✅ Credit ambassador commission
-      await creditAmbassadorCommission(ambassadorId, ambassadorCommission, creator.id, 'voice_call');
-
-      await addDoc(collection(db, 'pending_releases'), {
-        creatorId: creator.id, amount: creatorEarning,
-        bookingId: bookingRef.id,
-        releaseAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        released: false, createdAt: serverTimestamp(),
-      });
-
-      // ✅ Notify creator immediately
-      await addDoc(collection(db, 'notifications'), {
-        userId: creator.id,
-        type: 'call_booking',
-        message: `New voice call booked for ${scheduled.toLocaleString()} (${selectedDuration} min)`,
-        bookingId: bookingRef.id,
-        read: false, createdAt: serverTimestamp(),
-      });
-
-      // ✅ 5-min reminder for both parties
-      await addDoc(collection(db, 'scheduled_notifications'), {
-        userIds: [currentUser.uid, creator.id],
-        type: 'call_reminder',
-        message: `Your ${selectedDuration}-min voice call starts in 5 minutes! Join the waiting room now.`,
-        bookingId: bookingRef.id,
-        sendAt: new Date(scheduled.getTime() - 5 * 60 * 1000),
-        sent: false,
-        createdAt: serverTimestamp(),
-      });
+      const bookingRef = { id: res.bookingId };
 
       setScheduledAt(scheduled);
       setBooked(bookingRef.id);
-      setWalletBalance(prev => prev - price);
+      setWalletBalance(res.balanceAfter ?? walletBalance - price);
     } catch (err) {
       setError(err.message || 'Failed to book call');
     } finally {
@@ -251,7 +187,7 @@ export default function BookVoiceCall() {
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Booking Confirmed!</h2>
           <p className="text-gray-600 mb-1">Scheduled for <b>{scheduledAt?.toLocaleString()}</b></p>
-          <p className="text-sm text-gray-500 mb-2">You'll get a reminder 5 minutes before.</p>
+          <p className="text-sm text-gray-500 mb-2">You'll get a reminder 2 minutes before.</p>
           <p className="text-sm text-gray-500 mb-6">Remaining balance: <b>${walletBalance.toFixed(2)}</b></p>
           {canJoin ? (
             <button onClick={() => navigate(`/waiting-room/${booked}`)}
@@ -282,7 +218,7 @@ export default function BookVoiceCall() {
     <div className="min-h-screen bg-gray-50 pb-20">
       <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center space-x-4">
-          <button onClick={() => navigate(-1)} className="p-2 hover:bg-gray-100 rounded-full">
+          <button onClick={() => (window.history.state?.idx > 0 ? navigate(-1) : navigate(`/creator/${creator?.username || creatorId}`))} aria-label="Back" className="p-2 hover:bg-gray-100 rounded-full">
             <ArrowLeft className="w-5 h-5 text-gray-700" />
           </button>
           <h1 className="text-lg font-bold text-gray-900">Book Voice Call</h1>
@@ -337,6 +273,12 @@ export default function BookVoiceCall() {
             <p>
               <b>@{creator.username || 'Creator'}</b> is currently offline or not taking calls. Bookings are temporarily paused.
             </p>
+          </div>
+        )}
+
+        {creatorBusy && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-800">
+            This creator already has a call booked. New bookings open as soon as that call is completed or cancelled.
           </div>
         )}
 
@@ -414,9 +356,9 @@ export default function BookVoiceCall() {
           </div>
         </div>
 
-        <button onClick={handleBook} disabled={booking || !canAfford || !isAcceptingCalls}
+        <button onClick={handleBook} disabled={booking || !canAfford || !isAcceptingCalls || !!creatorBusy}
           className={`w-full py-4 rounded-xl font-bold text-lg transition shadow-lg ${
-            !isAcceptingCalls
+            !isAcceptingCalls || creatorBusy
               ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
               : canAfford
               ? 'bg-purple-500 hover:bg-purple-600 text-white'
@@ -424,6 +366,8 @@ export default function BookVoiceCall() {
           }`}>
           {booking
             ? <span className="flex items-center justify-center space-x-2"><Loader2 className="w-5 h-5 animate-spin" /><span>Booking...</span></span>
+            : creatorBusy
+            ? 'Creator Already Booked'
             : !isAcceptingCalls
             ? 'Creator Offline — Calls Paused'
             : canAfford ? `Book Now — $${price.toFixed(2)}` : `Need $${(price - walletBalance).toFixed(2)} more`}

@@ -10,10 +10,11 @@ import {
 import { useNavigate } from 'react-router-dom';
 import {
   collection, query, where, getDocs, doc,
-  getDoc, updateDoc, increment
+  getDoc
 } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { useAuth } from '../../hooks/useAuth';
+import { claimAmbassadorBalance } from '../../services/payService';
 import { useUserProfile } from '../../hooks/useUserProfile';
 
 function StatCard({ icon: Icon, label, value, sub, color = 'rose', delay = 0 }) {
@@ -113,7 +114,8 @@ export default function AmbassadorDashboard() {
   };
 
   const referralLink = ambassadorData?.referralCode
-    ? `https://unlukt.com/register?ref=${ambassadorData.referralCode}`
+    // Lands on the ambassador's profile (content first); signing up from there keeps the referral
+    ? `https://unlukt.com/creator/${ambassadorData.username || currentUser.uid}?ref=${ambassadorData.referralCode}`
     : null;
 
   const copyLink = () => {
@@ -141,31 +143,8 @@ export default function AmbassadorDashboard() {
 
     try {
       setWithdrawing(true);
-      // Move ambassadorBalance → creator_balances (same collection payouts use)
-      const userRef = doc(db, 'users', currentUser.uid);
-      const balanceRef = doc(db, 'creator_balances', currentUser.uid);
-
-      const balSnap = await getDoc(balanceRef);
-      if (balSnap.exists()) {
-        await updateDoc(balanceRef, {
-          availableBalance: increment(balance),
-          updatedAt: new Date(),
-        });
-      } else {
-        // Create balance doc if it doesn't exist
-        const { setDoc } = await import('firebase/firestore');
-        await setDoc(balanceRef, {
-          creatorId: currentUser.uid,
-          availableBalance: balance,
-          pendingBalance: 0,
-          totalEarnings: balance,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-      }
-
-      // Zero out ambassador balance
-      await updateDoc(userRef, { ambassadorBalance: 0 });
+      // Server moves the commission into withdrawable earnings (once, atomically)
+      await claimAmbassadorBalance();
       setAmbassadorData(prev => ({ ...prev, ambassadorBalance: 0 }));
       alert('Done! Funds moved to your creator wallet. You can now request a payout from your Wallet page.');
     } catch (err) {

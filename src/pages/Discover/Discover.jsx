@@ -7,56 +7,48 @@ import {
   Video, Calendar, Clock, ChevronRight
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, or, limit } from 'firebase/firestore';
+import { getScheduledLive, formatLiveTime } from '../../utils/share';
 import { db } from '../../config/firebase';
 import { useContentSettings } from '../../hooks/useContentSettings';
 
 export default function Discover() {
   const navigate = useNavigate();
   const [allCreators, setAllCreators] = useState([]);
+  const [shown, setShown] = useState(24);
   const [loading, setLoading] = useState(true);
   const { showNSFW, setShowNSFW } = useContentSettings();
 
-  useEffect(() => { loadAllCreators(); }, []);
 
-  const loadAllCreators = async () => {
-    try {
-      setLoading(true);
-      const usersSnapshot = await getDocs(collection(db, 'users'));
-      const creators = [];
-      usersSnapshot.forEach((doc) => {
-        const userData = doc.data();
-        if (userData.kycStatus === 'approved') {
-          creators.push({ id: doc.id, ...userData });
-        }
-      });
-
-      const postsSnapshot = await getDocs(collection(db, 'posts'));
-      const postCounts = {};
-      postsSnapshot.forEach((doc) => {
-        const post = doc.data();
-        if (post.userId && !post.archived) {
-          postCounts[post.userId] = (postCounts[post.userId] || 0) + 1;
-        }
-      });
-
-      creators.forEach((creator) => {
-        creator.mediaCount = postCounts[creator.id] || 0;
-      });
-
-      creators.sort((a, b) => (b.followers || 0) - (a.followers || 0));
+  // ✅ Realtime: new creators, profile edits, follower counts and live status update instantly
+  useEffect(() => {
+    // ✅ Every creator account — KYC verified or not (and anyone who has started creator KYC)
+    // Capped so the live listener never downloads every creator as the platform grows (data + reads)
+    const q = query(collection(db, 'users'), or(where('isCreator', '==', true), where('kycStatus', 'in', ['pending', 'approved'])), limit(150));
+    const unsub = onSnapshot(q, (snap) => {
+      const creators = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // Live now first, then scheduled lives (soonest first), then by followers
+      const rank = (c) => (c.is_live ? 2 : getScheduledLive(c) ? 1 : 0);
+      creators.sort((a, b) => rank(b) - rank(a)
+        || ((getScheduledLive(a)?.date || 0) - (getScheduledLive(b)?.date || 0))
+        || (b.followers || 0) - (a.followers || 0));
       setAllCreators(creators);
-    } catch (error) {
-      console.error('Error loading creators:', error);
-    } finally {
       setLoading(false);
-    }
-  };
+    }, () => setLoading(false));
+    return () => unsub();
+  }, []);
+
+  // Post counts live on each creator's profile (kept current by the server) — no need to
+  // download every post just to count them (that cost fans a lot of data).
+  const postCounts = Object.fromEntries(allCreators.map((c) => [c.id, c.postCount || 0]));
+
+  const creatorPath = (creator) => `/creator/${creator.username?.replace('@', '') || creator.id}`;
+  const goToCreator = (e, creator) => { e?.stopPropagation(); navigate(creatorPath(creator)); };
 
   const CreatorCard = ({ creator }) => (
     <div
       className="relative cursor-pointer"
-      onClick={() => navigate(`/creator/${creator.username?.replace('@', '') || creator.id}`)}
+      onClick={() => navigate(creatorPath(creator))}
     >
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
@@ -66,14 +58,28 @@ export default function Discover() {
         {/* Banner — taller on mobile so image shows well */}
         <div className="h-40 sm:h-36 bg-gradient-to-br from-rose-300 via-pink-300 to-purple-300 relative">
           {creator.banner && !creator.banner.includes('🎨') && (
-            <img src={creator.banner} alt="" className="w-full h-full object-cover" />
+            <img src={creator.banner} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
           )}
-          <button
-            className="absolute top-3 right-3 z-10 px-4 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold rounded-full shadow-md transition"
-            onClick={e => e.stopPropagation()}
-          >
-            View
-          </button>
+          {creator.is_live ? (
+            <button
+              className="absolute top-3 right-3 z-10 px-3.5 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-black rounded-full shadow-md flex items-center gap-1.5"
+              onClick={(e) => { e.stopPropagation(); navigate(`/livestream/${creator.id}`); }}
+            >
+              <span className="w-2 h-2 bg-white rounded-full animate-pulse" /> LIVE · Join
+            </button>
+          ) : (
+            <button
+              className="absolute top-3 right-3 z-10 px-4 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold rounded-full shadow-md transition"
+              onClick={(e) => goToCreator(e, creator)}
+            >
+              View
+            </button>
+          )}
+          {!creator.is_live && getScheduledLive(creator) && (
+            <span className="absolute bottom-2 left-24 right-3 z-10 text-[11px] font-bold text-white bg-black/55 backdrop-blur px-2.5 py-1 rounded-full truncate">
+              🗓 Live {formatLiveTime(getScheduledLive(creator).date)}
+            </span>
+          )}
         </div>
 
         {/* Content — pt-12 clears the avatar that pokes below the banner */}
@@ -106,7 +112,7 @@ export default function Discover() {
             <div className="text-center">
               <div className="flex items-center space-x-1">
                 <ImageIcon className="w-3.5 h-3.5 text-gray-400" />
-                <p className="text-sm font-bold text-gray-900">{creator.mediaCount || 0}</p>
+                <p className="text-sm font-bold text-gray-900">{postCounts[creator.id] || 0}</p>
               </div>
               <p className="text-[10px] text-gray-400 mt-0.5">Posts</p>
             </div>
@@ -122,9 +128,11 @@ export default function Discover() {
       </motion.div>
 
       {/* Avatar — outside overflow-hidden, position matches banner height */}
-      <div className="absolute left-4 top-[120px] sm:top-[104px] z-20 w-20 h-20 rounded-full border-4 border-white shadow-lg bg-gradient-to-br from-rose-200 to-pink-200 overflow-hidden flex items-center justify-center">
+      <div onClick={(e) => goToCreator(e, creator)} role="link" aria-label={`Open ${creator.displayName || 'creator'}'s page`}
+        className={`cursor-pointer absolute left-4 top-[120px] sm:top-[104px] z-20 w-20 h-20 rounded-full border-4 ${creator.is_live ? 'border-red-500 ring-2 ring-red-300' : 'border-white'} shadow-lg bg-gradient-to-br from-rose-200 to-pink-200 overflow-hidden flex items-center justify-center`}>
         {(creator.profilePicture || (creator.avatar && !creator.avatar.includes('👤'))) ? (
           <img
+            loading="lazy"
             src={creator.profilePicture || creator.avatar}
             alt={creator.displayName}
             className="w-full h-full object-cover"
@@ -138,8 +146,8 @@ export default function Discover() {
     </div>
   );
 
-  const liveCreators = allCreators.filter(c => c.is_live === true);
-  const gridCreators = allCreators.filter(c => c.is_live !== true);
+  // Admin accounts and banned users stay hidden
+  const gridCreators = allCreators.filter(c => !c.isAdmin && !c.isBanned && !c.banned);
 
   if (loading) {
     return (
@@ -199,177 +207,6 @@ export default function Discover() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
-        {/* "Live Now" Carousel Slider */}
-        <div className="mb-10">
-          <h3 className="text-lg font-black text-gray-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-            <span className="flex h-3 w-3 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
-            </span>
-            <span>Live Now</span>
-          </h3>
-          
-          <div className="flex gap-6 overflow-x-auto pb-4 scrollbar-hide snap-x snap-mandatory">
-            {liveCreators.length > 0 ? (
-              liveCreators.map((creator) => (
-                <div
-                  key={creator.id}
-                  onClick={() => navigate(`/livestream/${creator.id}`)}
-                  className="w-72 sm:w-80 h-96 flex-shrink-0 relative rounded-3xl overflow-hidden shadow-xl border border-white/10 group cursor-pointer bg-slate-900 snap-start"
-                >
-                  {/* Background Loop */}
-                  <img
-                    src={`/ads/${creator.username}/fallback-1.webp`}
-                    alt=""
-                    onError={(e) => { e.target.src = '/ads/default/fallback-1.webp'; }}
-                    className="absolute inset-0 w-full h-full object-cover z-0 opacity-70 group-hover:scale-105 transition-transform duration-700 pointer-events-none"
-                  />
-                  
-                  {/* Gradient */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent z-10" />
-                  
-                  {/* Live Badge */}
-                  <div className="absolute top-4 left-4 bg-red-500/90 text-white text-[10px] font-black tracking-wider px-3 py-1 rounded-full flex items-center gap-1.5 shadow-lg z-20">
-                    <span className="w-2 h-2 bg-white rounded-full animate-blink-red" />
-                    <span>LIVE NOW</span>
-                  </div>
-                  
-                  {/* Content Overlay */}
-                  <div className="absolute bottom-0 inset-x-0 p-5 z-20 flex flex-col justify-end text-white">
-                    <div className="flex items-center space-x-3 mb-2">
-                      <div className="w-12 h-12 rounded-full border-2 border-rose-500 animate-neon-pulse overflow-hidden flex-shrink-0 bg-slate-800">
-                        <img
-                          src={creator.profilePicture || creator.avatar || '/ads/default/fallback-1.webp'}
-                          alt=""
-                          onError={(e) => { e.target.src = '/ads/default/fallback-1.webp'; }}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      <div className="min-w-0">
-                        <h4 className="font-extrabold text-base truncate drop-shadow-md">{creator.displayName || creator.username}</h4>
-                        <p className="text-xs text-rose-300 font-semibold drop-shadow-md truncate">@{creator.username}</p>
-                      </div>
-                    </div>
-                    
-                    <p className="text-xs text-gray-200 font-medium mb-3 line-clamp-2 leading-snug drop-shadow-md">
-                      {creator.bio || "Join my private live room and stream with me now!"}
-                    </p>
-                    
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/livestream/${creator.id}`);
-                      }}
-                      className="w-full py-2.5 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-bold text-sm rounded-xl shadow-lg hover:shadow-rose-500/20 transition-all duration-300 transform active:scale-95"
-                    >
-                      Tap to Join Live Room
-                    </button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <>
-                {/* Drisana Dummy Slide */}
-                <div
-                  onClick={() => navigate('/creator/drisana')}
-                  className="w-72 sm:w-80 h-96 flex-shrink-0 relative rounded-3xl overflow-hidden shadow-xl border border-white/10 group cursor-pointer bg-slate-900 snap-start"
-                >
-                  {/* Background Loop */}
-                  <img
-                    src="/ads/drisana/fallback-1.webp"
-                    alt=""
-                    onError={(e) => { e.target.src = '/ads/default/fallback-1.webp'; }}
-                    className="absolute inset-0 w-full h-full object-cover z-0 opacity-70 group-hover:scale-105 transition-transform duration-700 pointer-events-none"
-                  />
-                  
-                  {/* Gradient */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent z-10" />
-                  
-                  {/* Badge */}
-                  <div className="absolute top-4 left-4 bg-rose-600/90 text-white text-[10px] font-black tracking-wider px-3 py-1 rounded-full flex items-center gap-1.5 shadow-lg z-20">
-                    <span className="w-2 h-2 bg-rose-200 rounded-full animate-blink-red" />
-                    <span>DAILY SHOWS</span>
-                  </div>
-                  
-                  {/* Content Overlay */}
-                  <div className="absolute bottom-0 inset-x-0 p-5 z-20 flex flex-col justify-end text-white">
-                    <div className="flex items-center space-x-3 mb-2">
-                      <div className="w-12 h-12 rounded-full border-2 border-rose-500 animate-neon-pulse overflow-hidden flex-shrink-0 bg-slate-800">
-                        <img
-                          src="/ads/drisana/image-1.webp"
-                          alt=""
-                          onError={(e) => { e.target.src = '/ads/drisana/fallback-1.webp'; }}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      <div className="min-w-0">
-                        <h4 className="font-extrabold text-base truncate drop-shadow-md">Drisana</h4>
-                        <p className="text-xs text-rose-300 font-semibold drop-shadow-md truncate">@drisana</p>
-                      </div>
-                    </div>
-                    
-                    <p className="text-xs text-gray-200 font-medium mb-3 line-clamp-2 leading-snug drop-shadow-md">
-                      Drisana's Private Lounge Active Daily — Scheduled Shows Streaming Tonight! 🤫
-                    </p>
-                    
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate('/creator/drisana');
-                      }}
-                      className="w-full py-2.5 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-bold text-sm rounded-xl shadow-lg hover:shadow-rose-500/20 transition-all duration-300 transform active:scale-95"
-                    >
-                      View Scheduled Showtimes
-                    </button>
-                  </div>
-                </div>
-                
-                {/* Scheduled Showtimes Slide Card */}
-                <div
-                  className="w-72 sm:w-80 h-96 flex-shrink-0 relative rounded-3xl p-6 shadow-xl border border-gray-200 bg-gradient-to-b from-white to-gray-50 flex flex-col justify-between snap-start"
-                >
-                  <div>
-                    <div className="flex items-center space-x-2 text-rose-500 mb-4">
-                      <Calendar className="w-5 h-5" />
-                      <h4 className="font-black text-sm uppercase tracking-wider text-gray-900">Scheduled Showtimes</h4>
-                    </div>
-                    <p className="text-xs text-gray-500 mb-4 leading-relaxed">
-                      Don't miss the next interactive live streaming event! Set your reminders for these scheduled showtimes:
-                    </p>
-                    
-                    <div className="space-y-3">
-                      {[
-                        { day: 'Mon, Wed, Fri', time: '9:00 PM EST', desc: 'Interactive Q&A' },
-                        { day: 'Thursday', time: '10:00 PM EST', desc: 'VIP Lounge Exclusive' },
-                        { day: 'Saturday', time: '11:00 PM EST', desc: 'Weekend Party Stream' }
-                      ].map((sched, idx) => (
-                        <div key={idx} className="flex items-start justify-between p-2.5 bg-white border border-gray-100 rounded-2xl shadow-sm">
-                          <div className="min-w-0">
-                            <p className="text-xs font-extrabold text-gray-900">{sched.day}</p>
-                            <p className="text-[10px] text-gray-400 font-medium">{sched.desc}</p>
-                          </div>
-                          <div className="flex items-center text-xs font-bold text-rose-500 gap-1 bg-rose-50 px-2.5 py-1 rounded-xl">
-                            <Clock className="w-3.5 h-3.5" />
-                            <span>{sched.time}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <button
-                    onClick={() => navigate('/creator/drisana')}
-                    className="w-full py-2.5 bg-gray-900 hover:bg-gray-800 text-white font-bold text-sm rounded-xl transition duration-300 flex items-center justify-center gap-1"
-                  >
-                    <span>Explore Her Profile</span>
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center space-x-3">
             <Sparkles className="w-7 sm:w-8 h-7 sm:h-8 text-rose-500" />
@@ -379,16 +216,27 @@ export default function Discover() {
         </div>
 
         {gridCreators.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-            {gridCreators.map((creator) => (
-              <CreatorCard key={creator.id} creator={creator} />
-            ))}
-          </div>
+          <>
+            {/* 24 at a time: each card loads a banner + avatar, so this saves a lot of mobile data */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+              {gridCreators.slice(0, shown).map((creator) => (
+                <CreatorCard key={creator.id} creator={creator} />
+              ))}
+            </div>
+            {gridCreators.length > shown && (
+              <div className="flex justify-center mt-6">
+                <button onClick={() => setShown((n) => n + 24)}
+                  className="px-6 py-3 rounded-xl bg-white border border-gray-200 hover:border-rose-300 text-sm font-semibold text-gray-700">
+                  Show more creators ({gridCreators.length - shown} more)
+                </button>
+              </div>
+            )}
+          </>
         ) : (
           <div className="text-center py-12">
             <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-xl font-bold text-gray-900 mb-2">No Creators Yet</h3>
-            <p className="text-gray-600">Check back soon for approved creators!</p>
+            <p className="text-gray-600">Check back soon for new creators!</p>
           </div>
         )}
       </div>

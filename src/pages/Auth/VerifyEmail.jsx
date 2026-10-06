@@ -6,6 +6,8 @@ import { Heart, Mail, RefreshCw, CheckCircle, AlertCircle, Loader2 } from 'lucid
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { getUserProfile } from '../../services/firestoreService';
+import { consumeNext } from '../../utils/authRedirect';
+import { auth } from '../../config/firebase';
 
 export default function VerifyEmail() {
   const navigate = useNavigate();
@@ -28,11 +30,11 @@ export default function VerifyEmail() {
       if (isTwitterUser) {
         // Twitter users — get email from Firestore profile
         const profile = await getUserProfile(currentUser.uid);
-        setDisplayEmail(profile?.email || '');
+        setDisplayEmail(auth.currentUser?.email || profile?.email || '');
 
         // If already verified in Firestore → go to feed
         if (profile?.emailVerified === true) {
-          navigate('/feed');
+          navigate(consumeNext('/feed'));
         }
       } else {
         // Regular email users — use Firebase Auth email
@@ -40,7 +42,7 @@ export default function VerifyEmail() {
 
         // If already verified in Firebase Auth → go to feed
         if (currentUser.emailVerified) {
-          navigate('/feed');
+          navigate(consumeNext('/feed'));
         }
       }
     };
@@ -59,14 +61,14 @@ export default function VerifyEmail() {
           const profile = await getUserProfile(currentUser.uid);
           setLastChecked(new Date());
           if (profile?.emailVerified === true) {
-            navigate('/feed');
+            navigate(consumeNext('/feed'));
           }
         } else {
           // For regular users — check Firebase Auth emailVerified
           await currentUser.reload();
           setLastChecked(new Date());
           if (currentUser.emailVerified) {
-            navigate('/feed');
+            navigate(consumeNext('/feed'));
           }
         }
       } catch (err) {
@@ -107,7 +109,7 @@ export default function VerifyEmail() {
         const profile = await getUserProfile(currentUser.uid);
         setLastChecked(new Date());
         if (profile?.emailVerified === true) {
-          navigate('/feed');
+          navigate(consumeNext('/feed'));
         } else {
           setResendError('Email not verified yet. Please check your inbox and click the verification link.');
           setTimeout(() => setResendError(''), 4000);
@@ -117,7 +119,7 @@ export default function VerifyEmail() {
         await currentUser.reload();
         setLastChecked(new Date());
         if (currentUser.emailVerified) {
-          navigate('/feed');
+          navigate(consumeNext('/feed'));
         } else {
           setResendError('Email not verified yet. Please check your inbox and click the verification link.');
           setTimeout(() => setResendError(''), 4000);

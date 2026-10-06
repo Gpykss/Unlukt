@@ -1,5 +1,6 @@
 // src/pages/Feed/Feed.jsx - WITH POST MODAL + NSFW TOGGLE (GLOBAL FILTER)
 
+import { getPostMillis } from '../../utils/postTime';
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Loader2, Users, Sparkles, Clock, ChevronRight, EyeOff, Eye, Crown, MessageSquare, ArrowRight } from 'lucide-react';
@@ -204,31 +205,15 @@ export default function Feed() {
   };
 
   // Timestamp extraction helper for server timestamps
-  const getPostTimestamp = (post) => {
-    if (!post?.createdAt) return 0;
-    try {
-      if (typeof post.createdAt.toDate === 'function') return post.createdAt.toDate().getTime();
-      if (post.createdAt instanceof Date) return post.createdAt.getTime();
-      if (post.createdAt.seconds) return post.createdAt.seconds * 1000;
-      if (typeof post.createdAt === 'number') {
-        return post.createdAt < 1e11 ? post.createdAt * 1000 : post.createdAt;
-      }
-      if (typeof post.createdAt === 'string') {
-        const parsed = new Date(post.createdAt).getTime();
-        if (!isNaN(parsed)) return parsed;
-      }
-    } catch {
-      return 0;
-    }
-    return 0;
-  };
+  const getPostTimestamp = (post) => getPostMillis(post);
+
 
   // ✅ PRD 16.4: Main Feed Ranking Formula (For You)
   // engagement = likes + 2*comments + 3*unlocks
   // score = engagement / (ageHours + 2)^1.5 + fresh post boost
   const scorePost = (post) => {
     const now = Date.now();
-    const createdAt = getPostTimestamp(post) || now;
+    const createdAt = getPostTimestamp(post) || 0; // unknown date = old, never boosted as new
     const ageHours = Math.max(0, (now - createdAt) / 3600000);
 
     // Posts older than 7 days fall back to chronological order (low base score)

@@ -1,14 +1,12 @@
 // src/services/subscriptionService.js
 
 import {
-  doc, getDoc, setDoc, updateDoc, addDoc,
+  doc, getDoc, updateDoc,
   collection, query, where, getDocs,
-  serverTimestamp, Timestamp, increment
+  serverTimestamp, Timestamp
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { deductFromWallet } from './walletService';
-import { getCreatorSplit, creditAmbassadorCommission } from './commissionService';
-import { createSubscriptionNotification } from './notificationService';
+import { pay } from './payService';
 import { sendCreatorAutoMessage } from './messageService';
 
 export const DURATIONS = {
@@ -80,134 +78,18 @@ export const subscribeToCreator = async (
   if (!creatorId) throw new Error('Invalid creator');
   if (userId === creatorId) throw new Error('You cannot subscribe to yourself');
 
-  const price = customPrice != null && Number(customPrice) > 0
+  const shownPrice = customPrice != null && Number(customPrice) > 0
     ? Number(customPrice)
     : getPriceForDuration(monthlyPrice, duration, discount, creatorPrices);
-
-  const expiresAt = getExpiryDate(duration);
-  const durationLabel = DURATIONS[duration]?.label ?? 'Monthly';
   const tier = selectedTier || 'supporter';
 
-  const creatorDoc = await getDoc(doc(db, 'users', creatorId));
-  const creatorName = creatorDoc.exists() ? creatorDoc.data().displayName || 'Creator' : 'Creator';
+  // Server sets the real price from the creator's settings, charges the wallet, splits the money,
+  // and creates/extends the subscription — all at once. If the price changed it refuses.
+  const res = await pay('subscription', { creatorId, tier, duration, expectedPrice: shownPrice });
+  const price = res.price;
+  const expiresAt = new Date(res.expiresAt);
 
-  // 1. Deduct from wallet
-  await deductFromWallet(userId, price, `${tier.toUpperCase()} subscription to ${creatorName} (${durationLabel})`, {
-    contentType: 'subscription',
-    creatorId,
-    duration,
-    tier,
-  });
-
-  // 2. ✅ Dynamic split: ambassador=90%, referred creator=80+5amb+15plat, normal=80/20
-  const { creatorEarning, platformFee, ambassadorCommission, ambassadorId } =
-    await getCreatorSplit(creatorId, price);
-
-  const creatorBalRef = doc(db, 'creator_balances', creatorId);
-  const month = new Date().toLocaleString('default', { month: 'short' });
-  try {
-    await updateDoc(creatorBalRef, {
-      availableBalance: increment(creatorEarning),
-      totalEarnings: increment(creatorEarning),
-      [`monthlyEarnings.${month}`]: increment(creatorEarning),
-      updatedAt: serverTimestamp(),
-    });
-  } catch {
-    await setDoc(creatorBalRef, {
-      creatorId,
-      availableBalance: creatorEarning,
-      totalEarnings: creatorEarning,
-      monthlyEarnings: { [month]: creatorEarning },
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  }
-
-  // ✅ Credit ambassador 5% commission if referred creator
-  await creditAmbassadorCommission(ambassadorId, ambassadorCommission, creatorId, 'subscription');
-
-  // 3. Create or extend subscription
-  const subId = `${userId}_${creatorId}`;
-  const subRef = doc(db, 'subscriptions', subId);
-  const subDoc = await getDoc(subRef);
-
-  const subData = {
-    userId,
-    creatorId,
-    status: 'active',
-    duration,
-    durationLabel,
-    tier, // ✅ PRD 16.2: active tier ('supporter' | 'vip' | 'superfan')
-    amount: price,
-    monthlyPrice: Number(monthlyPrice),
-    creatorEarning,
-    platformFee,
-    ambassadorCommission: ambassadorCommission || 0,
-    ambassadorId: ambassadorId || null,
-    expiresAt: Timestamp.fromDate(expiresAt),
-    updatedAt: serverTimestamp(),
-  };
-
-  if (subDoc.exists()) {
-    const existing = subDoc.data();
-    const currentExpiry = existing.expiresAt?.toDate?.() || new Date();
-    const base = currentExpiry > new Date() ? currentExpiry : new Date();
-    const days = DURATIONS[duration]?.days ?? 30;
-    const newExpiry = new Date(base);
-    newExpiry.setDate(newExpiry.getDate() + days);
-    await updateDoc(subRef, { ...subData, expiresAt: Timestamp.fromDate(newExpiry) });
-  } else {
-    await setDoc(subRef, { ...subData, createdAt: serverTimestamp() });
-    try {
-      const creatorUserRef = doc(db, 'users', creatorId);
-      await updateDoc(creatorUserRef, {
-        subscribersCount: increment(1),
-        updatedAt: serverTimestamp(),
-      });
-    } catch (e) {
-      console.error('Failed to update subscribersCount:', e);
-    }
-  }
-
-  // 3b. Update fan doc under creator for CRM & roster visibility
-  try {
-    const fanDocRef = doc(db, 'creators', creatorId, 'fans', userId);
-    await setDoc(fanDocRef, {
-      tier,
-      subscribedAt: serverTimestamp(),
-      lastSubscribedAt: serverTimestamp(),
-      lifetimeSpendMinor: increment(Math.round(price * 100)),
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
-  } catch (fanErr) {
-    console.warn('Could not update creator fan document:', fanErr);
-  }
-
-  // 4. Log transaction
-  await addDoc(collection(db, 'subscription_transactions'), {
-    userId,
-    creatorId,
-    duration,
-    durationLabel,
-    amount: price,
-    creatorEarning,
-    platformFee,
-    ambassadorCommission: ambassadorCommission || 0,
-    ambassadorId: ambassadorId || null,
-    expiresAt: Timestamp.fromDate(expiresAt),
-    createdAt: serverTimestamp(),
-  });
-
-  // 5. Notify creator about new subscriber
-  try {
-    const subscriberDoc = await getDoc(doc(db, 'users', userId));
-    const subscriberData = subscriberDoc.exists() ? subscriberDoc.data() : { displayName: 'Fan' };
-    await createSubscriptionNotification(userId, creatorId, subscriberData);
-  } catch (notifErr) {
-    console.warn('⚠️ Subscription notification error:', notifErr);
-  }
-
-  // 6. Send automated welcome message from creator to new subscriber
+  // Automated welcome message from the creator (best effort)
   try {
     await sendCreatorAutoMessage(creatorId, userId, 'subscription');
   } catch (autoMsgErr) {
@@ -223,7 +105,8 @@ export const hasActiveSubscription = async (userId, creatorId) => {
     const subDoc = await getDoc(doc(db, 'subscriptions', `${userId}_${creatorId}`));
     if (!subDoc.exists()) return false;
     const data = subDoc.data();
-    if (data.status !== 'active') return false;
+    // Cancelled = won't renew, but it's paid until expiresAt
+    if (!['active', 'cancelled'].includes(data.status)) return false;
     const expiry = data.expiresAt?.toDate?.();
     if (!expiry) return true;
     return expiry > new Date();
@@ -270,16 +153,7 @@ export const cancelSubscription = async (userId, creatorId) => {
       cancelledAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
-    // ✅ Decrement subscribersCount on cancel
-    try {
-      const creatorUserRef = doc(db, 'users', creatorId);
-      await updateDoc(creatorUserRef, {
-        subscribersCount: increment(-1),
-        updatedAt: serverTimestamp(),
-      });
-    } catch (e) {
-      console.error('Failed to decrement subscribersCount:', e);
-    }
+    // subscribersCount is kept by the server (onSubscriptionChange) so it can't be faked or double-counted
     return true;
   } catch (e) { throw new Error('Failed to cancel subscription: ' + e.message); }
 };

@@ -1,0 +1,10 @@
+rules_version = '2';
+// Firebase Storage isn't used by the app (all media lives on Bunny). Deny everything so the
+// default bucket can't be used to host files.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -5,9 +5,12 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Image, Video, Radio, Phone, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
 
 export default function QuickCreateSheet({ isOpen, onClose }) {
   const navigate = useNavigate();
+  const { currentUser, userProfile } = useAuth();
+  const isCreator = !!(userProfile?.isCreator || userProfile?.kycStatus === 'approved');
 
   if (!isOpen) return null;
 
@@ -89,7 +92,7 @@ export default function QuickCreateSheet({ isOpen, onClose }) {
 
             {/* Go Live Stream */}
             <button
-              onClick={() => handleAction('/dashboard')}
+              onClick={() => handleAction(!currentUser ? '/login' : isCreator ? `/livestream/${currentUser.uid}` : '/become-creator')}
               className="flex items-center gap-4 p-4 rounded-2xl bg-gray-50 hover:bg-gray-100/80 border border-gray-200/80 transition group text-left active:scale-[0.99] shadow-xs"
             >
               <div className="w-11 h-11 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 flex items-center justify-center text-white shadow-sm">
@@ -100,7 +103,7 @@ export default function QuickCreateSheet({ isOpen, onClose }) {
                   Livestream Room
                 </p>
                 <p className="text-xs text-gray-500">
-                  Broadcast live with tickets, tips & co-hosting
+                  Set up your live, then go live with requests & guests
                 </p>
               </div>
             </button>

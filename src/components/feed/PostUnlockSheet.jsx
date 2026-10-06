@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { functions } from '../../config/firebase';
 import { useAuth } from '../../hooks/useAuth';
 import { getWalletBalance } from '../../services/walletService';
+import { authUrl, herePath } from '../../utils/authRedirect';
 
 export default function PostUnlockSheet({
   isOpen,
@@ -55,7 +56,7 @@ export default function PostUnlockSheet({
 
   const handleConfirmUnlock = async () => {
     if (!currentUser) {
-      navigate('/login');
+      navigate(authUrl(herePath()));
       return;
     }
 

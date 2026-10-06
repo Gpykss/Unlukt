@@ -8,20 +8,24 @@ import { DataLiteProvider } from './contexts/DataLiteContext';
 import { useAuth } from './hooks/useAuth';
 
 import ProtectedRoute from './components/ProtectedRoute';
+import GuestToProfile from './components/GuestToProfile';
+import { captureRef } from './utils/authRedirect';
 import AdminRoute from './components/AdminRoute';
 import LoadingScreen from './components/common/LoadingScreen';
 import LoadingSpinner from './components/common/LoadingSpinner';
 import ScrollToTop from './components/ScrollToTop';
+import NotificationToaster from './components/common/NotificationToaster';
+import OfflineBanner from './components/common/OfflineBanner';
 import GlobalSidebar from './layout/GlobalSidebar';
 import MobileNavbar from './layout/MobileNavbar';
 import MobileBottomNav from './layout/MobileBottomNav';
 import DiscoverSidebar from './components/discover/DiscoverSidebar';
 
 // Pages - Critical path pages (loaded synchronously)
-import Landing from './pages/Landing/Landing';
-import Login from './pages/Auth/Login';
-import Register from './pages/Auth/Register';
-import CreatorProfile from './pages/CreatorProfile/CreatorProfile';
+const Landing = lazy(() => import('./pages/Landing/Landing'));
+const Login = lazy(() => import('./pages/Auth/Login'));
+const Register = lazy(() => import('./pages/Auth/Register'));
+const CreatorProfile = lazy(() => import('./pages/CreatorProfile/CreatorProfile'));
 
 // Pages - Non-critical / Heavy internal views (loaded lazily)
 const VerifyEmail = lazy(() => import('./pages/Auth/VerifyEmail'));
@@ -83,6 +87,9 @@ function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { currentUser } = useAuth();
 
+  // Any shared link may carry ?ref=CODE (ambassador referral) — keep it for sign-up
+  useEffect(() => { captureRef(location.search); }, [location.search]);
+
   // Reset scroll position on every route change
   // The scroll container is div.app (height:100dvh, overflow:auto) — not window
   useEffect(() => {
@@ -115,6 +122,7 @@ function AppContent() {
 
   return (
     <div className="app bg-gray-50 overflow-x-hidden" style={{ height: '100dvh', overflowY: isMessagesPage ? 'hidden' : 'auto', overflowX: 'hidden' }}>
+    <OfflineBanner />
     {showNav && <MobileNavbar onMenuClick={() => setSidebarOpen(true)} />}
     {showNav && <GlobalSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
 
@@ -160,18 +168,18 @@ function AppContent() {
 
             {/* Communities */}
             <Route path="/communities" element={<ProtectedRoute><Communities /></ProtectedRoute>} />
-            <Route path="/community/:communityId" element={<ProtectedRoute><CommunityDetail /></ProtectedRoute>} />
+            <Route path="/community/:communityId" element={<CommunityDetail />} />
             <Route path="/community/:communityId/settings" element={<ProtectedRoute><CommunitySettings /></ProtectedRoute>} />
             <Route path="/create-community" element={<ProtectedRoute><CreateCommunity /></ProtectedRoute>} />
 
             {/* Calls — full screen, no nav */}
             <Route path="/video-call/:bookingId" element={<ProtectedRoute><VideoCallRoom /></ProtectedRoute>} />
             <Route path="/voice-call/:bookingId" element={<ProtectedRoute><VoiceCallRoom /></ProtectedRoute>} />
-            <Route path="/book-video-call/:creatorId" element={<ProtectedRoute><BookVideoCall /></ProtectedRoute>} />
-            <Route path="/book-voice-call/:creatorId" element={<ProtectedRoute><BookVoiceCall /></ProtectedRoute>} />
+            <Route path="/book-video-call/:creatorId" element={<GuestToProfile><BookVideoCall /></GuestToProfile>} />
+            <Route path="/book-voice-call/:creatorId" element={<GuestToProfile><BookVoiceCall /></GuestToProfile>} />
             <Route path="/waiting-room/:bookingId" element={<ProtectedRoute><CallWaitingRoom /></ProtectedRoute>} />
             <Route path="/call-summary/:bookingId" element={<ProtectedRoute><CallSummary /></ProtectedRoute>} />
-            <Route path="/livestream/:creatorId" element={<ProtectedRoute><LivestreamRoom /></ProtectedRoute>} />
+            <Route path="/livestream/:creatorId" element={<GuestToProfile><LivestreamRoom /></GuestToProfile>} />
 
             {/* Admin Routes */}
             <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
@@ -197,6 +205,7 @@ function AppContent() {
 
       {showNav && showDiscoverSidebar && <DiscoverSidebar />}
       {showNav && <MobileBottomNav />}
+      {currentUser && <NotificationToaster />}
     </div>
   );
 }

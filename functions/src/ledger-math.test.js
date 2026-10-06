@@ -3,6 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   splitFee,
+  splitWithReferral,
   assertBalanced,
   unlockTxId,
   topupTxId,
@@ -73,4 +74,33 @@ test("transaction ids are deterministic", () => {
   assert.equal(unlockTxId("m1", "u1"), unlockTxId("m1", "u1"));
   assert.notEqual(unlockTxId("m1", "u1"), unlockTxId("m1", "u2"));
   assert.equal(topupTxId("p1"), "topup_p1");
+});
+
+test("normal creator, no referral: 80 / 20", () => {
+  const r = splitWithReferral(1000, {});
+  assert.equal(r.creatorNet, 800);
+  assert.equal(r.platformFee, 200);
+  assert.equal(r.referralFee, 0);
+});
+
+test("referred normal creator: 80 / 5 ambassador / 15 platform", () => {
+  const r = splitWithReferral(1000, { referrerId: "amb1" });
+  assert.equal(r.creatorNet, 800);
+  assert.equal(r.referralFee, 50);
+  assert.equal(r.platformFee, 150);
+  assert.equal(r.referrerId, "amb1");
+});
+
+test("ambassador creator: 90 / 10, never pays referral", () => {
+  const r = splitWithReferral(1000, { isAmbassador: true, referrerId: "amb1" });
+  assert.equal(r.creatorNet, 900);
+  assert.equal(r.platformFee, 100);
+  assert.equal(r.referralFee, 0);
+});
+
+test("split always sums to gross", () => {
+  for (const g of [1, 7, 99, 333, 1001, 123457]) {
+    const r = splitWithReferral(g, { referrerId: "x" });
+    assert.equal(r.creatorNet + r.platformFee + r.referralFee, g);
+  }
 });

@@ -189,8 +189,13 @@ async function processImage(input, output) {
     .toFile(output);
 }
 
-export default defineConfig({
-  plugins: [react(), adAssetPipelinePlugin()],
+export default defineConfig(({ mode }) => ({
+  // `npm run dev:phone` → HTTPS dev server reachable from your phone on the same Wi-Fi
+  // (phones only allow camera/mic on secure pages). Normal `npm run dev` stays plain http.
+  plugins: [react(), adAssetPipelinePlugin(), ...(mode === 'phone' ? [basicSsl()] : [])],
+
+  // ✅ Strip every console.* and debugger from production builds (no data leaks in the browser console)
+  esbuild: mode === 'production' ? { drop: ['console', 'debugger'] } : {},
   
   server: {
     host: true,
@@ -222,4 +227,4 @@ export default defineConfig({
   optimizeDeps: {
     include: ['react', 'react-dom', 'react-router-dom'],
   },
-})
+}))

@@ -17,13 +17,14 @@ import {
 import { db } from '../../config/firebase';
 import { useAuth } from '../../hooks/useAuth';
 import AvailabilityToggle from '../../components/Dashboard/AvailabilityToggle';
+import ScheduledLiveCard from '../../components/Live/ScheduledLiveCard';
 import WithdrawModal from '../../components/Dashboard/WithdrawModal';
 import CreatorTierModal from '../../components/Dashboard/CreatorTierModal';
 
 // Deep analytics loaded lazily on demand
 const CreatorAnalytics = lazy(() => import('../Analytics/Analytics'));
 
-export default function SimplifiedDashboard({ onSwitchToLegacy }) {
+export default function SimplifiedDashboard() {
   const navigate = useNavigate();
   const { currentUser, userProfile } = useAuth();
 
@@ -189,24 +190,10 @@ export default function SimplifiedDashboard({ onSwitchToLegacy }) {
     // Primary source of truth for creator earnings is creator_balances.
     // Also cross-references wallets so maximum cumulative balance is always shown.
     const unsubCreatorBal = onSnapshot(doc(db, 'creator_balances', currentUser.uid), async (creatorBalSnap) => {
-      let cAvail = 0;
-      if (creatorBalSnap.exists()) {
-        const d = creatorBalSnap.data();
-        cAvail = (d.availableBalance || 0) + (d.pendingBalance || 0);
-      }
-
-      try {
-        const walletSnap = await getDoc(doc(db, 'wallets', currentUser.uid));
-        let wAvail = 0;
-        if (walletSnap.exists() && walletSnap.data().balanceMinor !== undefined) {
-          wAvail = walletSnap.data().balanceMinor / 100;
-        }
-        setBalance({ available: Math.max(cAvail, wAvail) });
-      } catch {
-        setBalance({ available: cAvail });
-      } finally {
-        setLoadingBalance(false);
-      }
+      // creator_balances.availableBalance = exactly what the server lets you withdraw
+      const cAvail = creatorBalSnap.exists() ? Math.max(0, Number(creatorBalSnap.data().availableBalance || 0)) : 0;
+      setBalance({ available: cAvail });
+      setLoadingBalance(false);
     }, () => {
       setLoadingBalance(false);
     });
@@ -317,14 +304,6 @@ export default function SimplifiedDashboard({ onSwitchToLegacy }) {
         </div>
 
         <div className="flex items-center gap-2">
-          {onSwitchToLegacy && (
-            <button
-              onClick={onSwitchToLegacy}
-              className="text-xs text-gray-600 hover:text-gray-900 bg-white border border-gray-200 rounded-xl px-3 py-2 font-medium transition shadow-sm"
-            >
-              Classic View
-            </button>
-          )}
           <button
             onClick={() => navigate('/new-post')}
             className="flex items-center gap-1.5 bg-rose-500 hover:bg-rose-600 text-white text-xs font-semibold px-3.5 py-2 rounded-xl shadow-sm transition active:scale-95"
@@ -393,6 +372,9 @@ export default function SimplifiedDashboard({ onSwitchToLegacy }) {
 
       {activeTab === 'overview' ? (
         <div className="space-y-5">
+          {/* Upcoming / current live */}
+          <ScheduledLiveCard uid={currentUser?.uid} />
+
           {/* ══════════════════════════════════════════════════════════
               CREATOR METRICS: MONEY + ACTIVE SUBSCRIBERS
              ══════════════════════════════════════════════════════════ */}
@@ -726,8 +708,7 @@ export default function SimplifiedDashboard({ onSwitchToLegacy }) {
         isOpen={showWithdrawModal}
         initialTab={withdrawModalTab}
         onClose={() => {
-          setShowWithdrawModal(false);
-          fetchBalance();
+          setShowWithdrawModal(false); // balance updates itself (realtime listener)
         }}
       />
 

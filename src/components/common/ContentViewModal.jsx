@@ -1,5 +1,6 @@
 // src/components/common/ContentViewModal.jsx - COMPLETE WITH ALL FEATURES
 
+import { timeAgo as timeAgoUtil } from '../../utils/postTime';
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -573,7 +574,7 @@ export default function ContentViewModal({ isOpen, onClose, post, onPostUpdate }
               ) : (
                 <>
                   <p className="text-gray-700 whitespace-pre-wrap">{post.content || 'No caption'}</p>
-                  <p className="text-sm text-gray-500 mt-2">{formatDate(post.createdAt)}</p>
+                  <p className="text-sm text-gray-500 mt-2">{timeAgoUtil(post)}</p>
                   {post.boosted && (
                     <div className="mt-2 inline-flex items-center space-x-1 px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-medium rounded-full">
                       <TrendingUp className="w-3 h-3" />

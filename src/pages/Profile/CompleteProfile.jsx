@@ -6,8 +6,10 @@ import { useNavigate } from 'react-router-dom';
 import { Loader2, Check, X, User, MapPin, FileText, Sparkles, Camera, LockKeyhole, Mail } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { updateUserProfile, getUserByUsername, getUserProfile } from '../../services/firestoreService';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
+import { verifyBeforeUpdateEmail } from 'firebase/auth';
 import { db } from '../../config/firebase';
+import { consumeNext } from '../../utils/authRedirect';
 
 const avatarEmojis = ['👤', '😊', '🎨', '🎭', '🎪', '🎬', '🎮', '🎯', '🎲', '🎸', '🎹', '🎤', '🎧', '🎼', '🎵', '💎', '👑', '🔥', '⚡', '✨', '🌟', '💫', '🌈', '🦄', '🐉', '🦋', '🌸', '🌺', '🌻', '🌷'];
 
@@ -131,35 +133,20 @@ export default function CompleteProfile() {
         needsEmail: false,
       };
 
-      // If Twitter user provided their email — save it and send verification
+      // If Twitter user provided their email: Firebase sends a verification link and attaches the
+      // email to the account once confirmed. The address itself is kept private (user_private).
       if (needsEmail && formData.email) {
-        updateData.email = formData.email;
         updateData.emailVerified = false; // needs verification
-
-        // Save email to profile
-        await updateDoc(doc(db, 'user_profiles', currentUser.uid), updateData);
-
-        // Send verification email via Firebase Function
+        await setDoc(doc(db, 'user_private', currentUser.uid), { email: formData.email }, { merge: true });
+        await updateUserProfile(currentUser.uid, updateData);
         try {
-          const token = await currentUser.getIdToken();
-          const functionsUrl = import.meta.env.VITE_FIREBASE_FUNCTIONS_URL ||
-            'https://us-central1-ogfans-2d4a6.cloudfunctions.net';
-
-          await fetch(`${functionsUrl}/sendSocialWelcomeEmail`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              email: formData.email,
-              displayName: formData.username
-            })
-          });
+          await verifyBeforeUpdateEmail(currentUser, formData.email);
         } catch (emailErr) {
-          console.warn('Welcome email failed (non-critical):', emailErr);
+          console.warn('Verification email failed:', emailErr);
+          if (emailErr?.code === 'auth/email-already-in-use') {
+            throw new Error('That email is already used by another account.');
+          }
         }
-
       } else {
         await updateUserProfile(currentUser.uid, updateData);
       }
@@ -171,7 +158,7 @@ export default function CompleteProfile() {
       if (needsEmail && formData.email) {
         navigate('/verify-email');
       } else {
-        navigate('/feed');
+        navigate(consumeNext('/feed'));
       }
 
     } catch (err) {
