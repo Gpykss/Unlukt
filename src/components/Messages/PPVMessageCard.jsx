@@ -8,6 +8,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import logger from '../../utils/logger';
 import { getMessageMedia, clearMediaCache } from '../../services/mediaService';
+import { useDataLite } from '../../contexts/DataLiteContext';
 
 export default function PPVMessageCard({ message, conversationId }) {
   const { currentUser } = useAuth();
@@ -114,6 +115,7 @@ export default function PPVMessageCard({ message, conversationId }) {
 }
 
 function NormalMessage({ message, isSender, customMediaUrl, conversationId }) {
+  const { dataLite } = useDataLite();
   // Protected PPV: the real media + full text come from the server (sender or buyer only)
   const [real, setReal] = useState(null);
   useEffect(() => {
@@ -134,6 +136,7 @@ function NormalMessage({ message, isSender, customMediaUrl, conversationId }) {
               src={displayUrl}
               controls
               playsInline
+              preload={dataLite ? 'none' : 'metadata'}
               className="w-full rounded-xl"
               onClick={(e) => e.stopPropagation()}
               onContextMenu={(e) => e.preventDefault()}

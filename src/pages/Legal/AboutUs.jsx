@@ -55,9 +55,9 @@ export default function AboutUs() {
               <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
                 <Heart className="w-6 h-6 text-red-600" />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">Creator First (80% Payouts)</h3>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Creator First</h3>
               <p className="text-gray-600">
-                Creators do the hard work, so they keep the lion's share. We proudly offer an industry-leading 80% revenue split, ensuring your hard-earned money stays in your pocket.
+                Creators do the hard work, so they keep the lion's share: <strong>Ambassadors keep 90%</strong> and <strong>Creators keep 80%</strong>. The first 50 creators automatically become Ambassadors.
               </p>
             </div>
 
@@ -95,7 +95,7 @@ export default function AboutUs() {
           <div className="prose prose-gray max-w-none">
             <h2 className="text-2xl font-bold text-gray-900 mb-4">Join the Movement</h2>
             <p className="text-gray-700 leading-relaxed text-lg">
-              Today, unlukt empowers thousands of creators across over 150 countries to share their unique talents and securely connect with their biggest fans. 
+              unlukt is built for creators to share their unique talents and securely connect with their biggest fans. 
               We're constantly expanding our features—from direct messaging tipping to full-suite video calls—so you have multiple avenues to grow your creator business.
             </p>
           </div>

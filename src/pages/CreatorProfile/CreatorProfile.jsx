@@ -28,6 +28,7 @@ import { getCreatorTiers, getUserTier, getTierBadge } from '../../services/tierS
 import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { useContentSettings } from '../../hooks/useContentSettings';
+import { useDataLite } from '../../contexts/DataLiteContext';
 import { getPostImage } from '../../utils/imageHelpers';
 import { detectUserCountry, isUserGeoBlocked } from '../../services/geoService';
 
@@ -37,6 +38,7 @@ export default function CreatorProfile() {
   const location = useLocation();
   const { currentUser, userProfile } = useAuth();
   const { showNSFW, setShowNSFW } = useContentSettings();
+  const { dataLite } = useDataLite();
 
   const [activeTab, setActiveTab] = useState('posts');
   const [archivedPosts, setArchivedPosts] = useState([]);
@@ -1383,10 +1385,13 @@ export default function CreatorProfile() {
                     return (
                       <video
                         src={mediaUrl}
-                        autoPlay
+                        autoPlay={!dataLite}
                         loop
                         muted
                         playsInline
+                        // Data Saver: no autoplay, nothing downloads until the viewer taps play
+                        controls={dataLite}
+                        preload={dataLite ? 'none' : 'auto'}
                         className="w-full h-full object-contain"
                       />
                     );

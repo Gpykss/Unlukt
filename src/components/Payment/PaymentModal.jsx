@@ -6,6 +6,7 @@ import { X, Loader2, Copy, CheckCircle, Wallet } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import cryptoService from '../../services/crypto.service';
+import CryptoGuide from './CryptoGuide';
 
 export default function PaymentModal({
   isOpen,
@@ -152,6 +153,9 @@ export default function PaymentModal({
                   <li>Your wallet will be credited automatically once confirmed</li>
                 </ol>
               </div>
+
+              {/* First time paying with crypto? Step-by-step guide */}
+              <CryptoGuide />
 
               <button
                 onClick={initializeCryptoPayment}

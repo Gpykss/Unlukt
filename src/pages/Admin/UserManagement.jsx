@@ -642,6 +642,16 @@ export default function UserManagement() {
                           ) : (
                             <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs font-semibold rounded-full">Fan</span>
                           )}
+                          {/* One of the first 50 creators: keeps 90% */}
+                          {user.isAmbassador === true && user.role !== 'ambassador' && (
+                            <span className="px-2 py-1 bg-amber-50 text-amber-700 text-xs font-semibold rounded-full w-fit">
+                              Keeps 90%{user.ambassadorNumber ? ` · #${user.ambassadorNumber} of 50` : ''}
+                            </span>
+                          )}
+                          {/* The ?src= link this person signed up from */}
+                          {user.signupSource && (
+                            <span className="text-[11px] text-gray-500">from: {user.signupSource}</span>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4">

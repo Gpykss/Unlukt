@@ -8,6 +8,7 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db, auth } from '../../config/firebase';
 
 import PaymentModal from '../../components/Payment/PaymentModal';
+import CryptoGuide from '../../components/Payment/CryptoGuide';
 import SubscribeModal from '../../components/Payment/SubscribeModal';
 import NGNPaymentModal from '../../components/Payment/NGNPaymentModal';
 import TopUpHistory from '../../components/wallet/TopUpHistory';
@@ -336,6 +337,9 @@ export default function Wallet() {
                     </div>
                   </div>
                 </div>
+
+                {/* First time paying with crypto? Step-by-step guide */}
+                <CryptoGuide />
               </div>
 
               {/* NGN Bank Transfer — in-app flow, Nigeria only */}

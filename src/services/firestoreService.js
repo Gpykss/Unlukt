@@ -14,6 +14,7 @@ import {
   deleteField
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { readSource, clearSource } from '../utils/source';
 
 // =====================================================
 // USER PROFILE FUNCTIONS
@@ -62,6 +63,8 @@ export const createUserProfile = async (userId, profileData) => {
     }
 
     const userRef = doc(db, 'users', cleanUserId);
+    // Where this person came from (?src=reddit on the link they followed), if anywhere
+    const signupSource = readSource();
     
     const userData = {
       uid: cleanUserId,
@@ -91,9 +94,11 @@ export const createUserProfile = async (userId, profileData) => {
 
       // ✅ Pass-through optional fields that callers may provide
       ...(profileData.referredBy   ? { referredBy: profileData.referredBy }     : {}),
+      ...(signupSource             ? { signupSource }                           : {}),
     };
 
     await setDoc(userRef, userData);
+    if (signupSource) clearSource();
     // Email / phone are private: profiles are public, so contact details live in user_private
     // (readable only by the user and admins)
     if (profileData.email || profileData.phoneNumber) {

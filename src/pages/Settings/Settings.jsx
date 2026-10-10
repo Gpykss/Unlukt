@@ -25,6 +25,7 @@ import { updateUserProfile } from '../../services/firestoreService';
 import AvailabilityToggle from '../../components/Dashboard/AvailabilityToggle';
 import CreatorDiscountManager from "./CreatorDiscountManager";
 import CreatorTierModal from '../../components/Dashboard/CreatorTierModal';
+import DataLiteToggle from './DataLiteToggle';
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -465,9 +466,9 @@ export default function Settings() {
                       </div>
                     )}
                     <p className="text-xs text-gray-400 pt-1 border-t border-gray-200 mt-1">
-                      {profile?.role === 'ambassador'
-                        ? 'Platform fee: 10% · You receive 90% of each payment (Ambassador rate 🏆)'
-                        : 'Platform fee: 20% · You receive 80% of each payment'}
+                      {(profile?.isAmbassador === true || profile?.role === 'ambassador')
+                        ? 'Ambassador 🏆 · You keep 90% of each payment'
+                        : 'You keep 80% of each payment'}
                     </p>
                   </div>
                 )}
@@ -724,6 +725,9 @@ export default function Settings() {
             </div>
           </CollapsibleSection>
         )}
+
+        {/* ========== DATA SAVER ========== */}
+        <DataLiteToggle />
 
         {/* ========== PRIVACY & SECURITY ========== */}
         <CollapsibleSection

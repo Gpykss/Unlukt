@@ -29,7 +29,10 @@ service cloud.firestore {
     // Fields a user must never grant themselves (admin, ambassador, verification, KYC approval).
     // Without this anyone could set isAdmin:true on their own doc and pass every isAdmin() check.
     function safeOwnUserUpdate() {
-      return !changed().hasAny(['isAdmin', 'isAmbassador', 'referralCode', 'isVerified', 'kycReviewedAt', 'kycRejectionReason', 'createdAt'])
+      // ambassadorNumber / ambassadorSince are set by the server (first 50 creators); signupSource is
+      // written once at sign-up (the ?src= name on the link they followed)
+      return !changed().hasAny(['isAdmin', 'isAmbassador', 'referralCode', 'isVerified', 'kycReviewedAt', 'kycRejectionReason', 'createdAt',
+                                'ambassadorNumber', 'ambassadorSince', 'signupSource'])
         // kycData may only be removed (it moved to the private kyc/{uid} doc)
         && (!changed().hasAny(['kycData']) || !('kycData' in request.resource.data))
         && (!changed().hasAny(['role']) || request.resource.data.role in ['creator', 'fan', 'user'])
@@ -62,6 +65,9 @@ service cloud.firestore {
         && !(request.resource.data.get('kycStatus', 'none') in ['approved'])
         && request.resource.data.get('ambassadorBalance', 0) == 0
         && request.resource.data.get('referralCode', null) == null
+        && request.resource.data.get('ambassadorNumber', null) == null
+        && request.resource.data.get('signupSource', '') is string
+        && request.resource.data.get('signupSource', '').size() <= 40
         && (request.resource.data.get('referredBy', null) == null || isAmbassadorUid(request.resource.data.referredBy));
     }
 

@@ -5,7 +5,9 @@
 // everyone can read. A Firestore trigger moves the originals into mediaPrivate/* (no client can
 // read it) and leaves only a tiny blurred preview (a ~1 KB data: URL) in the public doc.
 // Viewers who have access ask `getMedia`, which checks access and returns the real URLs
-// (signed, expiring links when BUNNY_TOKEN_KEY is set — see signBunnyUrl).
+// New paid uploads live under /private/ on the CDN. Bunny only serves that folder with a signed,
+// expiring link (Edge Rule "Enable Token Authentication" on */private/*), and the links are signed
+// here with BUNNY_TOKEN_KEY — so a buyer can't pass on a link that works forever.
 
 const admin = require("firebase-admin");
 const { HttpsError } = require("firebase-functions/v2/https");
@@ -16,7 +18,7 @@ const isVideoItem = (i) => i?.type === "video" || /\.(mp4|mov|avi|webm|mkv|m4v|3
 /** Tiny blurred preview (data: URL) for an image URL; null for videos or on any failure. */
 async function blurPreview(url) {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const res = await fetch(signed(url, 300), { signal: AbortSignal.timeout(15000) });
     if (!res.ok) return null;
     const buf = Buffer.from(await res.arrayBuffer());
     const sharp = require("sharp");
@@ -46,11 +48,12 @@ async function protectPost(postId, after) {
   const saved = privSnap.exists ? (privSnap.get("items") || []) : [];
 
   // Current originals, in order: an item with a url is new/original; a locked item points at saved[i]
-  const originals = images.map((it) => (it && it.url ? it : (it && it.locked && saved[it.i]) || null)).filter(Boolean);
+  const originals = images.map((it) => (it && it.url ? { ...it, url: bare(it.url) } : (it && it.locked && saved[it.i]) || null)).filter(Boolean);
 
   if (!locked) {
     if (!images.some((i) => i && i.locked)) return "free";
-    await db.doc(`posts/${postId}`).update({ images: originals });
+    // Now free for everyone: files in the protected folder get a long-lived link in the public post
+    await db.doc(`posts/${postId}`).update({ images: originals.map((o) => ({ ...o, url: signed(o.url, FREE_TTL) })) });
     return "restored";
   }
   if (!images.some((i) => i && i.url)) return "already";
@@ -93,12 +96,28 @@ async function protectMessage(conversationId, messageId, data) {
   return "protected";
 }
 
-function signed(url) {
-  const key = process.env.BUNNY_TOKEN_KEY || "";
-  if (!key || !url) return url;
+// Files under this CDN folder need a signed link (see uploadToBunny + the Bunny Edge Rule).
+const PRIVATE_PREFIX = "/private/";
+const FREE_TTL = 10 * 365 * 24 * 3600; // a paid post turned free: its link may live "forever"
+
+const isPrivateUrl = (url) => {
+  try { return new URL(url).pathname.startsWith(PRIVATE_PREFIX); } catch { return false; }
+};
+
+/** A protected file's URL without any old token on it (what we keep in mediaPrivate). */
+function bare(url) {
+  if (!isPrivateUrl(url)) return url;
+  const u = new URL(url);
+  return `${u.protocol}//${u.host}${u.pathname}`;
+}
+
+/** Signed, expiring link for a protected file. Anything else is returned unchanged. */
+function signed(url, ttlSeconds = 3600) {
+  const key = (process.env.BUNNY_TOKEN_KEY || "").trim();
+  if (!key || !url || !isPrivateUrl(url)) return url;
   try {
     const u = new URL(url);
-    return signBunnyUrl({ host: `${u.protocol}//${u.host}`, path: u.pathname, securityKey: key, ttlSeconds: 3600 });
+    return signBunnyUrl({ host: `${u.protocol}//${u.host}`, path: u.pathname, securityKey: key, ttlSeconds });
   } catch { return url; }
 }
 
@@ -129,7 +148,7 @@ async function getMedia(uid, data) {
     if (!ok) throw new HttpsError("permission-denied", "Unlock or subscribe to see this");
     const priv = await db.doc(`mediaPrivate/post_${postId}`).get();
     const items = priv.exists ? priv.get("items") || [] : (p.images || []).filter((i) => i.url);
-    return { items: items.map((i) => ({ ...i, url: signed(i.url) })) };
+    return { items: items.map((i) => ({ ...i, url: signed(i.url), ...(i.thumbnailUrl ? { thumbnailUrl: signed(i.thumbnailUrl) } : {}) })) };
   }
   const { conversationId, messageId } = data;
   if (!conversationId || !messageId) throw new HttpsError("invalid-argument", "Missing media id");
@@ -151,7 +170,7 @@ async function getMedia(uid, data) {
 }
 
 const cleanItem = (i) => ({
-  url: String(i.url), type: isVideoItem(i) ? "video" : "image",
+  url: bare(String(i.url)), type: isVideoItem(i) ? "video" : "image",
   publicId: String(i.publicId || "").slice(0, 200), width: Number(i.width) || 0, height: Number(i.height) || 0,
   duration: i.duration != null ? Number(i.duration) || null : null,
   ...(i.thumbnailUrl ? { thumbnailUrl: String(i.thumbnailUrl) } : {}),
@@ -200,7 +219,7 @@ async function sendPPV(uid, data) {
   if (!conv.exists || !(conv.get("participants") || []).includes(uid)) throw new HttpsError("permission-denied", "Not your conversation");
   const unlockPrice = Math.max(1, Math.min(10000, Math.round(Number(data.price || 5) * 100) / 100));
   const content = String(data.content || "").slice(0, 5000);
-  const mediaUrl = okUrl(data.mediaUrl) ? data.mediaUrl : null;
+  const mediaUrl = okUrl(data.mediaUrl) ? bare(data.mediaUrl) : null;
   const mediaType = mediaUrl ? (data.mediaType === "video" ? "video" : "image") : null;
   const FV = admin.firestore.FieldValue;
   const msgRef = db.collection(`conversations/${conversationId}/messages`).doc();
@@ -220,4 +239,4 @@ async function sendPPV(uid, data) {
   return { messageId: msgRef.id, unlockPrice };
 }
 
-module.exports = { protectPost, protectMessage, getMedia, publishPost, sendPPV, blurPreview, isVideoItem, signedUrl: signed };
+module.exports = { protectPost, protectMessage, getMedia, publishPost, sendPPV, blurPreview, isVideoItem, signedUrl: signed, isPrivateUrl, PRIVATE_PREFIX };

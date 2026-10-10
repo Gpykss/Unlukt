@@ -1,4 +1,4 @@
-// src/components/Settings/DataLiteToggle.jsx
+// src/pages/Settings/DataLiteToggle.jsx
 
 import { Wifi, WifiOff, Info } from 'lucide-react';
 import { useDataLite } from '../../contexts/DataLiteContext';
@@ -26,14 +26,16 @@ export default function DataLiteToggle() {
             </div>
             <p className="text-xs text-gray-500">
               {dataLite
-                ? 'Videos won\'t autoplay · Lower quality images'
-                : 'Full quality media · Videos autoplay'}
+                ? 'Videos load only when you tap play · Smaller images'
+                : 'Use less mobile data on photos and videos'}
             </p>
           </div>
         </div>
 
         {/* Toggle switch */}
         <button
+          type="button"
+          aria-label="Data Saver"
           onClick={() => setDataLite(!dataLite)}
           className={`relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none ${
             dataLite ? 'bg-blue-500' : 'bg-gray-300'
@@ -51,7 +53,7 @@ export default function DataLiteToggle() {
         <div className="px-5 pb-4 flex items-start gap-2 border-t border-blue-200">
           <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-2" />
           <p className="text-xs text-blue-700 mt-2">
-            Data Saver is on. Videos will not autoplay in the feed and images load at lower quality to save your mobile data.
+            Data Saver is on. Videos download only when you tap play, and photos in your feed load in a smaller size to save your mobile data.
           </p>
         </div>
       )}

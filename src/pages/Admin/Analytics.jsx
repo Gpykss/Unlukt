@@ -12,6 +12,7 @@ import {
   collection, query, where, getDocs, getCountFromServer
 } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import SourceStats from './SourceStats';
 
 const RANGES = [
   { label: '7 days',  days: 7  },
@@ -277,7 +278,7 @@ export default function AdminAnalytics() {
               <span className="text-sm opacity-90">Platform Share</span>
             </div>
             <p className="text-4xl font-bold mb-1">{fmt(stats.platformRevenue)}</p>
-            <p className="text-sm opacity-75">20% of revenue</p>
+            <p className="text-sm opacity-75">Estimate at 20%</p>
           </motion.div>
 
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}
@@ -287,7 +288,7 @@ export default function AdminAnalytics() {
               <span className="text-sm opacity-90">Creator Earnings</span>
             </div>
             <p className="text-4xl font-bold mb-1">{fmt(stats.creatorRevenue)}</p>
-            <p className="text-sm opacity-75">80% of revenue</p>
+            <p className="text-sm opacity-75">Estimate at 80%</p>
           </motion.div>
         </div>
 
@@ -313,6 +314,9 @@ export default function AdminAnalytics() {
             </motion.div>
           ))}
         </div>
+
+        {/* Where sign-ups come from (?src= on shared links) */}
+        <SourceStats sinceDays={range.days} rangeLabel={range.days ? `the last ${range.label}` : 'all time'} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Revenue Breakdown */}

@@ -13,6 +13,7 @@ import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '../../hooks/useAuth';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { useContentSettings } from '../../hooks/useContentSettings';
+import { useDataLite } from '../../contexts/DataLiteContext';
 
 import { getUserProfile } from '../../services/firestoreService';
 import { likePost, unlikePost, deletePost, updatePost, canViewPost, subscribeToPost } from '../../services/postService';
@@ -42,6 +43,7 @@ export default function PostCard({
   const { currentUser } = useAuth();
   const { profile } = useUserProfile();
   const { showNSFW, setShowNSFW } = useContentSettings();
+  const { dataLite } = useDataLite();
 
   const [creator, setCreator] = useState(null);
   const [isLiked, setIsLiked] = useState(false);
@@ -465,7 +467,9 @@ export default function PostCard({
         {/* Media Container - Optimized responsive display with ambient blur backdrop */}
         <div className="relative w-full overflow-hidden bg-gray-950 flex items-center justify-center max-h-[460px] sm:max-h-[580px] min-h-[240px]">
           {/* Ambient blurred backdrop to soften non-standard aspect ratios */}
-          {imageUrl && (
+          {/* Skipped in Data Saver (it is a second request for every post) and for videos (a video
+              file used as a background image would be downloaded for nothing) */}
+          {imageUrl && !dataLite && !/\.(mp4|mov|avi|webm|mkv|m4v|3gp)(\?|$)/i.test(imageUrl) && (
             <div
               className="absolute inset-0 bg-cover bg-center filter blur-2xl opacity-25 scale-125 pointer-events-none"
               style={{ backgroundImage: `url(${feedImage(imageUrl, 120)})` }}
@@ -494,7 +498,7 @@ export default function PostCard({
                 />
               ) : (
                 <WatermarkedImage
-                  src={feedImage(imageUrl)}
+                  src={feedImage(imageUrl, dataLite ? 480 : 900)}
                   alt="Post"
                   className={`relative z-1 w-full h-auto max-h-[460px] sm:max-h-[580px] object-cover sm:object-contain mx-auto block ${blurMedia ? 'blur-xl scale-[1.02]' : ''}`}
                   loading="lazy"

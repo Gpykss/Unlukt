@@ -92,21 +92,10 @@ export default function TermsAndConditions() {
                 </p>
               </div>
 
-              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">Fees & Revenue Split</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">Revenue Split</h3>
               <p className="text-gray-700 leading-relaxed mb-4">
-                Creators receive <strong>80% of gross revenue</strong> from subscriptions, tips, and pay-per-view (PPV) content. unlukt retains <strong>20%</strong> for platform operations, security, and infrastructure.
+                <strong>Ambassadors keep 90%</strong> and <strong>Creators keep 80%</strong> of gross revenue from subscriptions, tips, and pay-per-view (PPV) content. The first 50 creators approved on unlukt automatically become Ambassadors.
               </p>
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                <p className="text-sm text-blue-800 mb-2">
-                  <strong>Revenue Breakdown:</strong>
-                </p>
-                <ul className="text-sm text-blue-800 space-y-1 ml-4">
-                  <li>• Creator earnings: 80%</li>
-                  <li>• Platform fee: 20%</li>
-                </ul>
-              </div>
-
-
 
               <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">Payments</h3>
               <p className="text-gray-700 leading-relaxed mb-4">

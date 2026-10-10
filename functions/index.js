@@ -3,8 +3,15 @@ const admin = require("firebase-admin");
 const cors = require("cors");
 const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
+const { setGlobalOptions } = require("firebase-functions/v2");
 
 admin.initializeApp();
+
+// App Check for the callable functions (payments, unlocks, media…): once it is switched on, only
+// the real Unlukt site can call them. OFF by default — turn it on by adding ENFORCE_APPCHECK=true
+// to functions/.env and redeploying, and only after the site is live with VITE_APPCHECK_SITE_KEY
+// and the App Check page in the Firebase console shows requests as "verified".
+setGlobalOptions({ enforceAppCheck: process.env.ENFORCE_APPCHECK === "true" });
 
 const corsHandler = cors({ origin: true });
 
@@ -15,6 +22,8 @@ const NOWPAYMENTS_IPN_SECRET = defineSecret("NOWPAYMENTS_IPN_SECRET");
 const AGORA_APP_ID = defineSecret("AGORA_APP_ID");
 const AGORA_APP_CERTIFICATE = defineSecret("AGORA_APP_CERTIFICATE");
 const RESEND_API_KEY = defineSecret("RESEND_API_KEY");
+// Bunny pull zone "URL Token Authentication Key": if set in environment, signs expiring links for paid media
+
 
 // ✅ NOT secrets (safe to hardcode)
 const BUNNY_STORAGE_ZONE = "unlukt";
@@ -531,6 +540,7 @@ exports.createPayment = onRequest(
 );
 
 const Busboy = require("busboy");
+const PAID_UPLOAD_FOLDERS = ["paid", "ppv-messages"];
 
 exports.uploadToBunny = onRequest(
   {
@@ -557,7 +567,9 @@ exports.uploadToBunny = onRequest(
           let buffer = null;
           let mimeType = "application/octet-stream";
           let originalName = "file";
+          let folder = "";
 
+          busboy.on("field", (name, value) => { if (name === "folder") folder = String(value || "").slice(0, 40); });
           busboy.on("file", (_, file, info) => {
             mimeType = info.mimeType;
             originalName = info.filename;
@@ -566,7 +578,7 @@ exports.uploadToBunny = onRequest(
             file.on("end", () => (buffer = Buffer.concat(chunks)));
           });
 
-          busboy.on("finish", () => buffer ? resolve({ buffer, mimeType, originalName }) : reject(new Error("No file")));
+          busboy.on("finish", () => buffer ? resolve({ buffer, mimeType, originalName, folder }) : reject(new Error("No file")));
           busboy.on("error", reject);
           const { Readable } = require("stream");
           const readable = new Readable();
@@ -593,7 +605,10 @@ exports.uploadToBunny = onRequest(
         // Extension always comes from the checked type, never the client's file name
         // (x.html sent as image/png would otherwise be served as a web page from our CDN)
         const base = String(fileBuffer.originalName || "file").replace(/\.[^.]*$/, "").replace(/[^\w\-]/g, "_").slice(-60) || "file";
-        const path = `uploads/${uid}/${Date.now()}_${base}.${EXT[mt]}`;
+        // Paid media (locked posts, PPV messages) goes in private/ — Bunny only serves that folder
+        // with a signed, expiring link (see functions/src/media.js). Everything else stays public.
+        const root = PAID_UPLOAD_FOLDERS.includes(fileBuffer.folder) ? "private" : "uploads";
+        const path = `${root}/${uid}/${Date.now()}_${base}.${EXT[mt]}`;
         const uploadUrl = `https://${BUNNY_STORAGE_HOST}/${BUNNY_STORAGE_ZONE}/${path}`;
 
         const bunnyRes = await fetch(uploadUrl, {
@@ -913,6 +928,18 @@ exports.onKYCDecision = onDocumentUpdated(
         <p style="color:#888;font-size:12px;">The Unlukt Team</p>
       `,
     });
+  }
+);
+
+// ── 2b. Creator approved → one of the first 50 becomes an Ambassador (keeps 90%) ──
+exports.onCreatorApproved = onDocumentUpdated(
+  { document: "users/{userId}", region: "us-central1" },
+  async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+    if (before.kycStatus === after.kycStatus || after.kycStatus !== "approved") return;
+    const r = await require("./src/ambassador").grantFoundingAmbassador(admin.firestore(), event.params.userId);
+    console.log(`Ambassador check for ${event.params.userId}:`, JSON.stringify(r));
   }
 );
 
@@ -1413,6 +1440,17 @@ exports.adminTopup = onCall({ region: "us-central1", cors: true }, async (reques
     throw new HttpsError("permission-denied", "Admin access required");
   }
   return require("./src/money").adminTopup(db, request.auth.uid, request.data || {});
+});
+
+// Admin report: sign-ups, funded wallets and paying fans for each ?src= link name
+exports.sourceStats = onCall({ region: "us-central1", cors: true }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+  const db = admin.firestore();
+  const me = await db.doc(`users/${request.auth.uid}`).get();
+  if (!(me.exists && (me.get("isAdmin") === true || me.get("role") === "admin"))) {
+    throw new HttpsError("permission-denied", "Admin access required");
+  }
+  return require("./src/sources").sourceStats(db, { sinceDays: (request.data || {}).sinceDays });
 });
 
 // ========== PAID MEDIA PROTECTION ==========

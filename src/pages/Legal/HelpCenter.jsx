@@ -61,7 +61,7 @@ export default function HelpCenter() {
       id: 4,
       category: 'payments',
       question: 'How much do Creators earn?',
-      answer: 'Creators receive 80% of gross revenue from subscriptions, tips, and pay-per-view content. unlukt retains 20% for platform operations and security.'
+      answer: 'Ambassadors keep 90% and Creators keep 80% of what fans pay for subscriptions, tips, and pay-per-view content. The first 50 creators automatically become Ambassadors.'
     },
 
     {

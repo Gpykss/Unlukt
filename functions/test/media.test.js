@@ -66,11 +66,52 @@ test("PPV message: media moved out, only sender / buyers get it", async () => {
   assert.equal((await media.getMedia("cre", { conversationId: "c1", messageId: "m1" })).url, "https://unlukt.b-cdn.net/x.jpg");
 });
 
-test("signed urls when a Bunny token key is set", async () => {
+test("signed urls: only files in the protected folder, and only when a Bunny token key is set", async () => {
+  const priv = "https://unlukt.b-cdn.net/private/cre/1_a.jpg";
+  assert.equal(media.signedUrl(priv), priv, "no key → unchanged");
   process.env.BUNNY_TOKEN_KEY = "k";
-  const u = media.signedUrl("https://unlukt.b-cdn.net/uploads/a.jpg");
-  assert.match(u, /^https:\/\/unlukt\.b-cdn\.net\/uploads\/a\.jpg\?token=.+&expires=\d+$/);
+  assert.match(media.signedUrl(priv), /^https:\/\/unlukt\.b-cdn\.net\/private\/cre\/1_a\.jpg\?token=HS256-[\w-]+&expires=\d+$/);
+  // an old token on the link is replaced, never stacked
+  assert.equal((media.signedUrl(`${priv}?token=old&expires=1`).match(/token=/g) || []).length, 1);
+  // public files (avatars, free posts, older uploads) keep their plain link
+  assert.equal(media.signedUrl("https://unlukt.b-cdn.net/uploads/a.jpg"), "https://unlukt.b-cdn.net/uploads/a.jpg");
   delete process.env.BUNNY_TOKEN_KEY;
+});
+
+test("protected folder: stored bare, preview fetched with a signed link, viewers get expiring links", async () => {
+  db.store.clear();
+  process.env.BUNNY_TOKEN_KEY = "k";
+  const realFetch = global.fetch;
+  const fetched = [];
+  global.fetch = async (u, o) => { fetched.push(String(u)); return realFetch(u, o); };
+  try {
+    const priv = "https://unlukt.b-cdn.net/private/cre/2_b.jpg";
+    const r = await media.publishPost("cre", { post: { type: "paid", price: 4, images: [{ url: `${priv}?token=stale&expires=5` }] } });
+    assert.equal(db.data(`mediaPrivate/post_${r.id}`).items[0].url, priv);
+    assert.match(fetched[0], /\/private\/cre\/2_b\.jpg\?token=HS256-/);
+    assert.ok(!JSON.stringify(db.data(`posts/${r.id}`)).includes("b-cdn.net"));
+    const now = Math.floor(Date.now() / 1000);
+    const got = (await media.getMedia("cre", { postId: r.id })).items[0].url;
+    const exp = Number(new URL(got).searchParams.get("expires"));
+    assert.ok(exp > now + 3000 && exp <= now + 3700, "link lasts about an hour");
+    // creator makes the post free → public doc gets a working long-lived link, not a bare 403 one
+    db.seed(`posts/${r.id}`, { ...db.data(`posts/${r.id}`), type: "free" });
+    assert.equal(await media.protectPost(r.id, db.data(`posts/${r.id}`)), "restored");
+    const freeUrl = db.data(`posts/${r.id}`).images[0].url;
+    assert.ok(Number(new URL(freeUrl).searchParams.get("expires")) > now + 365 * 24 * 3600);
+    // …and paid again → the public doc is clean and the private copy is bare again
+    db.seed(`posts/${r.id}`, { ...db.data(`posts/${r.id}`), type: "paid" });
+    assert.equal(await media.protectPost(r.id, db.data(`posts/${r.id}`)), "protected");
+    assert.ok(!JSON.stringify(db.data(`posts/${r.id}`)).includes("b-cdn.net"));
+    assert.equal(db.data(`mediaPrivate/post_${r.id}`).items[0].url, priv);
+    // PPV message in the protected folder
+    db.seed("conversations/c7", { participants: ["cre", "fan"] });
+    const m = await media.sendPPV("cre", { conversationId: "c7", price: 3, mediaUrl: "https://unlukt.b-cdn.net/private/cre/3_c.jpg", mediaType: "image" });
+    assert.match((await media.getMedia("cre", { conversationId: "c7", messageId: m.messageId })).url, /\?token=HS256-/);
+  } finally {
+    global.fetch = realFetch;
+    delete process.env.BUNNY_TOKEN_KEY;
+  }
 });
 
 test("publishPost: locked post never has the original URL in the public doc", async () => {

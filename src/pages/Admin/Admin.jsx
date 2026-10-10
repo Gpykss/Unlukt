@@ -639,20 +639,20 @@ export default function Admin() {
               </div>
 
               {/* ─────────────────────────────────────────────────────────
-                  2. SUB-REVENUE SPLIT BAR (PLATFORM 20% VS CREATOR 80%)
+                  2. SUB-REVENUE SPLIT BAR (ESTIMATE)
                  ───────────────────────────────────────────────────────── */}
               <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-2xs">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
                   <div>
                     <h3 className="text-base font-bold text-gray-900">Financial Split & Settlement</h3>
-                    <p className="text-xs text-gray-500">Automated 80/20 platform ledger attribution</p>
+                    <p className="text-xs text-gray-500">Estimate at 80/20 — Ambassador sales (90/10) are not separated here</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-purple-700 bg-purple-50 px-3 py-1 rounded-lg border border-purple-200">
-                      Platform 20%: ${stats.platformRevenue.toFixed(2)}
+                      Platform (est.): ${stats.platformRevenue.toFixed(2)}
                     </span>
                     <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
-                      Creators 80%: ${stats.creatorRevenue.toFixed(2)}
+                      Creators (est.): ${stats.creatorRevenue.toFixed(2)}
                     </span>
                   </div>
                 </div>

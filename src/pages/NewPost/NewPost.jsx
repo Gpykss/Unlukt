@@ -127,7 +127,7 @@ export default function NewPost() {
     (visibility !== 'paid' || (price && parseFloat(price) > 0));
 
   // ✅ XHR upload with real progress — replaces fetch() in bunnyUpload.service
-  const uploadWithProgress = (file, originalName, onProgress) => {
+  const uploadWithProgress = (file, originalName, onProgress, folder = 'posts') => {
     return new Promise(async (resolve, reject) => {
       try {
         const user = auth.currentUser;
@@ -142,7 +142,7 @@ export default function NewPost() {
           ? new File([file], originalName || 'video.mp4', { type: file.type || 'video/mp4' })
           : file;
         form.append('file', blob);
-        form.append('folder', 'posts');
+        form.append('folder', folder);
         form.append('contentType', 'media');
 
         const xhr = new XMLHttpRequest();
@@ -233,7 +233,9 @@ export default function NewPost() {
             // pct 0-100 maps to 40-100% (if video, 0-100% if image)
             const base = isVideoFile ? 40 : 0;
             setUploadProgress(Math.round(base + pct * (100 - base) / 100));
-          }
+          },
+          // Subscribers-only and paid posts are stored in the protected folder (expiring links only)
+          visibility === 'public' ? 'posts' : 'paid'
         );
 
         setUploadProgress(100);

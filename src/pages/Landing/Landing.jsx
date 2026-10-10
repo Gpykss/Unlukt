@@ -200,7 +200,7 @@ export default function Landing() {
               className="inline-flex items-center space-x-2 bg-red-50 border border-red-200 text-red-600 px-3 sm:px-5 py-1.5 sm:py-2 rounded-full mb-4 sm:mb-8"
             >
               <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4" />
-              <span className="text-xs sm:text-sm font-semibold">JOIN 100,000+ CREATORS</span>
+              <span className="text-xs sm:text-sm font-semibold">FIRST 50 CREATORS KEEP 90%</span>
             </motion.div>
 
             <motion.h1
@@ -231,7 +231,7 @@ export default function Landing() {
               className="text-base sm:text-lg md:text-xl text-gray-600 mb-6 sm:mb-10 max-w-3xl mx-auto leading-relaxed px-4"
             >
               The ultimate platform for creators to monetize exclusive content.
-              Connect with your fans. Keep 80% of your earnings.
+              Connect with your fans and own your earnings.
             </motion.p>
 
             <motion.div
@@ -262,61 +262,27 @@ export default function Landing() {
               </button>
             </motion.div>
 
-            {/* ✅ MOBILE RESPONSIVE STATS CAROUSEL */}
-            {/* <motion.div
+            {/* What creators keep */}
+            <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.4 }}
               className="px-4"
-            > */}
-            {/* Desktop: 3 columns */}
-            {/* <div className="hidden sm:flex items-center justify-center space-x-8 md:space-x-12">
-                <div className="text-center">
-                  <p className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-500 to-red-600 bg-clip-text text-transparent">2.5M+</p>
-                  <p className="text-xs md:text-sm text-gray-600 font-medium mt-1">Active Creators</p>
+            >
+              <div className="grid grid-cols-2 gap-3 sm:gap-5 max-w-xl mx-auto">
+                <div className="rounded-2xl border-2 border-red-500 bg-red-50 px-3 py-4 sm:p-6 text-center">
+                  <p className="text-[11px] sm:text-sm font-bold uppercase tracking-wide text-red-600">Ambassadors keep</p>
+                  <p className="text-4xl sm:text-6xl font-black text-red-600 leading-none mt-2">90%</p>
                 </div>
-                <div className="w-px h-10 md:h-12 bg-gray-300"></div>
-                <div className="text-center">
-                  <p className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-500 to-red-600 bg-clip-text text-transparent">$50M+</p>
-                  <p className="text-xs md:text-sm text-gray-600 font-medium mt-1">Paid to Creators</p>
+                <div className="rounded-2xl border-2 border-gray-200 bg-white px-3 py-4 sm:p-6 text-center">
+                  <p className="text-[11px] sm:text-sm font-bold uppercase tracking-wide text-gray-700">Creators keep</p>
+                  <p className="text-4xl sm:text-6xl font-black text-gray-900 leading-none mt-2">80%</p>
                 </div>
-                <div className="w-px h-10 md:h-12 bg-gray-300"></div>
-                <div className="text-center">
-                  <p className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-500 to-red-600 bg-clip-text text-transparent">150+</p>
-                  <p className="text-xs md:text-sm text-gray-600 font-medium mt-1">Countries</p>
-                </div>
-              </div> */}
-
-            {/* Mobile: Swiper Carousel */}
-            {/* <div className="sm:hidden">
-                <Swiper
-                  modules={[Autoplay]}
-                  spaceBetween={20}
-                  slidesPerView={1}
-                  autoplay={{ delay: 2500, disableOnInteraction: false }}
-                  className="stats-swiper"
-                >
-                  <SwiperSlide>
-                    <div className="text-center py-4">
-                      <p className="text-4xl font-bold bg-gradient-to-r from-red-500 to-red-600 bg-clip-text text-transparent">2.5M+</p>
-                      <p className="text-sm text-gray-600 font-medium mt-2">Active Creators</p>
-                    </div>
-                  </SwiperSlide>
-                  <SwiperSlide>
-                    <div className="text-center py-4">
-                      <p className="text-4xl font-bold bg-gradient-to-r from-red-500 to-red-600 bg-clip-text text-transparent">$50M+</p>
-                      <p className="text-sm text-gray-600 font-medium mt-2">Paid to Creators</p>
-                    </div>
-                  </SwiperSlide>
-                  <SwiperSlide>
-                    <div className="text-center py-4">
-                      <p className="text-4xl font-bold bg-gradient-to-r from-red-500 to-red-600 bg-clip-text text-transparent">150+</p>
-                      <p className="text-sm text-gray-600 font-medium mt-2">Countries</p>
-                    </div>
-                  </SwiperSlide>
-                </Swiper>
-              </div> */}
-            {/* </motion.div> */}
+              </div>
+              <p className="text-xs sm:text-sm text-gray-600 font-medium mt-3 sm:mt-4">
+                The first 50 creators automatically become Ambassadors.
+              </p>
+            </motion.div>
           </div>
         </div>
       </section>

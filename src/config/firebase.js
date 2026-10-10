@@ -24,6 +24,10 @@ const app = initializeApp(firebaseConfig);
 const appCheckKey = import.meta.env.VITE_APPCHECK_SITE_KEY;
 if (appCheckKey) {
   try {
+    // Local testing (npm run dev): reCAPTCHA doesn't run on localhost, so App Check uses a debug
+    // token instead. The browser console prints one the first time — add it in Firebase console →
+    // App Check → Apps → ⋮ → Manage debug tokens (or put a saved one in VITE_APPCHECK_DEBUG_TOKEN).
+    if (import.meta.env.DEV) self.FIREBASE_APPCHECK_DEBUG_TOKEN = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN || true;
     initializeAppCheck(app, { provider: new ReCaptchaEnterpriseProvider(appCheckKey), isTokenAutoRefreshEnabled: true });
   } catch (e) {
     console.warn('App Check not started:', e?.message);

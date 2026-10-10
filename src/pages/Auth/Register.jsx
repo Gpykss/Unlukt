@@ -113,7 +113,7 @@ function AnimatedCreatorCard() {
         transition={{ duration: 3, repeat: Infinity }}
         className="absolute -top-4 -right-4 bg-green-500 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg"
       >
-        🔥 Top Earner
+        🏆 Ambassadors keep 90%
       </motion.div>
 
       <motion.div
@@ -121,7 +121,7 @@ function AnimatedCreatorCard() {
         transition={{ duration: 2.5, repeat: Infinity, delay: 0.5 }}
         className="absolute -bottom-4 -left-4 bg-blue-500 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg"
       >
-        ⚡ 80% Payout
+        ⚡ Creators keep 80%
       </motion.div>
     </div>
   );

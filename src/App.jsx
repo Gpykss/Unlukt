@@ -10,6 +10,7 @@ import { useAuth } from './hooks/useAuth';
 import ProtectedRoute from './components/ProtectedRoute';
 import GuestToProfile from './components/GuestToProfile';
 import { captureRef } from './utils/authRedirect';
+import { captureSource } from './utils/source';
 import AdminRoute from './components/AdminRoute';
 import LoadingScreen from './components/common/LoadingScreen';
 import LoadingSpinner from './components/common/LoadingSpinner';
@@ -82,6 +83,8 @@ const NO_NAV_PATHS = new Set([
   '/legal/privacy', '/legal/terms', '/help', '/about',
 ]);
 
+captureSource();
+
 function AppContent() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -89,6 +92,8 @@ function AppContent() {
 
   // Any shared link may carry ?ref=CODE (ambassador referral) — keep it for sign-up
   useEffect(() => { captureRef(location.search); }, [location.search]);
+  // …or ?src=NAME (where the visitor came from: reddit, snapchat…) — saved on the user at sign-up
+  useEffect(() => { captureSource(location.search); }, [location.search]);
 
   // Reset scroll position on every route change
   // The scroll container is div.app (height:100dvh, overflow:auto) — not window

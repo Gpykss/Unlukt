@@ -34,3 +34,14 @@ test("strips protocol from host if passed with https://", () => {
 
   assert.ok(url.startsWith("https://unlukt.b-cdn.net/media/photo.jpg?token="));
 });
+
+test("matches Bunny's reference signer (HMAC-SHA256, HS256- prefix)", () => {
+  // Expected value produced by github.com/BunnyWay/BunnyCDN.TokenAuthentication nodejs/token.js
+  const url = signBunnyUrl({
+    host: "unlukt.b-cdn.net",
+    path: "/private/user123/1700000000000_clip.mp4",
+    securityKey: "secret_test_key_123",
+    expiresAt: 1900000000,
+  });
+  assert.equal(url, "https://unlukt.b-cdn.net/private/user123/1700000000000_clip.mp4?token=HS256-Hd3p5a8WnrE9oR5lh_FjEIRpvD1_JEP0qd_uX7m0liM&expires=1900000000");
+});

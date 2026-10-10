@@ -11,6 +11,8 @@ import { collection, onSnapshot, query, where, or, limit } from 'firebase/firest
 import { getScheduledLive, formatLiveTime } from '../../utils/share';
 import { db } from '../../config/firebase';
 import { useContentSettings } from '../../hooks/useContentSettings';
+import { useDataLite } from '../../contexts/DataLiteContext';
+import { feedImage } from '../../utils/imageHelpers';
 
 export default function Discover() {
   const navigate = useNavigate();
@@ -18,6 +20,9 @@ export default function Discover() {
   const [shown, setShown] = useState(24);
   const [loading, setLoading] = useState(true);
   const { showNSFW, setShowNSFW } = useContentSettings();
+  // Data Saver: creator cards load smaller banners and avatars
+  const { dataLite } = useDataLite();
+  const lite = (url, width) => (dataLite ? feedImage(url, width) : url);
 
 
   // ✅ Realtime: new creators, profile edits, follower counts and live status update instantly
@@ -58,7 +63,7 @@ export default function Discover() {
         {/* Banner — taller on mobile so image shows well */}
         <div className="h-40 sm:h-36 bg-gradient-to-br from-rose-300 via-pink-300 to-purple-300 relative">
           {creator.banner && !creator.banner.includes('🎨') && (
-            <img src={creator.banner} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+            <img src={lite(creator.banner, 480)} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
           )}
           {creator.is_live ? (
             <button
@@ -133,7 +138,7 @@ export default function Discover() {
         {(creator.profilePicture || (creator.avatar && !creator.avatar.includes('👤'))) ? (
           <img
             loading="lazy"
-            src={creator.profilePicture || creator.avatar}
+            src={lite(creator.profilePicture || creator.avatar, 160)}
             alt={creator.displayName}
             className="w-full h-full object-cover"
           />
