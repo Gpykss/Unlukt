@@ -21,6 +21,19 @@ import claireImg2 from '../../assets/images/creators/claire/sugarlab-90617.webp'
 import jojoImg from '../../assets/images/creators/jojo/sugarlab-75371.webp';
 import ogechiImg from '../../assets/images/creators/ogechi/sugarlab-33971.webp';
 
+// The creators on this page are sample profiles until real creators join — every one is labelled.
+function DemoBadge({ dark = false, className = '' }) {
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+        dark ? 'bg-black/70 text-white border border-white/30' : 'bg-gray-100 text-gray-600 border border-gray-300'
+      } ${className}`}
+    >
+      Demo
+    </span>
+  );
+}
+
 export default function Landing() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
@@ -295,6 +308,7 @@ export default function Landing() {
             <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
           </span>
           <span>Live Now</span>
+          {liveCreators.length === 0 && <DemoBadge />}
         </h3>
         
         <div className="flex gap-6 overflow-x-auto pb-4 scrollbar-hide snap-x snap-mandatory justify-start md:justify-center w-full">
@@ -378,6 +392,7 @@ export default function Landing() {
                   <span className="w-2 h-2 bg-rose-200 rounded-full animate-blink-red" />
                   <span>DAILY SHOWS</span>
                 </div>
+                <DemoBadge dark className="absolute top-4 right-4 z-20" />
                 
                 {/* Content Overlay */}
                 <div className="absolute bottom-0 inset-x-0 p-5 z-20 flex flex-col justify-end text-white">
@@ -420,6 +435,7 @@ export default function Landing() {
                   <div className="flex items-center space-x-2 text-rose-500 mb-4">
                     <span className="text-rose-500">📅</span>
                     <h4 className="font-black text-sm uppercase tracking-wider text-gray-900">Scheduled Showtimes</h4>
+                    <DemoBadge className="ml-auto" />
                   </div>
                   <p className="text-xs text-gray-500 mb-4 leading-relaxed">
                     Don't miss the next interactive live streaming event! Set your reminders for these scheduled showtimes:
@@ -462,8 +478,11 @@ export default function Landing() {
       <section id="trending" className="py-12 sm:py-16 bg-white overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mb-6 sm:mb-10">
-            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Trending Now</h2>
-            <p className="text-sm sm:text-base text-gray-600">Top creators everyone is talking about</p>
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2 flex items-center gap-2">
+              <span>Trending Now</span>
+              <DemoBadge />
+            </h2>
+            <p className="text-sm sm:text-base text-gray-600">Demo profiles — a preview of how creators appear here</p>
           </div>
 
           {/* Desktop Grid */}
@@ -479,7 +498,8 @@ export default function Landing() {
                   onClick={() => navigate(`/creator/${creator.username}`)}
                   className="group cursor-pointer"
                 >
-                  <div className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-4 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all h-52 flex flex-col items-center justify-center">
+                  <div className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-4 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all h-52 relative flex flex-col items-center justify-center">
+                    <DemoBadge className="absolute top-2 right-2" />
                     <div className={`w-20 h-20 rounded-full overflow-hidden mb-3 border-2 group-hover:scale-110 transition-all shadow-md relative ${
                       isLive ? 'border-rose-500 animate-neon-pulse' : 'border-red-200'
                     }`}>
@@ -528,8 +548,9 @@ export default function Landing() {
                   <SwiperSlide key={`${creator.id}-${idx}`}>
                     <div
                       onClick={() => navigate(`/creator/${creator.username}`)}
-                      className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-4 sm:p-6 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all cursor-pointer h-52 flex flex-col items-center justify-center"
+                      className="bg-gradient-to-br from-gray-50 to-red-50 rounded-2xl p-4 sm:p-6 border-2 border-gray-100 hover:border-red-300 hover:shadow-xl transition-all cursor-pointer h-52 relative flex flex-col items-center justify-center"
                     >
+                      <DemoBadge className="absolute top-2 right-2" />
                       <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden mb-3 border-2 shadow-md relative ${
                         isLive ? 'border-rose-500 animate-neon-pulse' : 'border-red-200'
                       }`}>
@@ -560,7 +581,10 @@ export default function Landing() {
       <section id="featured" className="py-12 sm:py-20 bg-gradient-to-br from-gray-50 to-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-8 sm:mb-12">
-            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2 sm:mb-3">Featured Creator</h2>
+            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2 sm:mb-3 flex items-center justify-center gap-2">
+              <span>Featured Creator</span>
+              <DemoBadge />
+            </h2>
           </div>
 
           <div className="flex justify-center">
@@ -579,6 +603,8 @@ export default function Landing() {
                   <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg border border-gray-100">
                     <p className="text-sm font-bold text-red-500">{featuredCreators[currentCreatorIndex].price}/mo</p>
                   </div>
+
+                  <DemoBadge dark className="absolute bottom-4 left-4" />
 
                   {featuredCreators[currentCreatorIndex].verified && (
                     <div className="absolute top-4 right-4 bg-blue-500 text-white p-2 rounded-full shadow-lg">
